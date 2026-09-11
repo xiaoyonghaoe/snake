@@ -1,0 +1,9 @@
+Snake
+Copyright 2026 xiaoyonghaoe
+
+Snake is licensed under the Apache License, Version 2.0.
+
+This distribution includes third-party components. Their copyright notices,
+license terms, pinned sources, and release obligations are documented in
+THIRD_PARTY_NOTICES.md. The original MIT license files for the vendored
+Bonsplit and SwiftTerm source trees are retained in their respective folders.

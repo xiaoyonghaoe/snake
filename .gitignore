@@ -1,0 +1,28 @@
+.DS_Store
+.build/
+DerivedData/
+*.xcodeproj
+Rust/snake_core/target/
+*.dSYM
+release/
+notarytool-output/
+
+# Vendored build products and nested repository metadata are local-only.
+Vendor/**/.build/
+Vendor/**/DerivedData/
+Vendor/**/.swiftpm/
+Vendor/**/.git/
+
+# The Xshell-named interaction prototype is intentionally not part of the
+# public Snake source release.
+design/xshell-macos-prototype/
+
+# Local credentials, signing material, and machine-specific state.
+.env
+.env.*
+credentials.json
+*.pem
+*.p12
+*.mobileprovision
+*.xcuserstate
+xcuserdata/

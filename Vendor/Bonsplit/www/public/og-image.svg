@@ -1,0 +1,94 @@
+<svg width="1200" height="630" viewBox="0 0 1200 630" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1200" height="630" fill="#0a0a0a"/>
+
+  <defs>
+    <pattern id="grid" width="52" height="52" patternUnits="userSpaceOnUse">
+      <path d="M 52 0 L 0 0 0 52" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="1"/>
+    </pattern>
+    <linearGradient id="gridFade" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="white"/>
+      <stop offset="70%" stop-color="white"/>
+      <stop offset="100%" stop-color="white" stop-opacity="0"/>
+    </linearGradient>
+    <mask id="gridMask">
+      <rect width="1200" height="630" fill="url(#gridFade)"/>
+    </mask>
+  </defs>
+  <rect width="1200" height="630" fill="url(#grid)" mask="url(#gridMask)"/>
+
+  <!-- BonSplit Logo: block=50, gap=2, letterGap=4 -->
+  <!-- Corner logic: 1 corner = r50, 2-3 corners = r25, 4 corners = circle -->
+  <g transform="translate(132, 190)" fill="#0066FF">
+
+    <!-- B at x=0: (0,0)[], (1,0)[], (2,0)[tr], (0,1)[], (1,1)[tl], (2,1)[br], (0,2)[], (1,2)[bl], (2,2)[tr], (0,3)[], (1,3)[], (2,3)[br] -->
+    <rect x="0" y="0" width="50" height="50"/>
+    <rect x="52" y="0" width="50" height="50"/>
+    <path d="M 104 0 A 50 50 0 0 1 154 50 L 104 50 Z"/>
+    <rect x="0" y="52" width="50" height="50"/>
+    <path d="M 52 102 A 50 50 0 0 1 102 52 L 102 102 Z"/>
+    <path d="M 104 52 L 154 52 A 50 50 0 0 1 104 102 Z"/>
+    <rect x="0" y="104" width="50" height="50"/>
+    <path d="M 102 104 L 102 154 A 50 50 0 0 1 52 104 Z"/>
+    <path d="M 104 104 A 50 50 0 0 1 154 154 L 104 154 Z"/>
+    <rect x="0" y="156" width="50" height="50"/>
+    <rect x="52" y="156" width="50" height="50"/>
+    <path d="M 104 156 L 154 156 A 50 50 0 0 1 104 206 Z"/>
+
+    <!-- o at x=158: (0,1)[tl], (1,1)[tr], (0,2)[], (1,2)[], (0,3)[bl], (1,3)[br] -->
+    <path d="M 158 102 A 50 50 0 0 1 208 52 L 208 102 Z"/>
+    <path d="M 210 52 A 50 50 0 0 1 260 102 L 210 102 Z"/>
+    <rect x="158" y="104" width="50" height="50"/>
+    <rect x="210" y="104" width="50" height="50"/>
+    <path d="M 208 156 L 208 206 A 50 50 0 0 1 158 156 Z"/>
+    <path d="M 210 156 L 260 156 A 50 50 0 0 1 210 206 Z"/>
+
+    <!-- n at x=264: (0,1)[tl], (1,1)[tr], (0,2)[], (1,2)[], (0,3)[], (1,3)[bl], (2,3)[tr,br] -->
+    <path d="M 264 102 A 50 50 0 0 1 314 52 L 314 102 Z"/>
+    <path d="M 316 52 A 50 50 0 0 1 366 102 L 316 102 Z"/>
+    <rect x="264" y="104" width="50" height="50"/>
+    <rect x="316" y="104" width="50" height="50"/>
+    <rect x="264" y="156" width="50" height="50"/>
+    <path d="M 366 156 L 366 206 A 50 50 0 0 1 316 156 Z"/>
+    <path d="M 368 156 L 393 156 A 25 25 0 0 1 418 181 L 418 181 A 25 25 0 0 1 393 206 L 368 206 Z"/>
+
+    <!-- S at x=422: (0,0)[tl], (1,0)[tr,br], (0,1)[bl], (1,1)[tr], (0,2)[tl,tr], (1,2)[], (0,3)[bl], (1,3)[br] -->
+    <path d="M 422 50 A 50 50 0 0 1 472 0 L 472 50 Z"/>
+    <path d="M 474 0 L 499 0 A 25 25 0 0 1 524 25 L 524 25 A 25 25 0 0 1 499 50 L 474 50 Z"/>
+    <path d="M 472 52 L 472 102 A 50 50 0 0 1 422 52 Z"/>
+    <path d="M 474 52 A 50 50 0 0 1 524 102 L 474 102 Z"/>
+    <path d="M 422 129 A 25 25 0 0 1 447 104 L 497 104 A 25 25 0 0 1 522 129 L 522 154 L 422 154 Z"/>
+    <rect x="474" y="104" width="50" height="50"/>
+    <path d="M 472 156 L 472 206 A 50 50 0 0 1 422 156 Z"/>
+    <path d="M 474 156 L 524 156 A 50 50 0 0 1 474 206 Z"/>
+
+    <!-- p at x=528: (1,1)[tl], (2,1)[tr], (0,2)[tl,bl], (1,2)[], (2,2)[br], (1,3)[] -->
+    <path d="M 580 102 A 50 50 0 0 1 630 52 L 630 102 Z"/>
+    <path d="M 632 52 A 50 50 0 0 1 682 102 L 632 102 Z"/>
+    <path d="M 528 129 A 25 25 0 0 1 553 104 L 578 104 L 578 154 L 553 154 A 25 25 0 0 1 528 129 Z"/>
+    <rect x="580" y="104" width="50" height="50"/>
+    <path d="M 632 104 L 682 104 A 50 50 0 0 1 632 154 Z"/>
+    <rect x="580" y="156" width="50" height="50"/>
+
+    <!-- l at x=686: (0,0)[tl,tr], (0,1)[], (0,2)[], (0,3)[] -->
+    <path d="M 686 25 A 25 25 0 0 1 711 0 L 711 0 A 25 25 0 0 1 736 25 L 736 50 L 686 50 Z"/>
+    <rect x="686" y="52" width="50" height="50"/>
+    <rect x="686" y="104" width="50" height="50"/>
+    <rect x="686" y="156" width="50" height="50"/>
+
+    <!-- i at x=740: (0,0)[circle], (0,1)[tl,tr], (0,2)[], (0,3)[bl,br] -->
+    <rect x="740" y="0" width="50" height="50" rx="25"/>
+    <path d="M 740 77 A 25 25 0 0 1 765 52 L 765 52 A 25 25 0 0 1 790 77 L 790 102 L 740 102 Z"/>
+    <rect x="740" y="104" width="50" height="50"/>
+    <path d="M 740 156 L 790 156 L 790 181 A 25 25 0 0 1 765 206 L 765 206 A 25 25 0 0 1 740 181 Z"/>
+
+    <!-- t at x=794: (0,0)[], (0,1)[], (1,1)[tr,br], (0,2)[], (0,3)[], (1,3)[tr,br] -->
+    <rect x="794" y="0" width="50" height="50"/>
+    <rect x="794" y="52" width="50" height="50"/>
+    <path d="M 846 52 L 871 52 A 25 25 0 0 1 896 77 L 896 77 A 25 25 0 0 1 871 102 L 846 102 Z"/>
+    <rect x="794" y="104" width="50" height="50"/>
+    <rect x="794" y="156" width="50" height="50"/>
+    <path d="M 846 156 L 871 156 A 25 25 0 0 1 896 181 L 896 181 A 25 25 0 0 1 871 206 L 846 206 Z"/>
+  </g>
+
+  <text x="600" y="480" text-anchor="middle" fill="#666" font-family="ui-monospace, monospace" font-size="22">Tab bar &amp; split pane library for macOS</text>
+</svg>

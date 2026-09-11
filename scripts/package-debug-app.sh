@@ -1,0 +1,33 @@
+#!/bin/zsh
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+BUILD_DIR="${SNAKE_DEBUG_BUILD_DIR:-$PROJECT_DIR/.build/debug-app}"
+APP_DIR="$BUILD_DIR/Snake.app"
+MACOS_DIR="$APP_DIR/Contents/MacOS"
+FRAMEWORKS_DIR="$APP_DIR/Contents/Frameworks"
+RESOURCES_DIR="$APP_DIR/Contents/Resources"
+SWIFTPM_CACHE_DIR="$BUILD_DIR/swiftpm-cache"
+
+cd "$PROJECT_DIR"
+"$PROJECT_DIR/scripts/generate-core-bindings.sh"
+mkdir -p "$MACOS_DIR" "$FRAMEWORKS_DIR" "$RESOURCES_DIR" "$SWIFTPM_CACHE_DIR/clang" "$SWIFTPM_CACHE_DIR/modules"
+CLANG_MODULE_CACHE_PATH="$SWIFTPM_CACHE_DIR/clang" SWIFTPM_MODULECACHE_OVERRIDE="$SWIFTPM_CACHE_DIR/modules" swift build --disable-sandbox --product Snake
+CLANG_MODULE_CACHE_PATH="$SWIFTPM_CACHE_DIR/clang" SWIFTPM_MODULECACHE_OVERRIDE="$SWIFTPM_CACHE_DIR/modules" swift build --disable-sandbox --product SnakeMountHelper
+SNAKE_BIN_DIR="$(CLANG_MODULE_CACHE_PATH="$SWIFTPM_CACHE_DIR/clang" SWIFTPM_MODULECACHE_OVERRIDE="$SWIFTPM_CACHE_DIR/modules" swift build --disable-sandbox --show-bin-path)"
+cp "$SNAKE_BIN_DIR/Snake" "$MACOS_DIR/Snake"
+cp "$SNAKE_BIN_DIR/SnakeMountHelper" "$MACOS_DIR/SnakeMountHelper"
+cp "$PROJECT_DIR/Rust/snake_core/target/release/libsnake_core.dylib" "$FRAMEWORKS_DIR/libsnake_core.dylib"
+cp "$PROJECT_DIR/Resources/Info.plist" "$APP_DIR/Contents/Info.plist"
+cp "$PROJECT_DIR/Resources/AppIcon.icns" "$RESOURCES_DIR/AppIcon.icns"
+plutil -replace CFBundleVersion -string "$(date -u +%Y%m%d%H%M%S)" "$APP_DIR/Contents/Info.plist"
+CORE_LINK="$(otool -L "$MACOS_DIR/Snake" | awk '/libsnake_core.dylib/{print $1; exit}')"
+install_name_tool -change "$CORE_LINK" "@rpath/libsnake_core.dylib" "$MACOS_DIR/Snake"
+install_name_tool -add_rpath "@executable_path/../Frameworks" "$MACOS_DIR/Snake"
+codesign --force --sign - "$FRAMEWORKS_DIR/libsnake_core.dylib"
+codesign --force --sign - "$MACOS_DIR/SnakeMountHelper"
+codesign --force --sign - "$MACOS_DIR/Snake"
+codesign --force --sign - "$APP_DIR"
+plutil -lint "$APP_DIR/Contents/Info.plist"
+printf 'Debug app: %s\n' "$APP_DIR"
