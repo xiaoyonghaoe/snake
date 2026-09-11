@@ -1,0 +1,6 @@
+/client_key
+/client_key.pub
+/host_key
+/host_key.pub
+/sshd.pid
+/sshd.log

@@ -1,9 +1,11 @@
 import Foundation
+import Darwin
 
 private struct MountRequest: Decodable {
     let executable: String
     let arguments: [String]
     let mountPoint: String
+    let volumeName: String
     let dryRun: Bool
 }
 
@@ -36,12 +38,17 @@ enum SnakeMountHelper {
                 Foundation.exit(0)
             }
 
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: request.executable)
-            process.arguments = request.arguments
-            try process.run()
-            process.waitUntilExit()
-            Foundation.exit(process.terminationStatus)
+            // Keep one foreground process that the app can observe and terminate.
+            // FUSE parses commas/backslashes itself, not shell quoting.
+            let volumeName = request.volumeName.replacingOccurrences(of: "\\", with: "\\\\")
+                .replacingOccurrences(of: ",", with: "\\,")
+            let arguments = [request.executable, "-f"] + request.arguments + ["-o", "volname=\(volumeName)"]
+            let pointers = arguments.map { strdup($0) } + [nil]
+            defer { pointers.forEach { free($0) } }
+            pointers.withUnsafeBufferPointer { buffer in
+                _ = execv(request.executable, buffer.baseAddress!)
+            }
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
         } catch {
             fputs("SnakeMountHelper: \(error.localizedDescription)\n", stderr)
             Foundation.exit(64)
@@ -49,6 +56,12 @@ enum SnakeMountHelper {
     }
 
     private static func validate(_ request: MountRequest) throws {
+        guard !request.volumeName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              request.volumeName.utf8.count <= 255,
+              !request.volumeName.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }),
+              !request.volumeName.contains("/") else {
+            throw HelperError.unsafeArgument
+        }
         let permittedExecutables = ["/opt/homebrew/bin/sshfs", "/usr/local/bin/sshfs"]
         guard permittedExecutables.contains(request.executable) else {
             throw HelperError.unsupportedExecutable

@@ -360,8 +360,12 @@ public final class TerminalRuntime: ObservableObject, Identifiable {
                 fingerprint: fingerprint
             )
             errorMessage = nil
-        case let .HostKeyMismatch(host, port, algorithm, fingerprint):
-            errorMessage = "主机密钥已变化，已阻止连接。\n\(host):\(port) · \(algorithm) · \(fingerprint)"
+        case let .HostKeyMismatch(host, port, algorithm, fingerprint, previousFingerprints):
+            pendingHostKey = SFTPHostKeyPrompt(
+                host: host, port: Int(port), algorithm: algorithm, fingerprint: fingerprint,
+                previousFingerprints: previousFingerprints
+            )
+            errorMessage = nil
         case let .Connection(message):
             errorMessage = "终端连接失败：\(message)"
         case let .Authentication(message):
@@ -1386,8 +1390,12 @@ public final class SFTPRuntime: ObservableObject, Identifiable {
                 fingerprint: fingerprint
             )
             errorMessage = nil
-        case let .HostKeyMismatch(host, port, algorithm, fingerprint):
-            errorMessage = "主机密钥已变化，已阻止连接。\n\(host):\(port) · \(algorithm) · \(fingerprint)"
+        case let .HostKeyMismatch(host, port, algorithm, fingerprint, previousFingerprints):
+            pendingHostKey = SFTPHostKeyPrompt(
+                host: host, port: Int(port), algorithm: algorithm, fingerprint: fingerprint,
+                previousFingerprints: previousFingerprints
+            )
+            errorMessage = nil
         default:
             errorMessage = Self.message(for: error)
         }
@@ -1546,6 +1554,17 @@ public struct SFTPHostKeyPrompt: Identifiable, Sendable {
     public let port: Int
     public let algorithm: String
     public let fingerprint: String
+    public var previousFingerprints: [String]? = nil
+
+    var title: String { previousFingerprints == nil ? "确认主机密钥" : "主机密钥已变化" }
+    var acceptTitle: String { previousFingerprints == nil ? "信任并连接" : "信任新密钥并连接" }
+    var message: String {
+        if let previousFingerprints {
+            let previous = previousFingerprints.isEmpty ? "无法读取原指纹" : previousFingerprints.joined(separator: "\n")
+            return "\(host):\(port) 的主机密钥与已保存的记录不同。\n\n原指纹：\n\(previous)\n\n新指纹（\(algorithm)）：\n\(fingerprint)\n\n这可能是服务器重装或更换密钥，也可能是连接被冒充。请通过可信渠道核对新指纹。信任后将更新此地址的记录并重新连接；取消则保留原记录。"
+        }
+        return "首次连接 \(host):\(port)\n\(algorithm)\n\(fingerprint)\n\n请在可信渠道核对指纹后再信任。"
+    }
 }
 
 public struct SFTPUploadRecord: Identifiable, Sendable {
@@ -2401,6 +2420,82 @@ extension WorkspaceWindowCoordinator: NSMenuItemValidation {
 public final class SnakeAppDelegate: NSObject, NSApplicationDelegate {
     public let store = ApplicationStore.shared
     private var coordinator: WorkspaceWindowCoordinator?
+    private var terminationPending = false
+
+    public func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard !terminationPending else { return .terminateLater }
+        terminationPending = true
+        Task { @MainActor in
+            do {
+                let mounted = try await Task.detached(priority: .utility) { try MountOperations.checkedMountedPaths() }.value
+                let pending = store.mountMappings.filter { mounted.contains($0.managedMountPath) || $0.state == .mounting }
+                if !pending.isEmpty {
+                    let alert = NSAlert()
+                    alert.alertStyle = .warning
+                    alert.messageText = "还有 \(pending.count) 个目录尚未卸载"
+                    alert.informativeText = "退出前将安全卸载以下目录。正在进行的挂载操作会先完成；如果卸载失败，将保留应用运行。"
+                    let details = pending.map { mapping in
+                        let connection = store.profiles.first { $0.id == mapping.profileID }?.name ?? "未绑定连接"
+                        return "\(mapping.name) · \(connection)\n远程目录：\(mapping.remotePath)\n本地目录：\(mapping.userAccessPath)\n挂载点：\(mapping.managedMountPath)"
+                    }.joined(separator: "\n\n")
+                    alert.accessoryView = terminationDetailsView(details)
+                    alert.addButton(withTitle: "卸载并退出")
+                    alert.addButton(withTitle: "取消")
+                    sender.activate(ignoringOtherApps: true)
+                    guard alert.runModal() == .alertFirstButtonReturn else {
+                        terminationPending = false
+                        sender.reply(toApplicationShouldTerminate: false)
+                        return
+                    }
+                }
+            } catch {
+                terminationPending = false
+                sender.reply(toApplicationShouldTerminate: false)
+                let alert = NSAlert()
+                alert.messageText = "无法确认挂载状态，已取消退出"
+                alert.informativeText = error.localizedDescription
+                alert.addButton(withTitle: "返回应用")
+                alert.runModal()
+                return
+            }
+            let failures = await store.prepareForTermination()
+            if failures.isEmpty {
+                sender.reply(toApplicationShouldTerminate: true)
+            } else {
+                terminationPending = false
+                sender.reply(toApplicationShouldTerminate: false)
+                let alert = NSAlert()
+                alert.alertStyle = .warning
+                alert.messageText = "无法安全卸载，已取消退出"
+                alert.informativeText = "以下目录未能安全卸载。请关闭正在使用这些目录的文件或终端后，再次退出 Snake。"
+                alert.accessoryView = terminationDetailsView(failures.joined(separator: "\n\n"))
+                alert.addButton(withTitle: "返回应用")
+                sender.activate(ignoringOtherApps: true)
+                alert.runModal()
+            }
+        }
+        return .terminateLater
+    }
+
+    private func terminationDetailsView(_ details: String) -> NSView {
+        let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 540, height: 220))
+        scroll.hasVerticalScroller = true
+        scroll.borderType = .bezelBorder
+        let text = NSTextView(frame: scroll.bounds)
+        text.isEditable = false
+        text.isSelectable = true
+        text.font = .systemFont(ofSize: 12)
+        text.textColor = .labelColor
+        text.textContainerInset = NSSize(width: 8, height: 8)
+        text.isVerticallyResizable = true
+        text.isHorizontallyResizable = false
+        text.autoresizingMask = [.width]
+        text.textContainer?.widthTracksTextView = true
+        text.textContainer?.containerSize = NSSize(width: 520, height: CGFloat.greatestFiniteMagnitude)
+        text.string = details
+        scroll.documentView = text
+        return scroll
+    }
 
     public func applicationDidFinishLaunching(_ notification: Notification) {
         installApplicationIcon()

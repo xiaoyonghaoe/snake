@@ -11,6 +11,7 @@ public final class ApplicationStore: ObservableObject {
     @Published public private(set) var profiles: [SSHProfile]
     @Published public private(set) var transferJobs: [TransferJob]
     @Published public private(set) var mountMappings: [MountMapping]
+    @Published var mountActionError: String?
     @Published public var selectedProfileID: UUID?
     @Published public var isDarkAppearancePreferred: Bool {
         didSet { defaults.set(isDarkAppearancePreferred, forKey: appearanceKey) }
@@ -54,6 +55,9 @@ public final class ApplicationStore: ObservableObject {
     private let appearanceKey = "com.snake.appearance.dark"
     private var transferControls: [UUID: CoreTransferControl] = [:]
     private var ephemeralTransferJobIDs: Set<UUID> = []
+    private var mountStateMonitor: AnyCancellable?
+    private var mountOperations: [UUID: Task<Void, Never>] = [:]
+    private(set) var isPreparingToQuit = false
 
     public init(databaseURL: URL? = nil, userDefaults: UserDefaults = .standard) {
         defaults = userDefaults
@@ -85,6 +89,12 @@ public final class ApplicationStore: ObservableObject {
         self.profiles = restoredProfiles
         self.mountMappings = restoredMounts
         self.selectedProfileID = restoredProfiles.first?.id
+        mountStateMonitor = Timer.publish(every: 3, on: .main, in: .common).autoconnect().sink { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self, self.mountMappings.contains(where: { $0.state == .mounted || $0.state == .external }) else { return }
+                self.refreshMountStates()
+            }
+        }
         for job in obsoleteLocalUploadRecords {
             try? persistence?.deleteTransfer(id: job.id)
         }
@@ -140,6 +150,7 @@ public final class ApplicationStore: ObservableObject {
             throw ApplicationStoreError.invalidProfile
         }
 
+        guard !isPreparingToQuit else { throw ApplicationStoreError.invalidProfile }
         var stored = profile
         if let credential, !credential.isEmpty {
             let account = profile.authMethod == .password ? profile.keychainPasswordAccount : profile.keychainPassphraseAccount
@@ -147,11 +158,24 @@ public final class ApplicationStore: ObservableObject {
             stored.keychainAccount = account
         }
 
-        if let index = profiles.firstIndex(where: { $0.id == stored.id }) {
-            profiles[index] = stored
+        var proposedProfiles = profiles
+        if let index = proposedProfiles.firstIndex(where: { $0.id == stored.id }) {
+            proposedProfiles[index] = stored
         } else {
-            profiles.append(stored)
+            proposedProfiles.append(stored)
         }
+        let updatedMappings = try preparedMappings(mountMappings, profiles: proposedProfiles)
+        let linkChanges = try changeMappingLinks(to: updatedMappings)
+        do {
+            try corePersistence?.save(stored)
+            try corePersistence?.synchronize(mappings: updatedMappings, profiles: proposedProfiles)
+        } catch {
+            linkChanges.reversed().forEach { $0.rollback() }
+            throw error
+        }
+        linkChanges.forEach { $0.commit() }
+        profiles = proposedProfiles
+        mountMappings = updatedMappings
         selectedProfileID = stored.id
         persistConfiguration()
     }
@@ -316,21 +340,93 @@ public final class ApplicationStore: ObservableObject {
     }
 
     public func save(mapping: MountMapping) throws {
+        guard !isPreparingToQuit, mountOperations[mapping.id] == nil else { throw ApplicationStoreError.invalidMapping }
         guard !mapping.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               !mapping.remotePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               !mapping.userAccessPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw ApplicationStoreError.invalidMapping
         }
-        if let index = mountMappings.firstIndex(where: { $0.id == mapping.id }) {
-            mountMappings[index] = mapping
+        var proposed = mountMappings
+        if let index = proposed.firstIndex(where: { $0.id == mapping.id }) {
+            proposed[index] = mapping
         } else {
-            mountMappings.append(mapping)
+            proposed.append(mapping)
         }
+        let updated = try preparedMappings(proposed, profiles: profiles)
+        let linkChanges = try changeMappingLinks(to: updated)
+        do {
+            try corePersistence?.synchronize(mappings: updated, profiles: profiles)
+        } catch {
+            linkChanges.reversed().forEach { $0.rollback() }
+            throw error
+        }
+        linkChanges.forEach { $0.commit() }
+        mountMappings = updated
         persistConfiguration()
     }
 
+    private func preparedMappings(_ proposed: [MountMapping], profiles proposedProfiles: [SSHProfile]) throws -> [MountMapping] {
+        let mounted = try MountOperations.checkedMountedPaths()
+        var identities: Set<String> = []
+        return try proposed.map { candidate in
+            var mapping = candidate
+            let old = mountMappings.first { $0.id == mapping.id }
+            guard let profile = proposedProfiles.first(where: { $0.id == mapping.profileID }) else {
+                if old == nil { throw ApplicationStoreError.invalidMapping }
+                return mapping
+            }
+            let identity = try ManagedMountPath.make(profile: profile, local: mapping.userAccessPath, remote: mapping.remotePath)
+            guard identities.insert(identity).inserted else {
+                throw ApplicationStoreError.mappingConflict("已存在相同主机、端口、本地目录和远程目录的映射。")
+            }
+            if let old, !ManagedMountPath.isStable(old.managedMountPath) {
+                mapping.managedMountPath = old.managedMountPath
+            } else {
+                mapping.managedMountPath = identity
+            }
+            if let old {
+                let oldProfile = profiles.first { $0.id == old.profileID }
+                let oldIdentity = try oldProfile.map {
+                    try ManagedMountPath.make(profile: $0, local: old.userAccessPath, remote: old.remotePath)
+                }
+                let changedIdentity = oldIdentity != identity || old.managedMountPath != mapping.managedMountPath
+                if changedIdentity {
+                    guard mountOperations[old.id] == nil, old.state != .mounting,
+                          !mounted.contains(old.managedMountPath) else {
+                        throw ApplicationStoreError.mappingConflict("请先安全卸载“\(old.name)”，再修改主机、端口或目录。")
+                    }
+                    mapping.state = .idle
+                    mapping.lastError = nil
+                } else {
+                    mapping.state = old.state
+                    mapping.lastError = old.lastError
+                }
+            }
+            if old == nil || old?.managedMountPath != mapping.managedMountPath {
+                try ManagedMountPath.validateTarget(mapping.managedMountPath, mounted: mounted)
+            }
+            return mapping
+        }
+    }
+
+    private func changeMappingLinks(to mappings: [MountMapping]) throws -> [MappingLinkChange] {
+        var changes: [MappingLinkChange] = []
+        do {
+            for mapping in mappings {
+                if let old = mountMappings.first(where: { $0.id == mapping.id }) {
+                    changes.append(try MappingLinkChange(from: old, to: mapping))
+                }
+            }
+            return changes
+        } catch {
+            changes.reversed().forEach { $0.rollback() }
+            throw error
+        }
+    }
+
     public func mount(mappingID: UUID) {
-        guard let index = mountMappings.firstIndex(where: { $0.id == mappingID }),
+        guard !isPreparingToQuit, mountOperations[mappingID] == nil,
+              let index = mountMappings.firstIndex(where: { $0.id == mappingID }),
               mountMappings[index].enabled,
               mountMappings[index].state != .mounting,
               mountMappings[index].state != .mounted,
@@ -340,7 +436,8 @@ public final class ApplicationStore: ObservableObject {
         mountMappings[index].lastError = nil
         let mapping = mountMappings[index]
         persistConfiguration()
-        Task {
+        mountOperations[mappingID] = Task {
+            defer { self.mountOperations.removeValue(forKey: mappingID) }
             let result = await Task.detached(priority: .userInitiated) {
                 MountOperations.mount(mapping: mapping, profile: profile)
             }.value
@@ -352,10 +449,12 @@ public final class ApplicationStore: ObservableObject {
     }
 
     public func unmount(mappingID: UUID) {
-        guard let index = mountMappings.firstIndex(where: { $0.id == mappingID }) else { return }
+        guard !isPreparingToQuit, mountOperations[mappingID] == nil,
+              let index = mountMappings.firstIndex(where: { $0.id == mappingID }) else { return }
         let mapping = mountMappings[index]
         mountMappings[index].state = .mounting
-        Task {
+        mountOperations[mappingID] = Task {
+            defer { self.mountOperations.removeValue(forKey: mappingID) }
             let result = await Task.detached(priority: .userInitiated) {
                 MountOperations.unmount(mapping: mapping)
             }.value
@@ -368,24 +467,124 @@ public final class ApplicationStore: ObservableObject {
 
     public func reveal(mappingID: UUID) {
         guard let mapping = mountMappings.first(where: { $0.id == mappingID }) else { return }
-        MountOperations.reveal(mapping: mapping)
+        Task {
+            do { try await MountOperations.reveal(mapping: mapping) }
+            catch { mountActionError = "无法打开“\(mapping.name)”：\(error.localizedDescription)" }
+        }
+    }
+
+    public func deleteMapping(mappingID: UUID) {
+        guard !isPreparingToQuit else { return }
+        guard let index = mountMappings.firstIndex(where: { $0.id == mappingID }) else { return }
+        guard mountOperations[mappingID] == nil, mountMappings[index].state != .mounting else {
+            mountActionError = "“\(mountMappings[index].name)”正在执行挂载或卸载操作，请稍后再删除。"
+            return
+        }
+        let mapping = mountMappings[index]
+        mountMappings[index].state = .mounting
+        mountActionError = nil
+        mountOperations[mappingID] = Task {
+            defer { mountOperations.removeValue(forKey: mappingID) }
+            let result = await Task.detached(priority: .userInitiated) {
+                MountOperations.removeMappingEntry(mapping)
+            }.value
+            guard let index = mountMappings.firstIndex(where: { $0.id == mappingID }) else { return }
+            guard result.state == .idle else {
+                mountMappings[index].state = .failed
+                mountMappings[index].lastError = result.message
+                mountActionError = "无法删除“\(mapping.name)”：\(result.message ?? "安全卸载失败。")"
+                persistConfiguration()
+                return
+            }
+            do {
+                try corePersistence?.deleteMapping(id: mappingID)
+                mountMappings.removeAll { $0.id == mappingID }
+                // Prevent an empty SQLite mapping list from restoring legacy mappings.
+                defaults.removeObject(forKey: mountsKey)
+                persistConfiguration()
+            } catch {
+                mountMappings[index].state = .idle
+                mountActionError = "无法删除映射配置：\(error.localizedDescription)"
+            }
+        }
     }
 
     public func refreshMountStates() {
+        guard !isPreparingToQuit else { return }
         let mappings = mountMappings
         Task {
             let mounted = await Task.detached(priority: .utility) { MountOperations.mountedPaths() }.value
+            guard !isPreparingToQuit else { return }
+            var changed = false
             for mapping in mappings {
                 guard let index = mountMappings.firstIndex(where: { $0.id == mapping.id }) else { continue }
+                guard mountMappings[index].state != .mounting else { continue }
+                let previous = mountMappings[index]
                 if mounted.contains(mapping.managedMountPath) {
-                    mountMappings[index].state = mapping.state == .mounted ? .mounted : .external
+                    mountMappings[index].state = mountMappings[index].state == .mounted ? .mounted : .external
                     mountMappings[index].lastError = nil
-                } else if mapping.state == .mounted || mapping.state == .external || mapping.state == .mounting {
+                } else if mountMappings[index].state == .mounted || mountMappings[index].state == .external {
                     mountMappings[index].state = .idle
+                    mountMappings[index].lastError = "磁盘已卸载或挂载进程已退出，请重新挂载。"
                 }
+                changed = changed || previous != mountMappings[index]
             }
-            persistConfiguration()
+            if changed { persistConfiguration() }
         }
+    }
+
+    /// Block new mount operations, finish in-flight work, then safely unmount
+    /// actual registered mounts, including mounts restored from a previous run.
+    func prepareForTermination(
+        mountedPaths: @escaping @Sendable () throws -> Set<String> = MountOperations.checkedMountedPaths,
+        unmount: @escaping @Sendable (MountMapping) -> MountOperationResult = { MountOperations.unmount(mapping: $0) }
+    ) async -> [String] {
+        isPreparingToQuit = true
+        for operation in Array(mountOperations.values) { await operation.value }
+        let mappings = mountMappings
+        let connections = Dictionary(uniqueKeysWithValues: profiles.map { ($0.id, $0.name) })
+        let results = await Task.detached(priority: .userInitiated) {
+            var failures: [String] = []
+            var failedIDs: Set<UUID> = []
+            var removed: Set<UUID> = []
+            func describe(_ mapping: MountMapping, reason: String) -> String {
+                let connection = mapping.profileID.flatMap { connections[$0] } ?? "未绑定连接"
+                return "\(mapping.name) · \(connection)\n远程目录：\(mapping.remotePath)\n本地目录：\(mapping.userAccessPath)\n挂载点：\(mapping.managedMountPath)\n原因：\(reason)"
+            }
+            do {
+                let mounted = try mountedPaths()
+                for mapping in mappings where mounted.contains(mapping.managedMountPath) {
+                    guard MountOperations.isManagedMountPath(mapping.managedMountPath) else {
+                        failedIDs.insert(mapping.id)
+                        failures.append(describe(mapping, reason: "挂载点不在 Snake 受管目录中。"))
+                        continue
+                    }
+                    let result = unmount(mapping)
+                    if result.state == .idle { removed.insert(mapping.id) }
+                    else {
+                        failedIDs.insert(mapping.id)
+                        failures.append(describe(mapping, reason: result.message ?? "无法安全卸载，目录可能正被占用。"))
+                    }
+                }
+                let remaining = try mountedPaths()
+                for mapping in mappings where remaining.contains(mapping.managedMountPath) {
+                    removed.remove(mapping.id)
+                    if !failedIDs.contains(mapping.id) {
+                        failures.append(describe(mapping, reason: "磁盘仍处于挂载状态。"))
+                    }
+                }
+            } catch {
+                failures.append("无法确认系统挂载状态：\(error.localizedDescription)")
+            }
+            return (removed, failures)
+        }.value
+        for index in mountMappings.indices where results.0.contains(mountMappings[index].id) {
+            mountMappings[index].state = .idle
+            mountMappings[index].lastError = nil
+        }
+        persistConfiguration()
+        if !results.1.isEmpty { isPreparingToQuit = false }
+        return results.1
     }
 
     private func updateJob(_ id: UUID, update: (inout TransferJob) -> Void) {
@@ -413,11 +612,13 @@ public final class ApplicationStore: ObservableObject {
 public enum ApplicationStoreError: LocalizedError {
     case invalidProfile
     case invalidMapping
+    case mappingConflict(String)
 
     public var errorDescription: String? {
         switch self {
         case .invalidProfile: "请填写名称、主机、端口和用户名。"
         case .invalidMapping: "请填写映射名称、远程目录和本地访问目录。"
+        case .mappingConflict(let message): message
         }
     }
 }

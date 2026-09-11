@@ -151,6 +151,10 @@ final class CorePersistence {
         try database.deleteTransferJob(id: id.uuidString)
     }
 
+    func deleteMapping(id: UUID) throws {
+        try database.deleteMountMapping(id: id.uuidString)
+    }
+
     func synchronize(groups: [SessionGroup], profiles: [SSHProfile]) throws {
         let expectedGroupIDs = Set(groups.map(\.id))
         let expectedProfileIDs = Set(profiles.map(\.id))

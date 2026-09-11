@@ -1,5 +1,6 @@
 //! Snake core owns durable, non-secret configuration. Credentials remain in macOS Keychain.
 
+use base64::{engine::general_purpose::STANDARD, Engine};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -526,6 +527,7 @@ pub enum CoreError {
         port: u16,
         algorithm: String,
         fingerprint: String,
+        previous_fingerprints: Vec<String>,
     },
     #[error("authentication failed: {message}")]
     Authentication { message: String },
@@ -1631,6 +1633,9 @@ fn handshake(
     Ok((session, key, kind, session_stream))
 }
 
+// Serialize read/modify/write across simultaneous terminal and SFTP connections.
+static KNOWN_HOSTS_LOCK: Mutex<()> = Mutex::new(());
+
 fn verify_host_key(
     session: &Session,
     host: &str,
@@ -1640,7 +1645,9 @@ fn verify_host_key(
     known_hosts_path: &str,
     accept_fingerprint: Option<&str>,
 ) -> Result<(), CoreError> {
+    let _guard = KNOWN_HOSTS_LOCK.lock().map_err(|_| CoreError::StorageLock)?;
     let record = host_key_record(host, port, key, kind);
+    let label = if port == 22 { host.to_owned() } else { format!("[{host}]:{port}") };
     let file = PathBuf::from(known_hosts_path);
     if let Some(parent) = file.parent() {
         std::fs::create_dir_all(parent).map_err(io_error)?;
@@ -1651,16 +1658,42 @@ fn verify_host_key(
             .read_file(&file, KnownHostFileKind::OpenSSH)
             .map_err(connection_error)?;
     }
-    match known_hosts.check_port(host, port, key) {
+    // Use the exact endpoint so trusting a non-default port never alters port 22.
+    match known_hosts.check(&label, key) {
         CheckResult::Match => Ok(()),
-        CheckResult::Mismatch => Err(CoreError::HostKeyMismatch {
-            host: record.host,
-            port: record.port,
-            algorithm: record.algorithm,
-            fingerprint: record.fingerprint,
-        }),
-        CheckResult::NotFound => {
+        result @ (CheckResult::Mismatch | CheckResult::NotFound) => {
+            let mut previous_fingerprints = Vec::new();
+            let mut retained = session.known_hosts().map_err(connection_error)?;
+            for entry in known_hosts.hosts().map_err(connection_error)? {
+                let line = known_hosts.write_string(&entry, KnownHostFileKind::OpenSSH)
+                    .map_err(connection_error)?;
+                let mut single = session.known_hosts().map_err(connection_error)?;
+                single.read_str(&line, KnownHostFileKind::OpenSSH).map_err(connection_error)?;
+                match single.check(&label, key) {
+                    CheckResult::Match | CheckResult::Mismatch => {
+                        let old_key = STANDARD.decode(entry.key()).map_err(|_| CoreError::Connection {
+                            message: "invalid stored host key".to_owned(),
+                        })?;
+                        previous_fingerprints.push(host_key_fingerprint(&old_key));
+                    }
+                    CheckResult::NotFound => {
+                        retained.read_str(&line, KnownHostFileKind::OpenSSH).map_err(connection_error)?;
+                    }
+                    CheckResult::Failure => return Err(CoreError::Connection {
+                        message: "unable to evaluate stored host key".to_owned(),
+                    }),
+                }
+            }
             if accept_fingerprint != Some(record.fingerprint.as_str()) {
+                if matches!(result, CheckResult::Mismatch) {
+                    return Err(CoreError::HostKeyMismatch {
+                        host: record.host,
+                        port: record.port,
+                        algorithm: record.algorithm,
+                        fingerprint: record.fingerprint,
+                        previous_fingerprints,
+                    });
+                }
                 return Err(CoreError::HostKeyUnknown {
                     host: record.host,
                     port: record.port,
@@ -1668,29 +1701,39 @@ fn verify_host_key(
                     fingerprint: record.fingerprint,
                 });
             }
-            let label = if port == 22 {
-                host.to_owned()
-            } else {
-                format!("[{host}]:{port}")
-            };
-            known_hosts
+            retained
                 .add(&label, key, "Snake", kind.into())
                 .map_err(connection_error)?;
-            known_hosts
-                .write_file(&file, KnownHostFileKind::OpenSSH)
-                .map_err(connection_error)?;
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600))
-                    .map_err(io_error)?;
-            }
-            Ok(())
+            persist_known_hosts(&retained, &file)
         }
         CheckResult::Failure => Err(CoreError::Connection {
             message: "unable to evaluate known_hosts".to_owned(),
         }),
     }
+}
+
+fn persist_known_hosts(hosts: &ssh2::KnownHosts, file: &Path) -> Result<(), CoreError> {
+    let temporary = file.with_extension(format!("{}.tmp", Uuid::new_v4()));
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut output = options.open(&temporary).map_err(io_error)?;
+    let result = (|| {
+        for entry in hosts.hosts().map_err(connection_error)? {
+            let line = hosts.write_string(&entry, KnownHostFileKind::OpenSSH).map_err(connection_error)?;
+            output.write_all(line.as_bytes()).map_err(io_error)?;
+        }
+        output.sync_all().map_err(io_error)?;
+        std::fs::rename(&temporary, file).map_err(io_error)
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&temporary);
+    }
+    result
 }
 
 fn finish_sftp(session: Session) -> Result<Arc<CoreSftpHandle>, CoreError> {
@@ -2421,6 +2464,64 @@ mod tests {
         assert_eq!(record.algorithm, "ED25519");
         assert!(record.fingerprint.starts_with("SHA256 "));
         assert_eq!(record.fingerprint.matches(':').count(), 31);
+    }
+
+    #[test]
+    fn changed_host_key_requires_exact_confirmation_and_preserves_other_endpoints() {
+        let directory = tempfile::tempdir().unwrap();
+        let file = directory.path().join("known_hosts");
+        let path = file.to_str().unwrap();
+        let session = Session::new().unwrap();
+        let verify = |host, port, key: &[u8], accepted: Option<&str>| {
+            verify_host_key(&session, host, port, key, HostKeyType::Ed25519, path, accepted)
+        };
+        for (host, port) in [("127.0.0.1", 49326), ("127.0.0.1", 22), ("other.example", 49326)] {
+            verify(host, port, b"old-key", Some(&host_key_fingerprint(b"old-key"))).unwrap();
+        }
+        let original = std::fs::read(&file).unwrap();
+        for accepted in [None, Some(host_key_fingerprint(b"old-key")), Some(host_key_fingerprint(b"another-key"))] {
+            let error = verify("127.0.0.1", 49326, b"new-key", accepted.as_deref()).unwrap_err();
+            match error {
+                CoreError::HostKeyMismatch { previous_fingerprints, fingerprint, .. } => {
+                    assert_eq!(previous_fingerprints, vec![host_key_fingerprint(b"old-key")]);
+                    assert_eq!(fingerprint, host_key_fingerprint(b"new-key"));
+                }
+                error => panic!("unexpected error: {error:?}"),
+            }
+            assert_eq!(std::fs::read(&file).unwrap(), original);
+        }
+        // A server changing again between prompt and reconnect must be rejected.
+        assert!(matches!(
+            verify("127.0.0.1", 49326, b"third-key", Some(&host_key_fingerprint(b"new-key"))),
+            Err(CoreError::HostKeyMismatch { .. })
+        ));
+        assert_eq!(std::fs::read(&file).unwrap(), original);
+
+        verify("127.0.0.1", 49326, b"new-key", Some(&host_key_fingerprint(b"new-key"))).unwrap();
+        verify("127.0.0.1", 49326, b"new-key", None).unwrap();
+        verify("127.0.0.1", 22, b"old-key", None).unwrap();
+        verify("other.example", 49326, b"old-key", None).unwrap();
+        assert!(matches!(verify("127.0.0.1", 49326, b"old-key", None), Err(CoreError::HostKeyMismatch { .. })));
+
+        let mut stored = session.known_hosts().unwrap();
+        stored.read_file(&file, KnownHostFileKind::OpenSSH).unwrap();
+        assert_eq!(stored.hosts().unwrap().len(), 3);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(std::fs::metadata(file).unwrap().permissions().mode() & 0o777, 0o600);
+        }
+    }
+
+    #[test]
+    fn unknown_host_key_is_not_saved_without_confirmation() {
+        let directory = tempfile::tempdir().unwrap();
+        let file = directory.path().join("known_hosts");
+        let session = Session::new().unwrap();
+        let result = verify_host_key(&session, "test.example", 22, b"new-key", HostKeyType::Ed25519,
+            file.to_str().unwrap(), None);
+        assert!(matches!(result, Err(CoreError::HostKeyUnknown { .. })));
+        assert!(!file.exists());
     }
 
     #[test]

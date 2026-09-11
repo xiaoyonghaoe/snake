@@ -2330,7 +2330,7 @@ public enum CoreError: Swift.Error {
     )
     case HostKeyUnknown(host: String, port: UInt16, algorithm: String, fingerprint: String
     )
-    case HostKeyMismatch(host: String, port: UInt16, algorithm: String, fingerprint: String
+    case HostKeyMismatch(host: String, port: UInt16, algorithm: String, fingerprint: String, previousFingerprints: [String]
     )
     case Authentication(message: String
     )
@@ -2377,7 +2377,8 @@ public struct FfiConverterTypeCoreError: FfiConverterRustBuffer {
             host: try FfiConverterString.read(from: &buf), 
             port: try FfiConverterUInt16.read(from: &buf), 
             algorithm: try FfiConverterString.read(from: &buf), 
-            fingerprint: try FfiConverterString.read(from: &buf)
+            fingerprint: try FfiConverterString.read(from: &buf),
+            previousFingerprints: try FfiConverterSequenceString.read(from: &buf)
             )
         case 8: return .Authentication(
             message: try FfiConverterString.read(from: &buf)
@@ -2431,12 +2432,13 @@ public struct FfiConverterTypeCoreError: FfiConverterRustBuffer {
             FfiConverterString.write(fingerprint, into: &buf)
             
         
-        case let .HostKeyMismatch(host,port,algorithm,fingerprint):
+        case let .HostKeyMismatch(host,port,algorithm,fingerprint,previousFingerprints):
             writeInt(&buf, Int32(7))
             FfiConverterString.write(host, into: &buf)
             FfiConverterUInt16.write(port, into: &buf)
             FfiConverterString.write(algorithm, into: &buf)
             FfiConverterString.write(fingerprint, into: &buf)
+            FfiConverterSequenceString.write(previousFingerprints, into: &buf)
             
         
         case let .Authentication(message):

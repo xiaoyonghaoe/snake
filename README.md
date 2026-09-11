@@ -17,6 +17,7 @@ Snake 是面向 macOS 15+ 的原生 SSH 工作台：会话管理、终端、SFTP
 - Finder 文件/文件夹可拖到 SSH 终端或 SFTP 内容区上传；原生接收层随标签换窗，按实际落点定位分栏，与 Bonsplit 标签拖动隔离。SSH 使用最近报告的 shell 目录，未知时先确认；SFTP 使用当前目录。实现与验收见 [Finder 上传说明](docs/FINDER_UPLOAD.md)。
 - 当前 SFTP 标签上传时在项目统计左侧按需显示迷你进度，完成两秒后收为记录图标；点击可查看本次标签内的文件、路径、大小、时间、耗时和结果，并执行暂停、继续、取消或失败重试。本地上传记录不写入 SQLite。
 - macFUSE/sshfs 依赖检测、映射编辑器、私钥 SSHFS 挂载、Finder 打开、安全卸载与受约束的 `SnakeMountHelper`。
+- Finder 磁盘名称显示“映射名称 · SSH 会话名称”；挂载状态以系统实际挂载表为准。彻底退出应用前会等待正在进行的挂载操作并安全卸载已配置的受管挂载；卸载失败则取消退出并提示占用原因。仅关闭窗口不会卸载。
 - Rust `snake_core` 已包含 SQLite v1 schema、会话/映射/传输记录 CRUD、异常任务中断恢复、UniFFI Swift 绑定和双端往返测试。
 - 调试 App 内嵌 Rust 动态库与 Mount Helper，使用 `@rpath` 并进行本地 ad-hoc 签名，可脱离工作区动态库路径启动。
 
@@ -46,6 +47,7 @@ cargo run --example sftp_smoke -- <host> <port> <username> <known-hosts-path>
 - 当前开发阶段按产品决策将密码和私钥口令明文保存到 `~/Library/Application Support/Snake/credentials.json`，文件权限强制为 `0600`，目录权限为 `0700`。
 - SQLite 仍只保存 credential reference，不保存密码；后续接入密码工具时只替换 `CredentialStore` 后端。
 - 私钥通过 security-scoped bookmark 引用，不复制文件。
+- SSH 终端、SFTP 和远程目录选择器在主机密钥变化时显示原、新指纹，只有明确确认后才更新对应地址和端口的信任记录并重连；取消保留原记录，重连时再次校验实际指纹。
 - `SnakeMountHelper` 只接受受管挂载目录与允许列表中的 sshfs 可执行路径。
 - 终端凭据以字节通过 UniFFI 传给 Rust/libssh2，认证材料在使用后清零；不会启动系统 `ssh`，也不会把密码传递给 argv、环境变量或拖放载荷。
 - 当前 SSHFS 仅对私钥会话执行真实挂载；密码型挂载会明确失败，直到受管 SSH_ASKPASS FIFO 完成，绝不降级为不安全的 argv/环境变量传密。

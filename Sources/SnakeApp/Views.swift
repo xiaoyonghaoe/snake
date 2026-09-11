@@ -698,15 +698,15 @@ private struct TerminalTabView: View {
             }
         }
 
-        .alert("确认主机密钥", isPresented: Binding(
+        .alert(runtime.pendingHostKey?.title ?? "确认主机密钥", isPresented: Binding(
             get: { runtime.pendingHostKey != nil },
             set: { if !$0, runtime.pendingHostKey != nil { runtime.rejectPendingHostKey() } }
         )) {
             Button("取消", role: .cancel) { runtime.rejectPendingHostKey() }
-            Button("信任并连接") { runtime.acceptPendingHostKey() }
+            Button(runtime.pendingHostKey?.acceptTitle ?? "信任并连接") { runtime.acceptPendingHostKey() }
         } message: {
             if let key = runtime.pendingHostKey {
-                Text("首次连接 \(key.host):\(key.port)\n\(key.algorithm)\n\(key.fingerprint)\n\n请在可信渠道核对指纹后再信任。")
+                Text(key.message)
             }
         }
     }
@@ -899,15 +899,15 @@ private struct SFTPBrowserView: View {
         } message: {
             Text("将在 \(runtime.currentPath) 中创建。")
         }
-        .alert("确认主机密钥", isPresented: Binding(
+        .alert(runtime.pendingHostKey?.title ?? "确认主机密钥", isPresented: Binding(
             get: { runtime.pendingHostKey != nil },
             set: { if !$0, runtime.pendingHostKey != nil { runtime.rejectPendingHostKey() } }
         )) {
             Button("取消", role: .cancel) { runtime.rejectPendingHostKey() }
-            Button("信任并连接") { runtime.acceptPendingHostKey() }
+            Button(runtime.pendingHostKey?.acceptTitle ?? "信任并连接") { runtime.acceptPendingHostKey() }
         } message: {
             if let key = runtime.pendingHostKey {
-                Text("首次连接 \(key.host):\(key.port)\n\(key.algorithm)\n\(key.fingerprint)\n\n请在可信渠道核对指纹后再信任。")
+                Text(key.message)
             }
         }
     }
@@ -1782,7 +1782,7 @@ private struct MountWorkspaceView: View {
     @State private var dependencyStatus = MountDependencyStatus.detect()
 
     private var selectedMapping: MountMapping? {
-        store.mountMappings.first { $0.id == (runtime.selectedMappingID ?? store.mountMappings.first?.id) }
+        store.mountMappings.first { $0.id == runtime.selectedMappingID } ?? store.mountMappings.first
     }
 
     var body: some View {
@@ -1808,7 +1808,7 @@ private struct MountWorkspaceView: View {
                                         .padding(.horizontal, 24).padding(.top, 14)
                                 }
                             }
-                            .frame(width: max(800, geometry.size.width))
+                            .frame(width: max(1100, geometry.size.width))
                             .padding(.bottom, 24)
                         }
                     }
@@ -1816,6 +1816,12 @@ private struct MountWorkspaceView: View {
             }
         }
         .background(SnakeStyle.canvas)
+        .alert("磁盘映射操作未完成", isPresented: Binding(
+            get: { store.mountActionError != nil },
+            set: { if !$0 { store.mountActionError = nil } }
+        )) {
+            Button("确定") { store.mountActionError = nil }
+        } message: { Text(store.mountActionError ?? "") }
     }
 
     private var dependencyBanner: some View {
@@ -1844,11 +1850,11 @@ private struct MountWorkspaceView: View {
         VStack(spacing: 0) {
             HStack(spacing: 12) {
                 Text("状态").frame(width: 92, alignment: .leading)
-                Text("名称与连接").frame(minWidth: 124, maxWidth: .infinity, alignment: .leading)
-                Text("远程目录").frame(width: 132, alignment: .leading)
-                Text("本地入口").frame(width: 152, alignment: .leading)
+                Text("名称与连接").frame(width: 195, alignment: .leading)
+                Text("远程目录").frame(minWidth: 240, maxWidth: .infinity, alignment: .leading)
+                Text("本地目录").frame(minWidth: 240, maxWidth: .infinity, alignment: .leading)
                 Text("自动挂载").frame(width: 74, alignment: .leading)
-                Color.clear.frame(width: 70)
+                Color.clear.frame(width: 110)
             }
             .font(.system(size: 11, weight: .semibold))
             .foregroundStyle(SnakeStyle.muted)
@@ -1895,6 +1901,9 @@ private struct MappingTableRow: View {
     let mapping: MountMapping
     let isSelected: Bool
     let action: () -> Void
+    @State private var confirmingDeletion = false
+    @State private var checkingDeletion = false
+    @State private var deletionRequiresUnmount = false
 
     var body: some View {
         HStack(spacing: 12) {
@@ -1905,25 +1914,30 @@ private struct MappingTableRow: View {
             .frame(width: 92, alignment: .leading)
             VStack(alignment: .leading, spacing: 2) {
                 Text(mapping.name).font(.system(size: 13, weight: .semibold))
+                    .lineLimit(1).truncationMode(.tail).help(mapping.name)
                 Text(profileName).font(.system(size: 11)).foregroundStyle(SnakeStyle.muted)
+                    .lineLimit(1).truncationMode(.tail).help(profileName)
             }
-            .frame(minWidth: 124, maxWidth: .infinity, alignment: .leading)
+            .frame(width: 195, alignment: .leading)
             Text(mapping.remotePath)
                 .font(.system(size: 12, design: .monospaced))
                 .lineLimit(1)
                 .truncationMode(.middle)
-                .frame(width: 132, alignment: .leading)
+                .frame(minWidth: 240, maxWidth: .infinity, alignment: .leading)
+                .help(mapping.remotePath)
             Text(mapping.userAccessPath)
                 .font(.system(size: 12, design: .monospaced))
                 .lineLimit(1)
                 .truncationMode(.middle)
-                .frame(width: 152, alignment: .leading)
+                .frame(minWidth: 240, maxWidth: .infinity, alignment: .leading)
+                .help(mapping.userAccessPath)
             Toggle("", isOn: Binding(get: { mapping.autoMount }, set: { store.setAutoMount($0, for: mapping.id) }))
                 .labelsHidden()
                 .toggleStyle(.switch)
                 .frame(width: 74, alignment: .leading)
-            Button(mapping.state == .mounted ? "Finder" : "挂载") {
-                if mapping.state == .mounted {
+            HStack(spacing: 6) {
+            Button(mapping.state == .mounted || mapping.state == .external ? "打开" : "挂载") {
+                if mapping.state == .mounted || mapping.state == .external {
                     store.reveal(mappingID: mapping.id)
                 } else {
                     store.mount(mappingID: mapping.id)
@@ -1931,12 +1945,58 @@ private struct MappingTableRow: View {
             }
                 .buttonStyle(SnakeOutlineButtonStyle())
                 .frame(width: 70)
+                .disabled(mapping.state == .mounting)
+            Button { requestDeletion() } label: { Image(systemName: "trash") }
+                .buttonStyle(SnakeIconButtonStyle())
+                .help("删除映射").accessibilityLabel("删除映射")
+                .disabled(checkingDeletion)
+            }
+            .frame(width: 110)
         }
         .padding(.horizontal, 16)
         .frame(height: 66)
         .background(isSelected ? SnakeStyle.selectedRow.opacity(0.75) : .clear)
         .contentShape(Rectangle())
         .onTapGesture(perform: action)
+        .contextMenu {
+            Button("删除映射…", role: .destructive) { requestDeletion() }
+                .disabled(checkingDeletion)
+        }
+        .alert(deletionRequiresUnmount ? "“\(mapping.name)”仍处于挂载状态" : "是否删除“\(mapping.name)”？", isPresented: $confirmingDeletion) {
+            Button("取消", role: .cancel) {}
+            Button(deletionRequiresUnmount ? "安全卸载并删除" : "删除映射", role: .destructive) {
+                store.deleteMapping(mappingID: mapping.id)
+            }
+        } message: {
+            if deletionRequiresUnmount {
+                Text("此目录正在使用挂载连接，删除前需要安全卸载。若目录被占用或卸载失败，会保留映射。"
+                     + "\n\n远程目录：\(mapping.remotePath)\n本地目录：\(mapping.userAccessPath)\n\n远程文件和本地文件夹会保留。")
+            }
+        }
+    }
+
+    private func requestDeletion() {
+        guard !checkingDeletion else { return }
+        guard mapping.state != .mounting else {
+            store.mountActionError = "“\(mapping.name)”正在执行挂载或卸载操作，请等待操作完成后再删除。"
+            return
+        }
+        checkingDeletion = true
+        Task { @MainActor in
+            defer { checkingDeletion = false }
+            do {
+                let mounted = try await Task.detached(priority: .utility) { try MountOperations.checkedMountedPaths() }.value
+                guard let current = store.mountMappings.first(where: { $0.id == mapping.id }) else { return }
+                guard current.state != .mounting else {
+                    store.mountActionError = "“\(current.name)”正在执行挂载或卸载操作，请稍后再删除。"
+                    return
+                }
+                deletionRequiresUnmount = mounted.contains(current.managedMountPath)
+                confirmingDeletion = true
+            } catch {
+                store.mountActionError = "无法确认目录的挂载状态，暂不能删除：\(error.localizedDescription)"
+            }
+        }
     }
 
     private var profileName: String {
@@ -1967,6 +2027,7 @@ private struct MappingDetailCard: View {
                 }
                 Spacer()
                 Button("编辑", action: onEdit).buttonStyle(SnakeOutlineButtonStyle())
+                    .disabled(mapping.state == .mounting)
                 Button("安全卸载") { store.unmount(mappingID: mapping.id) }
                     .buttonStyle(SnakeOutlineButtonStyle())
                     .disabled(mapping.state != .mounted && mapping.state != .external)
@@ -1977,6 +2038,20 @@ private struct MappingDetailCard: View {
                 MappingRoute(label: "实际挂载点", value: mapping.managedMountPath)
                 Image(systemName: "arrow.right").foregroundStyle(SnakeStyle.muted)
                 MappingRoute(label: "FINDER 入口 · 软链接", value: mapping.userAccessPath)
+            }
+            Text("Finder 磁盘名称：\(MountOperations.volumeName(mappingName: mapping.name, connectionName: store.profiles.first(where: { $0.id == mapping.profileID })?.name ?? "未绑定"))")
+                .font(.system(size: 12)).foregroundStyle(SnakeStyle.muted)
+            if let error = mapping.lastError, !error.isEmpty {
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                    Text(error)
+                        .font(.system(size: 12))
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .padding(10)
+                .background(Color.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: 7))
             }
         }
         .padding(16)
@@ -2542,14 +2617,15 @@ private struct MappingEditorView: View {
     @State private var userAccessPath: String
     @State private var autoMount: Bool
     @State private var errorMessage: String?
+    @State private var browsingProfile: SSHProfile?
 
     init(mapping: MountMapping?) {
         original = mapping
         mappingID = mapping?.id ?? UUID()
         _name = State(initialValue: mapping?.name ?? "")
         _profileID = State(initialValue: mapping?.profileID)
-        _remotePath = State(initialValue: mapping?.remotePath ?? "/srv/apps")
-        _userAccessPath = State(initialValue: mapping?.userAccessPath ?? "~/Remote/Production")
+        _remotePath = State(initialValue: mapping?.remotePath ?? "")
+        _userAccessPath = State(initialValue: mapping?.userAccessPath ?? "")
         _autoMount = State(initialValue: mapping?.autoMount ?? true)
     }
 
@@ -2582,8 +2658,30 @@ private struct MappingEditorView: View {
                     }
                     .frame(maxWidth: .infinity)
                 }
-                EditorField(label: "远程目录", text: $remotePath, placeholder: "/srv/apps", monospaced: true)
-                EditorField(label: "本地访问目录", text: $userAccessPath, placeholder: "~/Remote/Production", monospaced: true)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("远程目录").font(.system(size: 11, weight: .medium)).foregroundStyle(SnakeStyle.muted)
+                    HStack {
+                        Text(remotePath.isEmpty ? "选择 SSH 会话后浏览远程文件夹" : remotePath)
+                            .font(.system(size: 13, design: .monospaced))
+                            .foregroundStyle(remotePath.isEmpty ? SnakeStyle.muted : SnakeStyle.ink)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        Button("浏览目录…", systemImage: "folder") { browsingProfile = selectedProfile }
+                            .buttonStyle(SnakeOutlineButtonStyle())
+                            .disabled(selectedProfile == nil)
+                    }
+                }
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(alignment: .bottom, spacing: 8) {
+                        EditorField(label: "本地访问目录", text: $userAccessPath, placeholder: "选择 Finder 入口的位置", monospaced: true)
+                        Button("选择位置…", systemImage: "folder") { chooseLocalPath() }
+                            .buttonStyle(SnakeOutlineButtonStyle())
+                    }
+                    Text("选择存放位置及入口名称，挂载后即可在 Finder 中访问。")
+                        .font(.system(size: 11)).foregroundStyle(SnakeStyle.muted)
+                }
                 Toggle(isOn: $autoMount) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("应用启动时自动挂载").font(.system(size: 13, weight: .medium))
@@ -2619,7 +2717,54 @@ private struct MappingEditorView: View {
             .frame(height: 62)
             .background(SnakeStyle.canvas)
         }
-        .frame(width: 740, height: 540)
+        .frame(width: 740, height: 580)
+        .onChange(of: profileID) { _, _ in
+            remotePath = ""
+            errorMessage = nil
+        }
+        .sheet(item: $browsingProfile) { profile in
+            RemoteDirectoryPicker(profile: profile, initialPath: remotePath) { path in
+                remotePath = path
+                if name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    name = path == "/" ? profile.name : (path as NSString).lastPathComponent
+                }
+                errorMessage = nil
+            }
+        }
+    }
+
+    private var selectedProfile: SSHProfile? {
+        store.profiles.first { $0.id == profileID }
+    }
+
+    private func chooseLocalPath() {
+        let panel = NSSavePanel()
+        panel.title = "选择本地访问目录"
+        panel.message = "选择 Finder 入口的存放位置和名称。请使用尚不存在的名称。"
+        panel.prompt = "选择"
+        panel.nameFieldLabel = "入口名称："
+        panel.canCreateDirectories = true
+        panel.isExtensionHidden = false
+        if !userAccessPath.isEmpty {
+            let url = URL(fileURLWithPath: (userAccessPath as NSString).expandingTildeInPath)
+            panel.directoryURL = url.deletingLastPathComponent()
+            panel.nameFieldStringValue = url.lastPathComponent
+        } else {
+            panel.directoryURL = FileManager.default.homeDirectoryForCurrentUser
+            let suggestedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+            panel.nameFieldStringValue = suggestedName.isEmpty ? "远程目录" : suggestedName.replacingOccurrences(of: "/", with: "-")
+        }
+        panel.begin { response in
+            guard response == .OK, let url = panel.url else { return }
+            // The panel selects a future symlink location; it does not create a file.
+            if FileManager.default.fileExists(atPath: url.path)
+                || (try? FileManager.default.destinationOfSymbolicLink(atPath: url.path)) != nil {
+                errorMessage = "该本地位置已被占用，请选择其他入口名称。"
+                return
+            }
+            userAccessPath = url.path
+            errorMessage = nil
+        }
     }
 
     private var profileConnection: String {
@@ -2627,12 +2772,23 @@ private struct MappingEditorView: View {
     }
 
     private var managedPath: String {
-        "/Users/Shared/.SnakeMounts/\(mappingID.uuidString.replacingOccurrences(of: "-", with: "").prefix(12))"
+        if let original, !ManagedMountPath.isStable(original.managedMountPath) {
+            return original.managedMountPath
+        }
+        guard let profile = selectedProfile,
+              let path = try? ManagedMountPath.make(profile: profile, local: userAccessPath, remote: remotePath) else {
+            return "选择会话和目录后生成"
+        }
+        return path
     }
 
     private func save() {
         guard let profileID else {
             errorMessage = "请选择一个 SSH 会话。"
+            return
+        }
+        guard !remotePath.isEmpty else {
+            errorMessage = "请浏览并选择远程目录。"
             return
         }
         let mapping = MountMapping(

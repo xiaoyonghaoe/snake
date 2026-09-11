@@ -1,0 +1,21 @@
+# Isolated loopback SSH/SFTP service; key and PID paths come from the script.
+AddressFamily inet
+ListenAddress 127.0.0.1
+Port 49326
+AllowUsers xiaoyong
+AuthenticationMethods publickey
+PubkeyAuthentication yes
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+PermitEmptyPasswords no
+PermitRootLogin no
+UsePAM no
+StrictModes yes
+AllowAgentForwarding no
+AllowTcpForwarding no
+X11Forwarding no
+PermitTunnel no
+UseDNS no
+PrintMotd no
+LogLevel VERBOSE
+Subsystem sftp internal-sftp
