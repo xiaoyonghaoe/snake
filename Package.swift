@@ -37,7 +37,8 @@ let package = Package(
                 .product(name: "SwiftTerm", package: "SwiftTerm")
             ],
             linkerSettings: [
-                .linkedFramework("Security")
+                .linkedFramework("Security"),
+                .linkedFramework("LocalAuthentication")
             ]
         ),
         .executableTarget(

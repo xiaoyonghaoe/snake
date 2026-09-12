@@ -17,9 +17,6 @@ public enum KeychainStoreError: LocalizedError {
 
 public enum KeychainStore {
     public static let service = "com.snake.ssh.credentials"
-#if DEBUG
-    private static let debugCache = DebugCredentialCache()
-#endif
 
     public static func save(_ secret: String, account: String) throws {
         let data = Data(secret.utf8)
@@ -31,9 +28,6 @@ public enum KeychainStore {
         let attributes: [String: Any] = [kSecValueData as String: data]
         let updateStatus = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
         if updateStatus == errSecSuccess {
-#if DEBUG
-            debugCache.store(data, for: account)
-#endif
             return
         }
         guard updateStatus == errSecItemNotFound else {
@@ -47,9 +41,6 @@ public enum KeychainStore {
         guard insertStatus == errSecSuccess else {
             throw KeychainStoreError.unexpectedStatus(insertStatus)
         }
-#if DEBUG
-        debugCache.store(data, for: account)
-#endif
     }
 
     public static func read(account: String) throws -> String? {
@@ -61,9 +52,6 @@ public enum KeychainStore {
     }
 
     public static func readData(account: String) throws -> Data? {
-#if DEBUG
-        if let cached = debugCache.value(for: account) { return cached }
-#endif
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -80,9 +68,6 @@ public enum KeychainStore {
         guard let data = result as? Data else {
             throw KeychainStoreError.invalidData
         }
-#if DEBUG
-        debugCache.store(data, for: account)
-#endif
         return data
     }
 
@@ -96,37 +81,5 @@ public enum KeychainStore {
         guard status == errSecSuccess || status == errSecItemNotFound else {
             throw KeychainStoreError.unexpectedStatus(status)
         }
-#if DEBUG
-        debugCache.removeValue(for: account)
-#endif
     }
 }
-
-#if DEBUG
-/// Ad-hoc debug signatures change after every rebuild and macOS therefore asks
-/// for Keychain approval again. Cache only inside the current debug process so
-/// terminal and SFTP connections share the one approved lookup. Release builds
-/// never compile this cache and continue to read directly from Keychain.
-private final class DebugCredentialCache: @unchecked Sendable {
-    private let lock = NSLock()
-    private var values: [String: Data] = [:]
-
-    func value(for account: String) -> Data? {
-        lock.lock()
-        defer { lock.unlock() }
-        return values[account]
-    }
-
-    func store(_ value: Data, for account: String) {
-        lock.lock()
-        values[account] = value
-        lock.unlock()
-    }
-
-    func removeValue(for account: String) {
-        lock.lock()
-        values.removeValue(forKey: account)
-        lock.unlock()
-    }
-}
-#endif

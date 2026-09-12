@@ -48,11 +48,12 @@ cargo run --example sftp_smoke -- <host> <port> <username> <known-hosts-path>
 
 `scripts/package-debug-app.sh` 会在 `.build/debug-app/Snake.app` 创建自包含、ad-hoc 签名的开发应用，供本机界面测试使用。正式分发仍需按开发计划执行 Universal 2、Developer ID 签名与公证。
 
-旧会话如果仍只有 Keychain 引用，会在首次成功读取后自动迁移到临时明文文件；后续连接不再访问 Keychain。
+应用启动时自动将旧明文凭据迁移为加密文件；旧会话如果仍只有 Keychain 引用，会在首次成功读取后迁入加密存储。具体设计及手工验收见 [凭据加密与查看](docs/CREDENTIAL_SECURITY.md)。
 
 ## 安全边界
 
-- 当前开发阶段按产品决策将密码和私钥口令明文保存到 `~/Library/Application Support/Snake/credentials.json`，文件权限强制为 `0600`，目录权限为 `0700`。
+- 密码和私钥口令使用 AES-256-GCM 加密保存到 `~/Library/Application Support/Snake/credentials.json`，随机 256 位密钥保存在系统钥匙串，文件权限为 `0600`、目录为 `0700`。文件损坏或密钥丢失时不会覆盖原文件或回退明文。
+- 连接自动解密；编辑页查看已保存的明文须通过 Touch ID 或 Mac 登录密码等系统身份验证，30 秒后或窗口失焦时隐藏。临时签名更新仍可能触发独立的钥匙串访问授权，不保证开发包无提示。
 - SQLite 仍只保存 credential reference，不保存密码；后续接入密码工具时只替换 `CredentialStore` 后端。
 - 私钥通过 security-scoped bookmark 引用，不复制文件。
 - SSH 终端、SFTP 和远程目录选择器在主机密钥变化时显示原、新指纹，只有明确确认后才更新对应地址和端口的信任记录并重连；取消保留原记录，重连时再次校验实际指纹。

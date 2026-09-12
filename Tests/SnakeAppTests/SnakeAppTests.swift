@@ -236,25 +236,6 @@ final class SnakeAppTests: XCTestCase {
         XCTAssertTrue(receivedMatches)
     }
 
-    func testTemporaryPlaintextCredentialStoreUsesOwnerOnlyFile() throws {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("snake-credentials-\(UUID().uuidString)", isDirectory: true)
-        let fileURL = directory.appendingPathComponent("credentials.json")
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let store = PlaintextCredentialStore(fileURL: fileURL)
-
-        try store.save("development-secret", account: "profile/password")
-
-        XCTAssertEqual(try store.read(account: "profile/password"), "development-secret")
-        XCTAssertTrue(try String(contentsOf: fileURL, encoding: .utf8).contains("development-secret"))
-        let attributes = try FileManager.default.attributesOfItem(atPath: fileURL.path)
-        let permissions = (attributes[.posixPermissions] as? NSNumber)?.intValue
-        XCTAssertEqual(permissions.map { $0 & 0o777 }, 0o600)
-
-        try store.delete(account: "profile/password")
-        XCTAssertNil(try store.read(account: "profile/password"))
-    }
-
     func testRemotePermissionModeParsesOctalInput() {
         XCTAssertEqual(RemotePermissionMode.parse("0644"), 0o644)
         XCTAssertEqual(RemotePermissionMode.parse("755"), 0o755)

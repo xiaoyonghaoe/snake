@@ -1,23 +1,35 @@
+import CryptoKit
 import Foundation
 
 public enum CredentialStoreError: LocalizedError {
     case invalidFile
     case cannotCreateFile
+    case missingKey
+    case invalidKey
+    case authenticationFailed
 
     public var errorDescription: String? {
         switch self {
         case .invalidFile:
-            "临时凭据文件格式无效。"
+            "凭据文件格式无效或版本不受支持，原文件未被覆盖。"
         case .cannotCreateFile:
-            "无法创建临时凭据文件。"
+            "无法安全保存加密凭据文件。"
+        case .missingKey:
+            "找不到凭据加密密钥，无法解密。请恢复原钥匙串；原凭据文件不会被覆盖。"
+        case .invalidKey:
+            "钥匙串中的凭据加密密钥格式无效。"
+        case .authenticationFailed:
+            "凭据解密验证失败，文件可能损坏或密钥不匹配。原文件未被覆盖。"
         }
     }
 }
 
-/// Facade kept deliberately small so the temporary plaintext backend can later
-/// be replaced by a password-manager adapter without changing SSH/SFTP callers.
+/// Connection callers do not require a UI authentication challenge. Only the
+/// explicit reveal UI adds local device-owner authentication.
 public enum CredentialStore {
-    private static let backend = PlaintextCredentialStore.default
+    private static let backend = EncryptedCredentialStore.default
+
+    static func prepare() throws { try backend.prepare() }
 
     public static func save(_ secret: String, account: String) throws {
         try backend.save(secret, account: account)
@@ -28,9 +40,8 @@ public enum CredentialStore {
             return Data(secret.utf8)
         }
 
-        // One-time compatibility path for profiles created before the temporary
-        // plaintext backend. A successful legacy read is immediately migrated;
-        // subsequent terminal and SFTP connections no longer access Keychain.
+        // Legacy credential entries remain readable, but never migrate back to
+        // plaintext. Storage errors above must not fall through to this path.
         if let legacy = try KeychainStore.read(account: account) {
             try backend.save(legacy, account: account)
             return Data(legacy.utf8)
@@ -40,19 +51,47 @@ public enum CredentialStore {
 
     public static func delete(account: String) throws {
         try backend.delete(account: account)
+        // Otherwise a subsequent compatibility read could resurrect a secret.
+        try KeychainStore.delete(account: account)
     }
 }
 
-final class PlaintextCredentialStore: @unchecked Sendable {
-    static let `default` = PlaintextCredentialStore(fileURL: defaultFileURL)
+protocol CredentialEncryptionKeyProviding: Sendable {
+    func loadKey() throws -> Data?
+    func createKey() throws -> Data
+}
+
+final class EncryptedCredentialStore: @unchecked Sendable {
+    static let `default` = EncryptedCredentialStore(fileURL: defaultFileURL, keys: CredentialEncryptionKeyStore())
+
+    private struct Envelope: Codable {
+        let version: Int
+        let sealedBox: Data
+    }
+    private static let authenticatedHeader = Data("com.snake.credentials:v1:AES-256-GCM".utf8)
 
     let fileURL: URL
     private let lock = NSLock()
     private let manager: FileManager
+    private let keys: any CredentialEncryptionKeyProviding
+    private let replace: (URL, URL) throws -> Void
 
-    init(fileURL: URL, manager: FileManager = .default) {
+    init(
+        fileURL: URL,
+        keys: any CredentialEncryptionKeyProviding,
+        manager: FileManager = .default,
+        replace: @escaping (URL, URL) throws -> Void = { temporary, destination in
+            if FileManager.default.fileExists(atPath: destination.path) {
+                _ = try FileManager.default.replaceItemAt(destination, withItemAt: temporary, options: .usingNewMetadataOnly)
+            } else {
+                try FileManager.default.moveItem(at: temporary, to: destination)
+            }
+        }
+    ) {
         self.fileURL = fileURL
         self.manager = manager
+        self.keys = keys
+        self.replace = replace
     }
 
     func save(_ secret: String, account: String) throws {
@@ -61,6 +100,12 @@ final class PlaintextCredentialStore: @unchecked Sendable {
         var credentials = try loadUnlocked()
         credentials[account] = secret
         try persistUnlocked(credentials)
+    }
+
+    func prepare() throws {
+        lock.lock()
+        defer { lock.unlock() }
+        _ = try loadUnlocked()
     }
 
     func read(account: String) throws -> String? {
@@ -80,20 +125,60 @@ final class PlaintextCredentialStore: @unchecked Sendable {
     private func loadUnlocked() throws -> [String: String] {
         guard manager.fileExists(atPath: fileURL.path) else { return [:] }
         let data = try Data(contentsOf: fileURL)
-        guard let credentials = try? JSONDecoder().decode([String: String].self, from: data) else {
+        if let envelope = try? JSONDecoder().decode(Envelope.self, from: data) {
+            guard envelope.version == 1 else { throw CredentialStoreError.invalidFile }
+            guard let keyData = try keys.loadKey() else { throw CredentialStoreError.missingKey }
+            return try decrypt(envelope, key: validatedKey(keyData))
+        }
+        guard let credentials = try? JSONDecoder().decode([String: String].self, from: data),
+              credentials["version"] == nil, credentials["sealedBox"] == nil else {
             throw CredentialStoreError.invalidFile
         }
+        // Migrate the whole legacy dictionary, including accounts other than
+        // the one requested. No plaintext backup or temporary file is created.
+        try persistUnlocked(credentials)
         return credentials
     }
 
+    private func validatedKey(_ data: Data) throws -> SymmetricKey {
+        guard data.count == 32 else { throw CredentialStoreError.invalidKey }
+        return SymmetricKey(data: data)
+    }
+
+    private func decrypt(_ envelope: Envelope, key: SymmetricKey) throws -> [String: String] {
+        do {
+            let box = try AES.GCM.SealedBox(combined: envelope.sealedBox)
+            let plaintext = try AES.GCM.open(box, using: key, authenticating: Self.authenticatedHeader)
+            return try JSONDecoder().decode([String: String].self, from: plaintext)
+        } catch {
+            throw CredentialStoreError.authenticationFailed
+        }
+    }
+
     private func persistUnlocked(_ credentials: [String: String]) throws {
+        let keyData: Data
+        if let existing = try keys.loadKey() {
+            keyData = existing
+        } else {
+            // The key could have been removed after loadUnlocked decrypted the
+            // file. Never silently rotate it while updating an existing vault.
+            if manager.fileExists(atPath: fileURL.path),
+               (try? JSONDecoder().decode(Envelope.self, from: Data(contentsOf: fileURL))) != nil {
+                throw CredentialStoreError.missingKey
+            }
+            keyData = try keys.createKey()
+        }
+        let key = try validatedKey(keyData)
+        let plaintext = try JSONEncoder().encode(credentials)
+        let box = try AES.GCM.seal(plaintext, using: key, authenticating: Self.authenticatedHeader)
+        guard let combined = box.combined else { throw CredentialStoreError.cannotCreateFile }
+        let envelope = Envelope(version: 1, sealedBox: combined)
+        let data = try JSONEncoder().encode(envelope)
+        guard try decrypt(envelope, key: key) == credentials else { throw CredentialStoreError.authenticationFailed }
         let directory = fileURL.deletingLastPathComponent()
         try manager.createDirectory(at: directory, withIntermediateDirectories: true)
         try manager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
 
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
-        let data = try encoder.encode(credentials)
         let temporaryURL = directory.appendingPathComponent(".credentials-\(UUID().uuidString).tmp")
         guard manager.createFile(
             atPath: temporaryURL.path,
@@ -104,12 +189,9 @@ final class PlaintextCredentialStore: @unchecked Sendable {
         }
 
         do {
-            if manager.fileExists(atPath: fileURL.path) {
-                _ = try manager.replaceItemAt(fileURL, withItemAt: temporaryURL)
-            } else {
-                try manager.moveItem(at: temporaryURL, to: fileURL)
-            }
-            try manager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
+            let written = try JSONDecoder().decode(Envelope.self, from: Data(contentsOf: temporaryURL))
+            guard try decrypt(written, key: key) == credentials else { throw CredentialStoreError.authenticationFailed }
+            try replace(temporaryURL, fileURL)
         } catch {
             try? manager.removeItem(at: temporaryURL)
             throw error

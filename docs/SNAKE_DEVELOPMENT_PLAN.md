@@ -278,9 +278,11 @@ WorkspaceTabRuntime
 - 当前后端：`~/Library/Application Support/Snake/credentials.json`。
 - 文件权限强制为 `0600`，父目录权限强制为 `0700`。
 - 密码引用：`<profileID>/password`；私钥口令引用：`<profileID>/key-passphrase`。
-- SQLite 只保存 credential reference，明文仅存在临时凭据文件。
-- `CredentialStore` 是唯一调用入口，后续由 1Password、Bitwarden 或其他密码工具适配器替换明文后端。
-- 旧 Keychain 引用首次成功读取后迁移到当前后端，后续不再读取 Keychain。
+- SQLite 只保存 credential reference；凭据文件采用带版本号的 AES-256-GCM 密文格式，每次保存使用新 nonce。256 位随机密钥独立存于系统钥匙串，不同步、不嵌入应用。
+- `CredentialStore` 保留 save/readData/delete 接口，后续可以替换为密码工具适配器。SSH、SFTP 与上传自动解密，不增加查看明文所用的身份验证门槛。
+- 启动及首次访问均支持旧明文文件迁移；写入临时密文、解密校验后原子替换，不创建明文备份。缺失密钥、损坏文件或写入失败时停止操作并保留原文件。
+- 旧 Keychain 引用首次成功读取后迁移到加密后端；系统钥匙串仍用于保存加密密钥。
+- 会话编辑页查看密码／口令须通过新 LAContext 的 deviceOwnerAuthentication；已保存值回填原框可编辑，有草稿时不读旧值覆盖。30 秒后、失焦或进入后台恢复圆点并保留草稿，关闭表单或切换认证方式才清除。仅查看不修改不重写凭据。具体边界和验收见 [凭据加密与查看](CREDENTIAL_SECURITY.md)。
 - 私钥由 `NSOpenPanel` 选择，保存 security-scoped bookmark，不复制文件。
 
 Swift 解析凭据后，以 `Data`/字节通过 UniFFI 传给 Rust。Rust 使用 `Zeroizing<Vec<u8>>`，认证结束或失败后立即清零。

@@ -334,11 +334,15 @@ private struct SessionProfileCard: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(ProfileDragSourceRegion(profileID: profile.id))
             .contentShape(Rectangle())
-            .gesture(TapGesture(count: 2).exclusively(before: TapGesture()).onEnded { action in
-                switch action {
-                case .first: onConnect(false)
-                case .second: onSelect()
-                }
+            // Selection must not wait for the system double-click timeout.
+            // Keep the independent double tap for opening a terminal, just as
+            // SFTP rows select immediately while also supporting double-open.
+            .onTapGesture(count: 2) {
+                onSelect()
+                onConnect(false)
+            }
+            .simultaneousGesture(TapGesture().onEnded {
+                onSelect()
             })
             HStack(spacing: 8) {
                 Button("新建终端", systemImage: "terminal") { onConnect(false) }
@@ -362,7 +366,7 @@ private struct SessionProfileCard: View {
             Button("取消", role: .cancel) {}
             Button("删除", role: .destructive) { store.delete(profile: profile) }
         } message: {
-            Text("将关闭相关终端和 SFTP 连接、禁用关联映射，并删除该会话的临时凭据。传输历史会保留会话快照。")
+            Text("将关闭相关终端和 SFTP 连接、禁用关联映射，并删除该会话保存的凭据。传输历史会保留会话快照。")
         }
     }
 }
@@ -2087,15 +2091,14 @@ private struct SessionEditorView: View {
     @State private var port: String
     @State private var username: String
     @State private var authMethod: AuthMethod
-    @State private var credential = ""
+    @StateObject private var credential = CredentialRevealController()
     @State private var tags: String
     @State private var symbolName: String
     @State private var customIconData: Data?
     @State private var cropSource: ProfileIconCropSource?
     @State private var privateKeyBookmark: Data?
     @State private var errorMessage: String?
-    @State private var connectionTestMessage: String?
-    @State private var isTestingConnection = false
+    @StateObject private var connectionTest = SessionConnectionTestController()
 
     init(profile: SSHProfile?) {
         originalProfile = profile
@@ -2114,140 +2117,62 @@ private struct SessionEditorView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("SSH 会话").font(.system(size: 11, weight: .semibold)).foregroundStyle(SnakeStyle.muted)
-                    Text(originalProfile == nil ? "新增会话" : "编辑会话").font(.system(size: 22, weight: .bold))
-                }
+                Text(originalProfile == nil ? "新增会话" : "编辑会话")
+                    .font(.system(size: 20, weight: .bold))
                 Spacer()
                 Button { dismiss() } label: { Image(systemName: "xmark") }
                     .buttonStyle(SnakeIconButtonStyle())
                     .keyboardShortcut(.cancelAction)
             }
-            .padding(.horizontal, 24)
-            .frame(height: 82)
+            .padding(.horizontal, 20)
+            .frame(height: 60)
             .background(SnakeStyle.canvas)
             Divider()
 
-            HStack(alignment: .top, spacing: 26) {
-                VStack(spacing: 12) {
-                    editorIconPreview
-                    Text("会话图标").font(.system(size: 13, weight: .semibold))
-                    Text("选择 SF Symbol，或上传照片并裁剪。\n列表中的显示大小保持不变。")
-                        .multilineTextAlignment(.center)
-                        .font(.system(size: 11))
-                        .foregroundStyle(SnakeStyle.muted)
-                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
-                        ForEach(["server.rack", "terminal", "cylinder", "cloud"], id: \.self) { symbol in
-                            Button {
-                                symbolName = symbol
-                                customIconData = nil
-                            } label: {
-                                Image(systemName: symbol)
-                                    .font(.system(size: 16, weight: .medium))
-                                    .foregroundStyle(symbolName == symbol ? SnakeStyle.action : SnakeStyle.muted)
-                                    .frame(width: 62, height: 38)
-                                    .background(symbolName == symbol ? SnakeStyle.selectedRow : Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
-                                    .overlay { RoundedRectangle(cornerRadius: 7, style: .continuous).stroke(Color.primary.opacity(0.1), lineWidth: 1) }
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                    Button {
-                        selectProfileImage()
-                    } label: {
-                        Label(customIconData == nil ? "上传照片…" : "重新选择…", systemImage: "photo.badge.plus")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(SnakeOutlineButtonStyle(emphasized: symbolName == SSHProfile.customIconSymbolName))
-                    Spacer()
+            HStack(alignment: .top, spacing: 16) {
+                ScrollView {
+                    iconColumn
+                        .padding(.vertical, 16)
                 }
-                .frame(width: 170)
-                .padding(.top, 10)
+                .scrollBounceBehavior(.basedOnSize)
+                .frame(width: 188)
 
                 Divider()
 
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 18) {
-                        Text("基本信息").font(.system(size: 14, weight: .bold))
-                        EditorField(label: "会话名称", text: $name)
-                        EditorField(label: "标签", text: $tags, placeholder: "使用空格分隔，例如：生产 API 内网")
-                        Divider()
-
-                        Text("连接").font(.system(size: 14, weight: .bold))
-                        HStack(spacing: 12) {
-                            EditorField(label: "IP 或主机名", text: $host, monospaced: true)
-                            EditorField(label: "端口", text: $port, monospaced: true)
-                                .frame(width: 118)
-                        }
-                        EditorField(label: "用户名", text: $username, monospaced: true)
-                        Divider()
-
-                        HStack {
-                            Text("认证方式").font(.system(size: 14, weight: .bold))
-                            Spacer()
-                            Picker("认证方式", selection: $authMethod) {
-                                ForEach(AuthMethod.allCases) { method in Text(method.label).tag(method) }
-                            }
-                            .labelsHidden()
-                            .pickerStyle(.segmented)
-                            .frame(width: 176)
-                        }
-
-                        if authMethod == .password {
-                            VStack(alignment: .leading, spacing: 6) {
-                                Text("密码").font(.system(size: 11, weight: .medium)).foregroundStyle(SnakeStyle.muted)
-                                SecureField("保存到临时凭据文件", text: $credential)
-                                    .textFieldStyle(.roundedBorder)
-                            }
-                            CredentialNotice(message: "开发阶段暂以明文保存到仅当前用户可读的 credentials.json；后续由密码工具适配器替换。")
-                        } else {
-                            VStack(alignment: .leading, spacing: 6) {
-                                Text("私钥文件").font(.system(size: 11, weight: .medium)).foregroundStyle(SnakeStyle.muted)
-                                HStack {
-                                    Text(privateKeyBookmark == nil ? "选择本机私钥文件" : "已保存私钥访问授权")
-                                        .font(.system(size: 12, design: .monospaced))
-                                        .foregroundStyle(privateKeyBookmark == nil ? SnakeStyle.muted : SnakeStyle.ink)
-                                    Spacer()
-                                    Button("选择…") { selectPrivateKey() }.buttonStyle(SnakeOutlineButtonStyle())
-                                }
-                                .padding(.leading, 10)
-                                .frame(height: 32)
-                                .overlay { RoundedRectangle(cornerRadius: 6, style: .continuous).stroke(Color.primary.opacity(0.16), lineWidth: 1) }
-                            }
-                            VStack(alignment: .leading, spacing: 6) {
-                                Text("私钥口令").font(.system(size: 11, weight: .medium)).foregroundStyle(SnakeStyle.muted)
-                                SecureField("可选，保存到临时凭据文件", text: $credential).textFieldStyle(.roundedBorder)
-                            }
-                            CredentialNotice(message: privateKeyBookmark == nil ? "私钥仅保存 security-scoped bookmark，不复制私钥文件。" : "私钥口令暂存于权限为 0600 的开发凭据文件。")
-                        }
-                        if let errorMessage {
-                            Text(errorMessage).font(.system(size: 12)).foregroundStyle(.red)
-                        }
-                        if let connectionTestMessage {
-                            Text(connectionTestMessage).font(.system(size: 12)).foregroundStyle(SnakeStyle.secure)
-                        }
-                    }
-                    .padding(.vertical, 22)
-                    .padding(.trailing, 4)
+                    editorFields
+                        .padding(.vertical, 16)
+                        .padding(.trailing, 2)
                 }
+                .scrollBounceBehavior(.basedOnSize)
             }
-            .padding(.horizontal, 24)
+            .padding(.horizontal, 20)
             .frame(maxHeight: .infinity)
 
             Divider()
             HStack {
-                Button(isTestingConnection ? "正在测试…" : "测试连接") { testConnection() }
-                    .buttonStyle(SnakeOutlineButtonStyle())
-                    .disabled(isTestingConnection)
+                Button(connectionTest.isTesting ? "正在测试…" : "测试连接") {
+                    connectionTest.start(host: host, port: port)
+                }
+                .buttonStyle(SnakeOutlineButtonStyle())
+                .disabled(connectionTest.isTesting)
+                .help("检测目标的 SSH 握手，不验证账号密码")
                 Spacer()
                 Button("取消") { dismiss() }.buttonStyle(SnakeOutlineButtonStyle())
                 Button("保存会话") { save() }.buttonStyle(SnakeOutlineButtonStyle(emphasized: true))
             }
-            .padding(.horizontal, 24)
-            .frame(height: 62)
+            .padding(.horizontal, 20)
+            .frame(height: 56)
             .background(SnakeStyle.canvas)
         }
-        .frame(width: 820, height: 620)
+        .frame(width: 840, height: 600)
+        .onChange(of: authMethod) { _, _ in credential.reset() }
+        .onChange(of: host) { _, _ in connectionTest.reset() }
+        .onChange(of: port) { _, _ in connectionTest.reset() }
+        .onDisappear {
+            credential.reset()
+            connectionTest.reset()
+        }
         .sheet(item: $cropSource) { source in
             ProfileIconCropView(image: source.image) { data in
                 customIconData = data
@@ -2257,6 +2182,110 @@ private struct SessionEditorView: View {
                 cropSource = nil
             }
         }
+    }
+
+    private var iconColumn: some View {
+        VStack(spacing: 12) {
+            editorIconPreview
+            Text("会话图标").font(.system(size: 12, weight: .semibold))
+            HStack(spacing: 8) {
+                ForEach(["server.rack", "terminal", "cylinder", "cloud"], id: \.self) { symbol in
+                    Button {
+                        symbolName = symbol
+                        customIconData = nil
+                    } label: {
+                        Image(systemName: symbol)
+                            .font(.system(size: 15, weight: .medium))
+                            .foregroundStyle(symbolName == symbol ? SnakeStyle.action : SnakeStyle.muted)
+                            .frame(width: 36, height: 32)
+                            .background(symbolName == symbol ? SnakeStyle.selectedRow : Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 7))
+                            .overlay { RoundedRectangle(cornerRadius: 7).stroke(SnakeStyle.hairline, lineWidth: 1) }
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("会话图标 " + symbol)
+                }
+            }
+            Button { selectProfileImage() } label: {
+                Label(customIconData == nil ? "选择照片…" : "重新选择照片…", systemImage: "photo.badge.plus")
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+            }
+            .buttonStyle(SnakeOutlineButtonStyle(emphasized: symbolName == SSHProfile.customIconSymbolName))
+            .frame(maxWidth: .infinity)
+            Text("选择后可裁剪为会话头像")
+                .font(.system(size: 11)).foregroundStyle(SnakeStyle.muted)
+            SessionConnectionTestFeedback(state: connectionTest.state)
+                .padding(.top, 4)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private var editorFields: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top, spacing: 12) {
+                compactField(label: "会话名称", text: $name)
+                compactField(label: "标签", text: $tags, placeholder: "空格分隔：生产 API")
+            }
+            HStack(alignment: .top, spacing: 12) {
+                compactField(label: "IP 或主机名", text: $host, monospaced: true)
+                compactField(label: "端口", text: $port, monospaced: true)
+                    .frame(width: 100)
+            }
+            HStack(alignment: .top, spacing: 12) {
+                compactField(label: "用户名", text: $username, monospaced: true)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("认证方式").font(.system(size: 11, weight: .medium)).foregroundStyle(SnakeStyle.muted)
+                    Picker("认证方式", selection: $authMethod) {
+                        ForEach(AuthMethod.allCases) { method in Text(method.label).tag(method) }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.segmented)
+                    .frame(height: 32)
+                }
+                .frame(maxWidth: .infinity)
+            }
+            if authMethod == .privateKey {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("私钥文件").font(.system(size: 11, weight: .medium)).foregroundStyle(SnakeStyle.muted)
+                    HStack(spacing: 8) {
+                        Text(privateKeyBookmark == nil ? "选择本机私钥文件" : "已保存私钥访问授权")
+                            .font(.system(size: 12, design: .monospaced))
+                            .foregroundStyle(SnakeStyle.muted)
+                            .lineLimit(1)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        Button("选择…") { selectPrivateKey() }.buttonStyle(SnakeOutlineButtonStyle())
+                    }
+                    .padding(.leading, 10)
+                    .frame(height: 32)
+                    .overlay { RoundedRectangle(cornerRadius: 6).stroke(SnakeStyle.hairline) }
+                }
+            }
+            CredentialInputView(account: savedCredentialAccount, isPassphrase: authMethod == .privateKey, reveal: credential)
+            HStack(alignment: .top, spacing: 6) {
+                Image(systemName: "lock.shield").foregroundStyle(SnakeStyle.secure)
+                Text(authMethod == .password
+                     ? "加密保存 · 查看需身份验证；隐藏后保留编辑草稿。"
+                     : "私钥仅保存访问书签；口令加密保存，查看需身份验证。")
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .font(.system(size: 11)).foregroundStyle(SnakeStyle.muted)
+            if let errorMessage {
+                Text(errorMessage)
+                    .font(.system(size: 12)).foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private func compactField(label: String, text: Binding<String>, placeholder: String = "", monospaced: Bool = false) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(label).font(.system(size: 11, weight: .medium)).foregroundStyle(SnakeStyle.muted)
+            TextField(placeholder, text: text)
+                .textFieldStyle(.roundedBorder)
+                .font(monospaced ? .system(size: 13, design: .monospaced) : .system(size: 13))
+                .frame(height: 32)
+        }
+        .frame(maxWidth: .infinity)
     }
 
     @ViewBuilder
@@ -2278,6 +2307,11 @@ private struct SessionEditorView: View {
                 .frame(width: 88, height: 88)
                 .background(SnakeStyle.action, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
         }
+    }
+
+    private var savedCredentialAccount: String? {
+        guard let originalProfile, originalProfile.authMethod == authMethod else { return nil }
+        return originalProfile.keychainAccount
     }
 
     private func selectProfileImage() {
@@ -2327,7 +2361,7 @@ private struct SessionEditorView: View {
             port: parsedPort,
             username: username,
             authMethod: authMethod,
-            keychainAccount: originalProfile?.keychainAccount,
+            keychainAccount: originalProfile?.authMethod == authMethod ? originalProfile?.keychainAccount : nil,
             privateKeyBookmark: privateKeyBookmark,
             tags: SessionTags.parse(tags),
             symbolName: symbolName.isEmpty ? "server.rack" : symbolName,
@@ -2341,35 +2375,13 @@ private struct SessionEditorView: View {
                 }
                 try ProfileIconStore.save(customIconData, for: profile.id)
             }
-            try store.save(profile: profile, credential: credential.isEmpty ? nil : credential)
+            try store.save(profile: profile, credential: credential.valueToSave)
             if !profile.usesCustomIcon, originalProfile?.usesCustomIcon == true {
                 ProfileIconStore.delete(for: profile.id)
             }
             dismiss()
         } catch {
             errorMessage = error.localizedDescription
-        }
-    }
-
-    private func testConnection() {
-        guard let parsedPort = UInt16(port), !host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            errorMessage = "请先填写有效的主机和端口。"
-            return
-        }
-        isTestingConnection = true
-        errorMessage = nil
-        connectionTestMessage = nil
-        let targetHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
-        Task {
-            do {
-                let key = try await Task.detached(priority: .userInitiated) {
-                    try probeHostKey(host: targetHost, port: parsedPort)
-                }.value
-                connectionTestMessage = "SSH 握手成功 · \(key.algorithm) · \(key.fingerprint)"
-            } catch {
-                errorMessage = "无法完成 SSH 握手：\(error.localizedDescription)"
-            }
-            isTestingConnection = false
         }
     }
 }
@@ -2589,20 +2601,6 @@ private struct EditorField: View {
                 .font(monospaced ? .system(size: 13, design: .monospaced) : .system(size: 13))
         }
         .frame(maxWidth: .infinity)
-    }
-}
-
-private struct CredentialNotice: View {
-    let message: String
-
-    var body: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "checkmark.shield.fill").foregroundStyle(SnakeStyle.secure)
-            Text(message).font(.system(size: 11)).foregroundStyle(SnakeStyle.muted)
-        }
-        .padding(.horizontal, 10)
-        .frame(height: 35)
-        .background(SnakeStyle.secure.opacity(0.08), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
     }
 }
 

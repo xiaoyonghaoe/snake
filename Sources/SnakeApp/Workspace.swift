@@ -422,7 +422,7 @@ private enum TerminalRuntimeError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .missingPassword: "临时凭据文件中没有此会话的密码，请编辑会话后保存密码。"
+        case .missingPassword: "此会话尚未保存密码，请编辑会话后加密保存密码。"
         case .missingPrivateKey: "此会话尚未选择私钥文件。"
         case .stalePrivateKey: "私钥访问授权已失效，请重新选择私钥文件。"
         }
@@ -1744,7 +1744,7 @@ private enum SFTPRuntimeError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .missingPassword: "临时凭据文件中没有此会话的密码，请编辑会话后保存密码。"
+        case .missingPassword: "此会话尚未保存密码，请编辑会话后加密保存密码。"
         case .missingPrivateKey: "此会话尚未选择私钥文件。"
         case .stalePrivateKey: "私钥访问授权已失效，请重新选择私钥文件。"
         }
@@ -2505,6 +2505,25 @@ public final class SnakeAppDelegate: NSObject, NSApplicationDelegate {
         coordinator.openInitialWindow()
         DispatchQueue.main.async {
             coordinator.installApplicationCommands()
+        }
+        Task { @MainActor in
+            do {
+                // Migrate on launch as well as on first access, including
+                // credentials for profiles the user does not connect today.
+                try await Task.detached(priority: .userInitiated) { try CredentialStore.prepare() }.value
+            } catch {
+                guard !store.isPreparingToQuit else { return }
+                let alert = NSAlert()
+                alert.alertStyle = .warning
+                alert.messageText = "凭据存储初始化未完成"
+                alert.informativeText = "\(error.localizedDescription)\n\n未覆盖原凭据文件；在问题解决前，无法正常读取或更新已保存的密码。"
+                alert.addButton(withTitle: "知道了")
+                if let window = NSApp.keyWindow, window.attachedSheet == nil {
+                    alert.beginSheetModal(for: window) { _ in }
+                } else {
+                    alert.runModal()
+                }
+            }
         }
     }
 
