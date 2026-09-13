@@ -73,6 +73,7 @@ public final class TerminalRuntime: ObservableObject, Identifiable {
 
     public func requestConnection() {
         guard state != .connecting, state != .connected else { return }
+        uploader.canPresentTransferConflicts = true
         launchRequested = true
         state = .connecting
         errorMessage = nil
@@ -111,7 +112,7 @@ public final class TerminalRuntime: ObservableObject, Identifiable {
         state = .disconnected
         securityInfo = nil
         currentRemoteDirectory = nil
-        uploader.resolveConflict(.cancel)
+        uploader.closeTransferPresentation()
     }
 
     func terminalSurface() -> TerminalView {
@@ -506,15 +507,34 @@ private final class RustTerminalViewBridge: NSObject, @preconcurrency TerminalVi
 
 @MainActor
 public final class LocalUploadCoordinator: ObservableObject {
+    // Injected only by isolated integration tests; production uses the same
+    // authenticated, host-key-verified factory as before.
+    var transferHandleFactory: (@Sendable () throws -> CoreSftpHandle)?
+    var makeHandle: @Sendable () throws -> CoreSftpHandle {
+        if let transferHandleFactory { return transferHandleFactory }
+        let profile = profile
+        return { try Self.openTransferHandle(profile: profile) }
+    }
     public let profile: SSHProfile
-    @Published public private(set) var records: [SFTPUploadRecord] = []
+    @Published public internal(set) var records: [SFTPUploadRecord] = []
     @Published public private(set) var pendingConflict: SFTPUploadConflictPrompt?
-    @Published public private(set) var errorMessage: String?
-    @Published private(set) var activity = UploadActivity()
+    @Published public internal(set) var errorMessage: String?
+    @Published var activity = UploadActivity()
+    @Published var pendingDownloadConflict: DownloadConflictPrompt?
+    @Published var applyDownloadConflictToBatch = false
+    var downloadConflictContinuation: CheckedContinuation<SFTPUploadConflictDecision, Never>?
+    var downloadRetries: [UUID: @MainActor () async -> Void] = [:]
+    var canPresentTransferConflicts = true
+
+    func closeTransferPresentation() {
+        canPresentTransferConflicts = false
+        resolveConflict(.cancel)
+        resolveDownloadConflict(.cancel)
+    }
     public var isPreparing: Bool { activity.pendingCount > 0 }
     var hasUploadActivity: Bool { activity.startedAt != nil || !records.isEmpty }
     private var conflictContinuation: CheckedContinuation<SFTPUploadConflictDecision, Never>?
-    private var batchTask: Task<Void, Never>?
+    var batchTask: Task<Void, Never>?
 
     public init(profile: SSHProfile) {
         self.profile = profile
@@ -533,6 +553,7 @@ public final class LocalUploadCoordinator: ObservableObject {
         }
         let profile = profile
         let threshold = store.multipartThresholdBytes
+        let makeHandle = makeHandle
         let concurrency = store.multipartConcurrency
         errorMessage = nil
         activity.begin()
@@ -550,13 +571,16 @@ public final class LocalUploadCoordinator: ObservableObject {
                     try urls.flatMap { try Self.uploadItems(for: $0, destinationRoot: destinationRoot) }
                 }.value
                 let operationHandle = try await Task.detached(priority: .userInitiated) {
-                    try Self.openTransferHandle(profile: profile)
+                    try makeHandle()
                 }.value
                 for item in items {
                     if item.isDirectory {
                         try await Task.detached(priority: .utility) {
                             if !operationHandle.pathExists(path: item.remotePath) {
                                 try operationHandle.createDirectory(path: item.remotePath)
+                            }
+                            guard try operationHandle.fileMetadata(path: item.remotePath).kind == "directory" else {
+                                throw TransferIntegrity.error("上传目录目标不是普通目录：\(item.remotePath)")
                             }
                         }.value
                         outcome.succeeded += 1
@@ -630,6 +654,13 @@ public final class LocalUploadCoordinator: ObservableObject {
     }
 
     public func retry(jobID: UUID, store: ApplicationStore, onFinished: (@MainActor () -> Void)? = nil) {
+        if let retry = downloadRetries[jobID] {
+            // Retry participates in the same batch queue, so repeated retries
+            // cannot multiply the per-batch worker limit or race old cleanup.
+            let previous = batchTask
+            batchTask = Task { await previous?.value; await retry() }
+            return
+        }
         guard let record = records.first(where: { $0.jobID == jobID }),
               [.failed, .cancelled, .interrupted].contains(record.state) else { return }
         let item = SFTPUploadItem(
@@ -662,6 +693,9 @@ public final class LocalUploadCoordinator: ObservableObject {
     }
 
     public func clearFinishedRecords() {
+        for record in records where [.succeeded, .failed, .cancelled, .interrupted].contains(record.state) {
+            downloadRetries.removeValue(forKey: record.jobID)
+        }
         records.removeAll { [.succeeded, .failed, .cancelled, .interrupted].contains($0.state) }
         if !isPreparing { activity = UploadActivity() }
     }
@@ -695,6 +729,7 @@ public final class LocalUploadCoordinator: ObservableObject {
     }
 
     private func requestConflict(localURL: URL, remotePath: String) async -> SFTPUploadConflictDecision {
+        guard canPresentTransferConflicts else { return .cancel }
         if conflictContinuation != nil { resolveConflict(.cancel) }
         return await withCheckedContinuation { continuation in
             conflictContinuation = continuation
@@ -715,7 +750,7 @@ public final class LocalUploadCoordinator: ObservableObject {
         ), at: 0)
     }
 
-    private func update(jobID: UUID, state: TransferState, finishedAt: Date? = nil) {
+    func update(jobID: UUID, state: TransferState, finishedAt: Date? = nil) {
         guard let index = records.firstIndex(where: { $0.jobID == jobID }) else { return }
         records[index].state = state
         records[index].finishedAt = finishedAt
@@ -733,7 +768,7 @@ public final class LocalUploadCoordinator: ObservableObject {
         store.markTransferRunning(jobID)
         update(jobID: jobID, state: .running)
         do {
-            try await Self.uploadResumable(
+            let verification = try await Self.uploadResumable(
                 item: item,
                 profile: profile,
                 overwrite: overwrite,
@@ -741,8 +776,13 @@ public final class LocalUploadCoordinator: ObservableObject {
                 concurrency: concurrency,
                 control: control,
                 jobID: jobID,
-                store: store
+                store: store,
+                makeHandle: makeHandle,
+                onVerification: { [weak self] value in
+                    await self?.setVerification(jobID, value)
+                }
             )
+            setVerification(jobID, verification)
             store.markTransferSucceeded(jobID)
             update(jobID: jobID, state: .succeeded, finishedAt: .now)
         } catch {
@@ -750,6 +790,7 @@ public final class LocalUploadCoordinator: ObservableObject {
                 store.cancel(jobID: jobID)
                 update(jobID: jobID, state: .cancelled, finishedAt: .now)
             } else {
+                setVerification(jobID, .failed(Self.message(for: error)))
                 store.markTransferFailed(jobID, message: Self.message(for: error))
                 update(jobID: jobID, state: .failed, finishedAt: .now)
             }
@@ -764,8 +805,28 @@ public final class LocalUploadCoordinator: ObservableObject {
         concurrency: Int,
         control: CoreTransferControl,
         jobID: UUID,
-        store: ApplicationStore
-    ) async throws {
+        store: ApplicationStore,
+        makeHandle: @escaping @Sendable () throws -> CoreSftpHandle,
+        onVerification: @escaping @Sendable (TransferVerification) async -> Void
+    ) async throws -> TransferVerification {
+        let initialVersion = try TransferIntegrity.LocalVersion(item.localURL)
+        guard initialVersion.size == item.size else { throw TransferIntegrity.error("本地源文件已变化，请重新上传") }
+        let operation = try makeHandle()
+        let capability = TransferIntegrity.bestEffortCapability { try operation.checksumCapability() }
+        if capability.tool == "sftp-only" {
+            return try await uploadSFTPOnly(item: item, initialVersion: initialVersion, capability: capability,
+                operation: operation, overwrite: overwrite, thresholdBytes: thresholdBytes, concurrency: concurrency,
+                control: control, jobID: jobID, store: store, makeHandle: makeHandle)
+        }
+        let localHash: String?
+        if capability.algorithm.isEmpty { localHash = nil }
+        else {
+            await onVerification(.checking("源文件 \(capability.algorithm)"))
+            localHash = try TransferIntegrity.optionalDigest {
+                try TransferIntegrity.localDigest(url: item.localURL, algorithm: capability.algorithm, control: control)
+            }
+            await onVerification(.pending)
+        }
         let totalBytes = max(item.size, 0)
         let workerCount = item.size > thresholdBytes ? min(max(concurrency, 1), Int(max(item.size, 1))) : 1
         let ranges = uploadRanges(totalBytes: UInt64(totalBytes), workerCount: workerCount)
@@ -782,7 +843,7 @@ public final class LocalUploadCoordinator: ObservableObject {
             try await withThrowingTaskGroup(of: Void.self) { group in
                 for (index, range) in ranges.enumerated() {
                     group.addTask {
-                        let handle = try openTransferHandle(profile: profile)
+                        let handle = try makeHandle()
                         let observer = SFTPPartTransferObserver(index: index, progress: progress)
                         try handle.uploadPartResumable(
                             localPath: item.localURL.path,
@@ -794,22 +855,42 @@ public final class LocalUploadCoordinator: ObservableObject {
                         )
                     }
                 }
-                try await group.waitForAll()
+                do { try await group.waitForAll() } catch { control.cancel(); throw error }
             }
         } catch {
             control.cancel()
             throw error
         }
 
-        try openTransferHandle(profile: profile).finalizeResumableUpload(
-            remotePartPaths: partPaths,
-            remoteStagingPath: stagingPath,
-            remoteTargetPath: item.remotePath,
-            overwrite: overwrite
-        )
+        // Resume validates content, not only part lengths. A failed digest
+        // invalidates the token's parts before a subsequent retry.
+        do {
+            try operation.assembleUpload(parts: partPaths, staging: stagingPath, control: control)
+            guard try operation.fileMetadata(path: stagingPath).size == UInt64(totalBytes),
+                  try TransferIntegrity.LocalVersion(item.localURL) == initialVersion else {
+                throw TransferIntegrity.error("上传长度或源文件已变化，暂存文件未发布")
+            }
+            let result: TransferVerification
+            if let localHash {
+                await onVerification(.checking(capability.algorithm))
+                result = try TransferIntegrity.bestEffortVerification(algorithm: capability.algorithm, local: { localHash }, remote: {
+                    try operation.remoteChecksum(path: stagingPath, capability: capability, control: control)
+                })
+            } else { result = .unavailable(capability.reason.isEmpty ? "源文件摘要无法计算，已跳过校验" : capability.reason) }
+            guard try TransferIntegrity.LocalVersion(item.localURL) == initialVersion else {
+                throw TransferIntegrity.error("校验期间本地源文件已变化")
+            }
+            try operation.publishUpload(staging: stagingPath, target: item.remotePath, parts: partPaths, overwrite: overwrite, control: control)
+            return result
+        } catch {
+            // Remove only exact task-owned staging paths. Do not touch the
+            // final target or recursively remove any remote directory.
+            for path in partPaths + [stagingPath] { try? operation.removeTransferTemporary(path: path) }
+            throw error
+        }
     }
 
-    nonisolated private static func uploadRanges(totalBytes: UInt64, workerCount: Int) -> [SFTPUploadRange] {
+    nonisolated static func uploadRanges(totalBytes: UInt64, workerCount: Int) -> [SFTPUploadRange] {
         guard totalBytes > 0 else { return [SFTPUploadRange(offset: 0, length: 0)] }
         let count = max(1, min(workerCount, Int(totalBytes)))
         let base = totalBytes / UInt64(count)
@@ -822,7 +903,7 @@ public final class LocalUploadCoordinator: ObservableObject {
         }
     }
 
-    nonisolated private static func openTransferHandle(profile: SSHProfile) throws -> CoreSftpHandle {
+    nonisolated static func openTransferHandle(profile: SSHProfile) throws -> CoreSftpHandle {
         let authentication = try authentication(for: profile)
         defer {
             if case let .privateKey(_, _, scopedURL) = authentication {
@@ -957,6 +1038,7 @@ public final class SFTPRuntime: ObservableObject, Identifiable {
 
     public func connectIfNeeded(accepting fingerprint: String? = nil) {
         guard connectionState != .connecting, connectionState != .connected else { return }
+        uploader.canPresentTransferConflicts = true
         connectionState = .connecting
         errorMessage = nil
         pendingHostKey = nil
@@ -1041,7 +1123,7 @@ public final class SFTPRuntime: ObservableObject, Identifiable {
         loadingPath = nil
         failedNavigationPath = nil
         connectionState = .disconnected
-        uploader.resolveConflict(.cancel)
+        uploader.closeTransferPresentation()
     }
 
     public func refresh(path: String? = nil) {
@@ -1592,6 +1674,8 @@ public struct SFTPUploadRecord: Identifiable, Sendable {
     public var state: TransferState
     let localURL: URL
     let overwrite: Bool
+    var isDownload = false
+    var verification: TransferVerification = .pending
 
     init(
         jobID: UUID,
@@ -1644,7 +1728,7 @@ struct SFTPUploadItem: Sendable {
     let isDirectory: Bool
 }
 
-private struct SFTPUploadRange: Sendable {
+struct SFTPUploadRange: Sendable {
     let offset: UInt64
     let length: UInt64
 }
@@ -1690,7 +1774,7 @@ private final class SFTPTransferObserver: CoreTransferObserver, @unchecked Senda
     }
 }
 
-private final class SFTPPartTransferObserver: CoreTransferObserver, @unchecked Sendable {
+final class SFTPPartTransferObserver: CoreTransferObserver, @unchecked Sendable {
     private let index: Int
     private let progress: SFTPMultipartProgress
 
@@ -1704,7 +1788,7 @@ private final class SFTPPartTransferObserver: CoreTransferObserver, @unchecked S
     }
 }
 
-private final class SFTPMultipartProgress: @unchecked Sendable {
+final class SFTPMultipartProgress: @unchecked Sendable {
     private let jobID: UUID
     private let totalBytes: UInt64
     private weak var store: ApplicationStore?

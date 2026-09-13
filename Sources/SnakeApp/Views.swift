@@ -880,6 +880,9 @@ private struct SFTPBrowserView: View {
             )
         }
         .background(uploadConflictAlert)
+        .sheet(item: Binding(get: { runtime.uploader.pendingDownloadConflict }, set: { if $0 == nil { runtime.uploader.resolveDownloadConflict(.cancel) } })) { conflict in
+            DownloadConflictView(uploader: runtime.uploader, conflict: conflict)
+        }
         .task { runtime.connectIfNeeded() }
         .onAppear { pathDraft = runtime.currentPath }
         .onChange(of: runtime.currentPath) { _, newPath in
@@ -1069,6 +1072,11 @@ private struct SFTPFileTable: View {
                                 Button(file.isDirectory ? "打开文件夹" : "打开", systemImage: file.isDirectory ? "folder" : "arrow.up.forward.app") {
                                     onOpen(file)
                                 }
+                                Button("下载…", systemImage: "square.and.arrow.down") {
+                                    runtime.fileSelection.contextClick(file.id, order: runtime.entries.map(\.id))
+                                    chooseDownloadDirectory()
+                                }
+                                .disabled(runtime.directoryActionDestination == nil)
                                 Divider()
                                 if file.isDirectory {
                                     creationAndUploadMenu
@@ -1199,6 +1207,23 @@ private struct SFTPFileTable: View {
             Text(deleteConfirmationMessage(for: confirmedFiles))
         }
 
+    }
+
+    private func chooseDownloadDirectory() {
+        guard runtime.directoryActionDestination != nil else { return }
+        let files = runtime.entries.filter { runtime.fileSelection.ids.contains($0.id) }
+        guard !files.isEmpty else { return }
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.canCreateDirectories = true
+        panel.prompt = "下载到此处"
+        panel.message = "选择本地保存目录，将下载 \(files.count) 个选中项目（包含文件夹内的内容）。"
+        panel.begin { response in
+            guard response == .OK, let root = panel.url else { return }
+            Task { @MainActor in runtime.uploader.download(files: files, to: root, store: store) }
+        }
     }
 
     private func fileIcon(_ file: RemoteFile) -> String {
@@ -1369,12 +1394,12 @@ private struct UploadStatusEntry: View {
                                      showsLabel: showsLabel, onOpen: { showsHistory = true })
                 }
                 .fixedSize(horizontal: true, vertical: false)
-                .accessibilityLabel("查看当前\(contextName)上传记录")
-                .help("查看当前\(contextName)上传记录 · \(uploader.activity.summary)")
+                .accessibilityLabel("查看当前\(contextName)传输记录")
+                .help("查看当前\(contextName)传输记录 · \(uploader.transferSummary)")
             }
         }
         .sheet(isPresented: $showsHistory) {
-            UploadHistoryView(uploader: uploader, contextDescription: "当前\(contextName)标签的文件上传记录")
+            UploadHistoryView(uploader: uploader, contextDescription: "当前\(contextName)标签的文件传输记录")
                 .environmentObject(store)
         }
     }
@@ -1396,6 +1421,7 @@ private struct UploadMiniStatus: View {
     private var color: Color {
         if let record = activeRecord, record.state == .paused { return .orange }
         if isBusy { return SnakeStyle.action }
+        if uploader.hasUnverifiedTransfers && uploader.activity.result != .failed { return .orange }
         switch uploader.activity.result {
         case .failed: return .red
         case .cancelled, .skipped: return SnakeStyle.muted
@@ -1403,7 +1429,11 @@ private struct UploadMiniStatus: View {
         }
     }
     private var icon: String {
-        if isBusy { return activeRecord?.state == .paused ? "pause.circle.fill" : "arrow.up.circle.fill" }
+        if isBusy {
+            if activeRecord?.verification.isChecking == true { return "checkmark.shield" }
+            return activeRecord?.state == .paused ? "pause.circle.fill" : (activeRecord?.isDownload == true ? "arrow.down.circle.fill" : "arrow.up.circle.fill")
+        }
+        if uploader.hasUnverifiedTransfers && uploader.activity.result != .failed { return "exclamationmark.shield" }
         switch uploader.activity.result {
         case .succeeded: return success ? "checkmark.circle.fill" : "clock.arrow.circlepath"
         case .failed: return "exclamationmark.circle.fill"
@@ -1422,7 +1452,9 @@ private struct UploadMiniStatus: View {
                 Image(systemName: icon)
                     .font(.system(size: 13, weight: .semibold))
                     .symbolEffect(.pulse, options: .repeating, isActive: isBusy && activeRecord?.state != .paused && !reduceMotion)
-                if let progress {
+                if activeRecord?.verification.isChecking == true {
+                    Text("正在校验…").font(.system(size: 11))
+                } else if let progress {
                     ProgressView(value: progress).progressViewStyle(.linear)
                         .tint(color).frame(width: 72)
                         .animation(reduceMotion ? nil : .linear(duration: 0.15), value: progress)
@@ -1430,11 +1462,11 @@ private struct UploadMiniStatus: View {
                         .font(.system(size: 10, weight: .semibold, design: .monospaced))
                         .frame(width: 32, alignment: .trailing)
                 } else if isBusy {
-                    Text(uploader.pendingConflict == nil ? "准备上传…" : "等待确认")
+                    Text(uploader.pendingConflict == nil && uploader.pendingDownloadConflict == nil ? "准备传输…" : "等待确认")
                         .font(.system(size: 11))
                 }
                 if success && showsLabel { Text("已完成").font(.system(size: 11, weight: .medium)) }
-                else if showsLabel && !isBusy { Text("上传记录").font(.system(size: 11)) }
+                else if showsLabel && !isBusy { Text("传输记录").font(.system(size: 11)) }
             }
             .foregroundStyle(color)
             .frame(minWidth: 28, minHeight: 28)
@@ -1453,16 +1485,16 @@ private struct UploadHistoryView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 11) {
-                Image(systemName: "arrow.up.circle.fill")
+                Image(systemName: "arrow.up.arrow.down.circle.fill")
                     .font(.system(size: 24))
                     .foregroundStyle(SnakeStyle.action)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("上传记录")
+                    Text("传输记录")
                         .font(.system(size: 18, weight: .semibold))
                     Text(contextDescription)
                         .font(.system(size: 11))
                         .foregroundStyle(SnakeStyle.muted)
-                    Text(uploader.activity.summary)
+                    Text(uploader.transferSummary)
                         .font(.system(size: 11)).foregroundStyle(SnakeStyle.muted)
                 }
                 Spacer()
@@ -1474,11 +1506,17 @@ private struct UploadHistoryView: View {
 
             Divider()
 
+            if let message = uploader.errorMessage {
+                Text(message).font(.system(size: 11)).foregroundStyle(.red)
+                    .textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 18).padding(.vertical, 6)
+            }
+
             if uploader.records.isEmpty {
                 ContentUnavailableView(
-                    uploader.isPreparing ? "正在准备上传" : "没有文件级记录",
+                    uploader.isPreparing ? "正在准备传输" : "没有文件级记录",
                     systemImage: "arrow.up.doc",
-                    description: Text(uploader.errorMessage ?? (uploader.isPreparing ? "正在扫描文件或等待上传确认。" : "空文件夹和跳过的项目不会生成文件记录；本次结果见上方摘要。"))
+                    description: Text(uploader.errorMessage ?? (uploader.isPreparing ? "正在扫描文件或等待确认。" : "本次结果见上方摘要。"))
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
@@ -1541,13 +1579,17 @@ private struct UploadHistoryRow: View {
                     .foregroundStyle(stateColor)
                     .frame(width: 17)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(record.fileName)
+                    Text("\(record.isDownload ? "↓" : "↑") \(record.fileName)")
                         .font(.system(size: 12, weight: .semibold))
                         .lineLimit(1)
                     Text(record.remotePath)
                         .font(.system(size: 9, design: .monospaced))
                         .foregroundStyle(SnakeStyle.muted)
                         .lineLimit(1)
+                    Text(record.localURL.path)
+                        .font(.system(size: 9, design: .monospaced)).foregroundStyle(SnakeStyle.muted).lineLimit(1)
+                    Text(record.verification.label)
+                        .font(.system(size: 10)).foregroundStyle(record.verification.isWarning ? Color.orange : stateColor).lineLimit(1)
                 }
             }
             .frame(minWidth: 150, maxWidth: .infinity, alignment: .leading)
@@ -1557,15 +1599,21 @@ private struct UploadHistoryRow: View {
                 .frame(width: 126, alignment: .leading)
             Text(durationText)
                 .frame(width: 70, alignment: .leading)
-            Text(record.state.label)
+            Text(record.state == .running && record.verification.isChecking ? "正在校验" : record.state.label)
                 .foregroundStyle(stateColor)
                 .frame(width: 72, alignment: .leading)
+                .overlay(alignment: .bottomLeading) {
+                    if record.state == .running && !record.verification.isChecking {
+                        Text("\(Int((store.transferJob(id: record.jobID)?.progress ?? 0) * 100))%")
+                            .font(.system(size: 9, design: .monospaced)).offset(y: 14)
+                    }
+                }
             controls.frame(width: 62, alignment: .trailing)
         }
         .font(.system(size: 10, design: .monospaced))
         .padding(.horizontal, 16)
-        .frame(height: 48)
-        .help(store.transferJob(id: record.jobID)?.errorMessage ?? record.remotePath)
+        .frame(height: 78)
+        .help([record.remotePath, record.localURL.path, record.verification.label, store.transferJob(id: record.jobID)?.errorMessage ?? ""].joined(separator: "\n"))
     }
 
     @ViewBuilder
@@ -1580,9 +1628,9 @@ private struct UploadHistoryRow: View {
                 controlButton("xmark", "取消") { uploader.cancel(jobID: record.jobID, store: store) }
             case .queued, .scanning:
                 controlButton("xmark", "取消") { uploader.cancel(jobID: record.jobID, store: store) }
-            case .failed, .interrupted:
+            case .failed, .interrupted, .cancelled:
                 controlButton("arrow.clockwise", "重试") { uploader.retry(jobID: record.jobID, store: store) }
-            case .succeeded, .cancelled:
+            case .succeeded:
                 EmptyView()
             }
         }
@@ -1601,23 +1649,45 @@ private struct UploadHistoryRow: View {
     }
 
     private var stateIcon: String {
+        if record.state == .succeeded && record.verification.isWarning { return "exclamationmark.shield" }
         switch record.state {
-        case .succeeded: "checkmark.circle.fill"
-        case .failed: "exclamationmark.triangle.fill"
-        case .cancelled, .interrupted: "xmark.circle.fill"
-        case .paused: "pause.circle.fill"
-        default: "arrow.up.circle.fill"
+        case .succeeded: return "checkmark.circle.fill"
+        case .failed: return "exclamationmark.triangle.fill"
+        case .cancelled, .interrupted: return "xmark.circle.fill"
+        case .paused: return "pause.circle.fill"
+        default: return record.verification.isChecking ? "checkmark.shield" : (record.isDownload ? "arrow.down.circle.fill" : "arrow.up.circle.fill")
         }
     }
 
     private var stateColor: Color {
+        if record.state == .succeeded && record.verification.isWarning { return .orange }
         switch record.state {
-        case .succeeded: SnakeStyle.secure
-        case .failed: .red
-        case .paused: .orange
-        case .cancelled, .interrupted: SnakeStyle.muted
-        default: SnakeStyle.action
+        case .succeeded: return SnakeStyle.secure
+        case .failed: return .red
+        case .paused: return .orange
+        case .cancelled, .interrupted: return SnakeStyle.muted
+        default: return SnakeStyle.action
         }
+    }
+}
+
+private struct DownloadConflictView: View {
+    @ObservedObject var uploader: LocalUploadCoordinator
+    let conflict: DownloadConflictPrompt
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("本地文件已存在").font(.headline)
+            Text(conflict.path).font(.system(size: 12, design: .monospaced)).textSelection(.enabled)
+            Text("覆盖前会先下载到临时文件并完成校验流程；校验工具不可用时会标记未校验。原文件不会提前被清空。")
+                .font(.system(size: 12)).foregroundStyle(.secondary)
+            Toggle("应用到当前批次", isOn: $uploader.applyDownloadConflictToBatch)
+            HStack {
+                Button("取消下载", role: .cancel) { uploader.resolveDownloadConflict(.cancel) }
+                Spacer()
+                Button("跳过") { uploader.resolveDownloadConflict(.skip) }
+                Button("覆盖", role: .destructive) { uploader.resolveDownloadConflict(.overwrite) }
+            }
+        }.padding(22).frame(width: 440)
     }
 }
 
@@ -2944,7 +3014,7 @@ public struct SnakeSettingsView: View {
                                 .frame(width: 48, alignment: .trailing)
                         }
                     }
-                    Text("超过阈值的文件会拆分并使用独立 SFTP 连接并行上传。未完成的隐藏分片会保留，再次上传同一版本文件时自动续传。")
+                    Text("超过阈值的文件使用独立 SFTP 连接分片上传或下载；下载文件和分片共享并发上限。上传支持续传，下载重试重新传输。校验优先 SHA-256，其次 MD5，不可用时标记未校验，不读回文件。")
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)

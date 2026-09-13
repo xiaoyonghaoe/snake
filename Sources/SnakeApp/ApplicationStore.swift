@@ -262,6 +262,14 @@ public final class ApplicationStore: ObservableObject {
         }
     }
 
+    func registerRealDownload(profile: SSHProfile, remotePath: String, localURL: URL, size: Int64) -> UUID {
+        let job = TransferJob(sourceProfileName: profile.name, targetProfileName: "本机",
+                              sourcePath: remotePath, targetPath: localURL.path, totalBytes: max(1, size))
+        transferJobs.insert(job, at: 0)
+        ephemeralTransferJobIDs.insert(job.id)
+        return job.id
+    }
+
     func markTransferSucceeded(_ id: UUID) {
         updateJob(id) {
             $0.state = .succeeded

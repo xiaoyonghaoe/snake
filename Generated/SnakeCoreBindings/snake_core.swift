@@ -800,6 +800,10 @@ public func FfiConverterTypeCoreDatabase_lower(_ value: CoreDatabase) -> UnsafeM
 
 public protocol CoreSftpHandleProtocol: AnyObject, Sendable {
     
+    func assembleUpload(parts: [String], staging: String, control: CoreTransferControl) throws
+
+    func checksumCapability() throws  -> CoreChecksumCapability
+
     func copyFrom(source: CoreSftpHandle, sourcePath: String, destinationPath: String, isDirectory: Bool) throws 
     
     func copyFromControlled(source: CoreSftpHandle, sourcePath: String, destinationPath: String, isDirectory: Bool, totalBytes: UInt64, control: CoreTransferControl, observer: CoreTransferObserver) throws 
@@ -813,6 +817,14 @@ public protocol CoreSftpHandleProtocol: AnyObject, Sendable {
     func download(remotePath: String, localPath: String) throws 
     
     /**
+     * Swift owns an O_EXCL, no-follow staging descriptor for the duration of
+     * all workers. Clone it but use positional writes (dup shares seek state).
+     */
+    func downloadRange(remotePath: String, localFd: Int32, offset: UInt64, length: UInt64, control: CoreTransferControl, observer: CoreTransferObserver) throws
+
+    func fileMetadata(path: String) throws  -> CoreFileMetadata
+
+    /**
      * Concatenates completed part files into a staging file and then moves
      * that staging file into place. `mv -f` is deliberately the final step:
      * an interrupted upload never truncates the user's existing target.
@@ -825,12 +837,26 @@ public protocol CoreSftpHandleProtocol: AnyObject, Sendable {
     
     func pathExists(path: String)  -> Bool
     
+    /**
+     * SFTP-only accounts cannot run cat/mv. Independent handles write
+     * disjoint ranges into one fresh, exclusively created staging file.
+     */
+    func prepareNativeUpload(staging: String) throws
+
+    func publishNativeUpload(staging: String, target: String, overwrite: Bool, control: CoreTransferControl) throws
+
+    func publishUpload(staging: String, target: String, parts: [String], overwrite: Bool, control: CoreTransferControl) throws
+
+    func remoteChecksum(path: String, capability: CoreChecksumCapability, control: CoreTransferControl) throws  -> String
+
     func removeDirectory(path: String) throws 
     
     func removeDirectoryRecursive(path: String) throws 
     
     func removeFile(path: String) throws 
     
+    func removeTransferTemporary(path: String) throws
+
     func rename(source: String, destination: String) throws 
     
     func setPermissions(path: String, mode: UInt32) throws 
@@ -841,6 +867,8 @@ public protocol CoreSftpHandleProtocol: AnyObject, Sendable {
     
     func uploadControlled(localPath: String, remotePath: String, control: CoreTransferControl, observer: CoreTransferObserver) throws 
     
+    func uploadNativeRange(localPath: String, staging: String, offset: UInt64, length: UInt64, control: CoreTransferControl, observer: CoreTransferObserver) throws
+
     /**
      * Uploads one deterministic part file. Existing bytes are kept and the
      * transfer continues at the remote part's current size. The caller uses
@@ -902,6 +930,22 @@ open class CoreSftpHandle: CoreSftpHandleProtocol, @unchecked Sendable {
     
 
     
+open func assembleUpload(parts: [String], staging: String, control: CoreTransferControl)throws   {try rustCallWithError(FfiConverterTypeCoreError_lift) {
+    uniffi_snake_core_fn_method_coresftphandle_assemble_upload(self.uniffiClonePointer(),
+        FfiConverterSequenceString.lower(parts),
+        FfiConverterString.lower(staging),
+        FfiConverterTypeCoreTransferControl_lower(control),$0
+    )
+}
+}
+
+open func checksumCapability()throws  -> CoreChecksumCapability  {
+    return try  FfiConverterTypeCoreChecksumCapability_lift(try rustCallWithError(FfiConverterTypeCoreError_lift) {
+    uniffi_snake_core_fn_method_coresftphandle_checksum_capability(self.uniffiClonePointer(),$0
+    )
+})
+}
+
 open func copyFrom(source: CoreSftpHandle, sourcePath: String, destinationPath: String, isDirectory: Bool)throws   {try rustCallWithError(FfiConverterTypeCoreError_lift) {
     uniffi_snake_core_fn_method_coresftphandle_copy_from(self.uniffiClonePointer(),
         FfiConverterTypeCoreSftpHandle_lower(source),
@@ -957,6 +1001,30 @@ open func download(remotePath: String, localPath: String)throws   {try rustCallW
 }
     
     /**
+     * Swift owns an O_EXCL, no-follow staging descriptor for the duration of
+     * all workers. Clone it but use positional writes (dup shares seek state).
+     */
+open func downloadRange(remotePath: String, localFd: Int32, offset: UInt64, length: UInt64, control: CoreTransferControl, observer: CoreTransferObserver)throws   {try rustCallWithError(FfiConverterTypeCoreError_lift) {
+    uniffi_snake_core_fn_method_coresftphandle_download_range(self.uniffiClonePointer(),
+        FfiConverterString.lower(remotePath),
+        FfiConverterInt32.lower(localFd),
+        FfiConverterUInt64.lower(offset),
+        FfiConverterUInt64.lower(length),
+        FfiConverterTypeCoreTransferControl_lower(control),
+        FfiConverterCallbackInterfaceCoreTransferObserver_lower(observer),$0
+    )
+}
+}
+
+open func fileMetadata(path: String)throws  -> CoreFileMetadata  {
+    return try  FfiConverterTypeCoreFileMetadata_lift(try rustCallWithError(FfiConverterTypeCoreError_lift) {
+    uniffi_snake_core_fn_method_coresftphandle_file_metadata(self.uniffiClonePointer(),
+        FfiConverterString.lower(path),$0
+    )
+})
+}
+
+    /**
      * Concatenates completed part files into a staging file and then moves
      * that staging file into place. `mv -f` is deliberately the final step:
      * an interrupted upload never truncates the user's existing target.
@@ -994,6 +1062,48 @@ open func pathExists(path: String) -> Bool  {
 })
 }
     
+    /**
+     * SFTP-only accounts cannot run cat/mv. Independent handles write
+     * disjoint ranges into one fresh, exclusively created staging file.
+     */
+open func prepareNativeUpload(staging: String)throws   {try rustCallWithError(FfiConverterTypeCoreError_lift) {
+    uniffi_snake_core_fn_method_coresftphandle_prepare_native_upload(self.uniffiClonePointer(),
+        FfiConverterString.lower(staging),$0
+    )
+}
+}
+
+open func publishNativeUpload(staging: String, target: String, overwrite: Bool, control: CoreTransferControl)throws   {try rustCallWithError(FfiConverterTypeCoreError_lift) {
+    uniffi_snake_core_fn_method_coresftphandle_publish_native_upload(self.uniffiClonePointer(),
+        FfiConverterString.lower(staging),
+        FfiConverterString.lower(target),
+        FfiConverterBool.lower(overwrite),
+        FfiConverterTypeCoreTransferControl_lower(control),$0
+    )
+}
+}
+
+open func publishUpload(staging: String, target: String, parts: [String], overwrite: Bool, control: CoreTransferControl)throws   {try rustCallWithError(FfiConverterTypeCoreError_lift) {
+    uniffi_snake_core_fn_method_coresftphandle_publish_upload(self.uniffiClonePointer(),
+        FfiConverterString.lower(staging),
+        FfiConverterString.lower(target),
+        FfiConverterSequenceString.lower(parts),
+        FfiConverterBool.lower(overwrite),
+        FfiConverterTypeCoreTransferControl_lower(control),$0
+    )
+}
+}
+
+open func remoteChecksum(path: String, capability: CoreChecksumCapability, control: CoreTransferControl)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeCoreError_lift) {
+    uniffi_snake_core_fn_method_coresftphandle_remote_checksum(self.uniffiClonePointer(),
+        FfiConverterString.lower(path),
+        FfiConverterTypeCoreChecksumCapability_lower(capability),
+        FfiConverterTypeCoreTransferControl_lower(control),$0
+    )
+})
+}
+
 open func removeDirectory(path: String)throws   {try rustCallWithError(FfiConverterTypeCoreError_lift) {
     uniffi_snake_core_fn_method_coresftphandle_remove_directory(self.uniffiClonePointer(),
         FfiConverterString.lower(path),$0
@@ -1015,6 +1125,13 @@ open func removeFile(path: String)throws   {try rustCallWithError(FfiConverterTy
 }
 }
     
+open func removeTransferTemporary(path: String)throws   {try rustCallWithError(FfiConverterTypeCoreError_lift) {
+    uniffi_snake_core_fn_method_coresftphandle_remove_transfer_temporary(self.uniffiClonePointer(),
+        FfiConverterString.lower(path),$0
+    )
+}
+}
+
 open func rename(source: String, destination: String)throws   {try rustCallWithError(FfiConverterTypeCoreError_lift) {
     uniffi_snake_core_fn_method_coresftphandle_rename(self.uniffiClonePointer(),
         FfiConverterString.lower(source),
@@ -1057,6 +1174,18 @@ open func uploadControlled(localPath: String, remotePath: String, control: CoreT
 }
 }
     
+open func uploadNativeRange(localPath: String, staging: String, offset: UInt64, length: UInt64, control: CoreTransferControl, observer: CoreTransferObserver)throws   {try rustCallWithError(FfiConverterTypeCoreError_lift) {
+    uniffi_snake_core_fn_method_coresftphandle_upload_native_range(self.uniffiClonePointer(),
+        FfiConverterString.lower(localPath),
+        FfiConverterString.lower(staging),
+        FfiConverterUInt64.lower(offset),
+        FfiConverterUInt64.lower(length),
+        FfiConverterTypeCoreTransferControl_lower(control),
+        FfiConverterCallbackInterfaceCoreTransferObserver_lower(observer),$0
+    )
+}
+}
+
     /**
      * Uploads one deterministic part file. Existing bytes are kept and the
      * transfer continues at the remote part's current size. The caller uses
@@ -1297,6 +1426,8 @@ public protocol CoreTransferControlProtocol: AnyObject, Sendable {
     
     func cancel() 
     
+    func checkpoint() throws
+
     func pause() 
     
     func resume() 
@@ -1367,6 +1498,12 @@ open func cancel()  {try! rustCall() {
 }
 }
     
+open func checkpoint()throws   {try rustCallWithError(FfiConverterTypeCoreError_lift) {
+    uniffi_snake_core_fn_method_coretransfercontrol_checkpoint(self.uniffiClonePointer(),$0
+    )
+}
+}
+
 open func pause()  {try! rustCall() {
     uniffi_snake_core_fn_method_coretransfercontrol_pause(self.uniffiClonePointer(),$0
     )
@@ -1433,6 +1570,84 @@ public func FfiConverterTypeCoreTransferControl_lower(_ value: CoreTransferContr
 }
 
 
+
+
+public struct CoreChecksumCapability {
+    public var tool: String
+    public var algorithm: String
+    public var reason: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(tool: String, algorithm: String, reason: String) {
+        self.tool = tool
+        self.algorithm = algorithm
+        self.reason = reason
+    }
+}
+
+#if compiler(>=6)
+extension CoreChecksumCapability: Sendable {}
+#endif
+
+
+extension CoreChecksumCapability: Equatable, Hashable {
+    public static func ==(lhs: CoreChecksumCapability, rhs: CoreChecksumCapability) -> Bool {
+        if lhs.tool != rhs.tool {
+            return false
+        }
+        if lhs.algorithm != rhs.algorithm {
+            return false
+        }
+        if lhs.reason != rhs.reason {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(tool)
+        hasher.combine(algorithm)
+        hasher.combine(reason)
+    }
+}
+
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeCoreChecksumCapability: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> CoreChecksumCapability {
+        return
+            try CoreChecksumCapability(
+                tool: FfiConverterString.read(from: &buf),
+                algorithm: FfiConverterString.read(from: &buf),
+                reason: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: CoreChecksumCapability, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.tool, into: &buf)
+        FfiConverterString.write(value.algorithm, into: &buf)
+        FfiConverterString.write(value.reason, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCoreChecksumCapability_lift(_ buf: RustBuffer) throws -> CoreChecksumCapability {
+    return try FfiConverterTypeCoreChecksumCapability.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCoreChecksumCapability_lower(_ value: CoreChecksumCapability) -> RustBuffer {
+    return FfiConverterTypeCoreChecksumCapability.lower(value)
+}
 
 
 public struct CoreConnectionSecurity {
@@ -1542,6 +1757,92 @@ public func FfiConverterTypeCoreConnectionSecurity_lift(_ buf: RustBuffer) throw
 #endif
 public func FfiConverterTypeCoreConnectionSecurity_lower(_ value: CoreConnectionSecurity) -> RustBuffer {
     return FfiConverterTypeCoreConnectionSecurity.lower(value)
+}
+
+
+public struct CoreFileMetadata {
+    public var size: UInt64
+    public var modifiedAt: UInt64
+    public var kind: String
+    public var linkTarget: String?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(size: UInt64, modifiedAt: UInt64, kind: String, linkTarget: String?) {
+        self.size = size
+        self.modifiedAt = modifiedAt
+        self.kind = kind
+        self.linkTarget = linkTarget
+    }
+}
+
+#if compiler(>=6)
+extension CoreFileMetadata: Sendable {}
+#endif
+
+
+extension CoreFileMetadata: Equatable, Hashable {
+    public static func ==(lhs: CoreFileMetadata, rhs: CoreFileMetadata) -> Bool {
+        if lhs.size != rhs.size {
+            return false
+        }
+        if lhs.modifiedAt != rhs.modifiedAt {
+            return false
+        }
+        if lhs.kind != rhs.kind {
+            return false
+        }
+        if lhs.linkTarget != rhs.linkTarget {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(size)
+        hasher.combine(modifiedAt)
+        hasher.combine(kind)
+        hasher.combine(linkTarget)
+    }
+}
+
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeCoreFileMetadata: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> CoreFileMetadata {
+        return
+            try CoreFileMetadata(
+                size: FfiConverterUInt64.read(from: &buf),
+                modifiedAt: FfiConverterUInt64.read(from: &buf),
+                kind: FfiConverterString.read(from: &buf),
+                linkTarget: FfiConverterOptionString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: CoreFileMetadata, into buf: inout [UInt8]) {
+        FfiConverterUInt64.write(value.size, into: &buf)
+        FfiConverterUInt64.write(value.modifiedAt, into: &buf)
+        FfiConverterString.write(value.kind, into: &buf)
+        FfiConverterOptionString.write(value.linkTarget, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCoreFileMetadata_lift(_ buf: RustBuffer) throws -> CoreFileMetadata {
+    return try FfiConverterTypeCoreFileMetadata.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCoreFileMetadata_lower(_ value: CoreFileMetadata) -> RustBuffer {
+    return FfiConverterTypeCoreFileMetadata.lower(value)
 }
 
 
@@ -3082,6 +3383,12 @@ private let initializationResult: InitializationResult = {
     if (uniffi_snake_core_checksum_method_coredatabase_transfer_jobs() != 63195) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_snake_core_checksum_method_coresftphandle_assemble_upload() != 11972) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_snake_core_checksum_method_coresftphandle_checksum_capability() != 56382) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_snake_core_checksum_method_coresftphandle_copy_from() != 29939) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -3100,6 +3407,12 @@ private let initializationResult: InitializationResult = {
     if (uniffi_snake_core_checksum_method_coresftphandle_download() != 23476) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_snake_core_checksum_method_coresftphandle_download_range() != 38536) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_snake_core_checksum_method_coresftphandle_file_metadata() != 11062) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_snake_core_checksum_method_coresftphandle_finalize_resumable_upload() != 43866) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -3112,6 +3425,18 @@ private let initializationResult: InitializationResult = {
     if (uniffi_snake_core_checksum_method_coresftphandle_path_exists() != 23332) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_snake_core_checksum_method_coresftphandle_prepare_native_upload() != 44227) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_snake_core_checksum_method_coresftphandle_publish_native_upload() != 32546) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_snake_core_checksum_method_coresftphandle_publish_upload() != 61002) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_snake_core_checksum_method_coresftphandle_remote_checksum() != 36434) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_snake_core_checksum_method_coresftphandle_remove_directory() != 38336) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -3119,6 +3444,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_snake_core_checksum_method_coresftphandle_remove_file() != 37948) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_snake_core_checksum_method_coresftphandle_remove_transfer_temporary() != 19383) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_snake_core_checksum_method_coresftphandle_rename() != 56184) {
@@ -3134,6 +3462,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_snake_core_checksum_method_coresftphandle_upload_controlled() != 28273) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_snake_core_checksum_method_coresftphandle_upload_native_range() != 62369) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_snake_core_checksum_method_coresftphandle_upload_part_resumable() != 18336) {
@@ -3155,6 +3486,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_snake_core_checksum_method_coretransfercontrol_cancel() != 39187) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_snake_core_checksum_method_coretransfercontrol_checkpoint() != 53332) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_snake_core_checksum_method_coretransfercontrol_pause() != 38904) {

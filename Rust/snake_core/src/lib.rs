@@ -20,6 +20,9 @@ use zeroize::Zeroizing;
 
 uniffi::setup_scaffolding!("snake_core");
 
+mod transfer_integrity;
+pub use transfer_integrity::*;
+
 #[derive(Debug, Error)]
 pub enum SnakeCoreError {
     #[error("storage error: {0}")]
@@ -930,6 +933,10 @@ pub struct CoreTransferControl {
 
 #[uniffi::export]
 impl CoreTransferControl {
+    pub fn checkpoint(&self) -> Result<(), CoreError> {
+        self.wait_if_paused()
+    }
+
     #[uniffi::constructor]
     pub fn new() -> Arc<Self> {
         Arc::new(Self {

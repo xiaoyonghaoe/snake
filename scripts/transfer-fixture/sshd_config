@@ -1,0 +1,11 @@
+Port 22
+ListenAddress 0.0.0.0
+PasswordAuthentication yes
+PermitRootLogin no
+UsePAM no
+PrintMotd no
+LogLevel ERROR
+MaxSessions 16
+Subsystem sftp internal-sftp
+Match User sha,md5,none,restricted,corrupt,probeerror,hasherror
+    ForceCommand /fixture-command
