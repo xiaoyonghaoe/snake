@@ -2735,7 +2735,14 @@ final class MetalTerminalRenderer: NSObject, MTKViewDelegate {
     private static func candidateBundles() -> [Bundle] {
         var bundles: [Bundle] = []
         #if SWIFT_PACKAGE
-        bundles.append(Bundle.module)
+        // Packaged macOS apps keep SwiftPM resources inside Contents/Resources.
+        // Prefer that bundle before evaluating SwiftPM's build-directory fallback.
+        if let url = Bundle.main.url(forResource: "SwiftTerm_SwiftTerm", withExtension: "bundle"),
+           let packagedBundle = Bundle(url: url) {
+            bundles.append(packagedBundle)
+        } else {
+            bundles.append(Bundle.module)
+        }
         #endif
         bundles.append(Bundle(for: MetalTerminalRenderer.self))
         bundles.append(Bundle.main)

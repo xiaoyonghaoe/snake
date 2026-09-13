@@ -2,6 +2,11 @@
 
 上游与 MIT 许可见 `README.md`、`LICENSE` 及项目根目录 `THIRD_PARTY_NOTICES.md`。
 
+## 2026-09-13：独立应用资源
+
+- Metal 资源加载优先查找应用 `Contents/Resources/SwiftTerm_SwiftTerm.bundle`，避免分发后触发 SwiftPM 生成访问器的构建目录依赖；命令行 SwiftPM 构建继续使用 `Bundle.module`。
+- Release 打包脚本复制该资源包，随应用签名校验；不改变着色器内容与终端绘制行为。
+
 ## 2026-09-12：可选绘制高亮
 
 - macOS `TerminalView.displayHighlights` 提供可选闭包：接收绘制行文本，返回 `TerminalDisplayHighlight`（UTF-16 范围、NSColor）。未配置时保持原行为，iOS/Linux 不受影响。
