@@ -758,66 +758,18 @@ private struct SFTPBrowserView: View {
     @State private var creationDestination: SFTPDirectoryDestination?
     @State private var newItemName = ""
     @State private var pathDraft = "/"
+    @State private var searchQuery = ""
+    @State private var isSearchPresented = false
     @State private var navigationNotice: String?
     @State private var navigationNoticeID = UUID()
     @FocusState private var isEditingPath: Bool
+    @FocusState private var isEditingSearch: Bool
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 6) {
-                Circle()
-                    .fill(connectionColor)
-                    .frame(width: 7, height: 7)
-                    .help(runtime.connectionState.label)
-                Button { goBack() } label: { Image(systemName: "chevron.left") }
-                    .buttonStyle(SFTPNavigationButtonStyle(isAvailable: runtime.canGoBack))
-                    .help(runtime.canGoBack ? "后退" : "没有可回退的目录")
-                    .accessibilityLabel("后退")
-                    .accessibilityHint(runtime.canGoBack ? "返回上一个访问过的目录" : "没有可回退的目录")
-                Button { goForward() } label: { Image(systemName: "chevron.right") }
-                    .buttonStyle(SFTPNavigationButtonStyle(isAvailable: runtime.canGoForward))
-                    .help(runtime.canGoForward ? "前进" : "没有可前进的目录")
-                    .accessibilityLabel("前进")
-                    .accessibilityHint(runtime.canGoForward ? "前往下一个访问过的目录" : "没有可前进的目录")
-                Button { navigateUp() } label: { Image(systemName: "arrow.up") }
-                    .buttonStyle(SFTPNavigationButtonStyle(isAvailable: runtime.currentPath != "/"))
-                    .help(runtime.currentPath == "/" ? "已经位于顶级目录" : "返回上一级")
-                    .accessibilityLabel("返回上一级")
-                    .accessibilityHint(runtime.currentPath == "/" ? "已经位于顶级目录" : "打开父目录")
-                HStack(spacing: 6) {
-                    Image(systemName: "folder")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(SnakeStyle.muted)
-                    TextField("输入远程地址", text: $pathDraft)
-                        .textFieldStyle(.plain)
-                        .font(.system(size: 12, design: .monospaced))
-                        .focused($isEditingPath)
-                        .onSubmit { submitPath() }
-                    if isEditingPath && pathDraft != runtime.currentPath {
-                        Button { pathDraft = runtime.currentPath } label: {
-                            Image(systemName: "xmark.circle.fill")
-                        }
-                        .buttonStyle(.plain)
-                        .foregroundStyle(SnakeStyle.muted)
-                        .help("恢复当前地址")
-                    }
-                }
-                .padding(.horizontal, 10)
-                .frame(height: 28)
-                .frame(maxWidth: .infinity)
-                .background(SnakeStyle.raisedSurface, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .stroke(isEditingPath ? SnakeStyle.action.opacity(0.72) : SnakeStyle.hairline, lineWidth: 1)
-                }
-                Button { runtime.refresh() } label: { Image(systemName: "arrow.clockwise") }
-                    .buttonStyle(SnakeIconButtonStyle())
-                    .help("刷新")
-                    .disabled(runtime.connectionState == .connecting)
-            }
-            .padding(.horizontal, 12)
-            .frame(height: 42)
-            .background(SnakeStyle.chromeFrost)
+            navigationBar
+
+            if isSearchPresented { searchBar }
 
             if runtime.connectionState == .connecting {
                 HStack(spacing: 8) {
@@ -871,7 +823,11 @@ private struct SFTPBrowserView: View {
 
             SFTPFileTable(
                 runtime: runtime,
-                onFocusFiles: { isEditingPath = false },
+                searchQuery: searchQuery,
+                onFocusFiles: {
+                    isEditingPath = false
+                    isEditingSearch = false
+                },
                 onOpen: open,
                 onCreateFile: { beginCreation(.file) },
                 onCreateDirectory: { beginCreation(.directory) },
@@ -887,10 +843,18 @@ private struct SFTPBrowserView: View {
         .onAppear { pathDraft = runtime.currentPath }
         .onChange(of: runtime.currentPath) { _, newPath in
             pathDraft = newPath
+            endSearch()
         }
         .onChange(of: isEditingPath) { _, editing in
             if !editing { pathDraft = runtime.currentPath }
         }
+        .onChange(of: searchQuery) { _, _ in
+            runtime.fileSelection = SFTPSelection()
+        }
+        .onChange(of: runtime.connectionState) { _, state in
+            if state != .connected { endSearch() }
+        }
+        .onChange(of: runtime.searchCommandRequest) { _, _ in beginSearch() }
         .alert(creationKind?.title ?? "新建远程项目", isPresented: Binding(
             get: { creationKind != nil },
             set: { if !$0 { creationKind = nil } }
@@ -920,10 +884,101 @@ private struct SFTPBrowserView: View {
             Button("取消", role: .cancel) { runtime.rejectPendingHostKey() }
             Button(runtime.pendingHostKey?.acceptTitle ?? "信任并连接") { runtime.acceptPendingHostKey() }
         } message: {
-            if let key = runtime.pendingHostKey {
-                Text(key.message)
+            if let key = runtime.pendingHostKey { Text(key.message) }
+        }
+    }
+
+    private var navigationBar: some View {
+        HStack(spacing: 6) {
+                Circle()
+                    .fill(connectionColor)
+                    .frame(width: 7, height: 7)
+                    .help(runtime.connectionState.label)
+                Button { goBack() } label: { Image(systemName: "chevron.left") }
+                    .buttonStyle(SFTPNavigationButtonStyle(isAvailable: runtime.canGoBack))
+                    .help(runtime.canGoBack ? "后退" : "没有可回退的目录")
+                    .accessibilityLabel("后退")
+                    .accessibilityHint(runtime.canGoBack ? "返回上一个访问过的目录" : "没有可回退的目录")
+                Button { goForward() } label: { Image(systemName: "chevron.right") }
+                    .buttonStyle(SFTPNavigationButtonStyle(isAvailable: runtime.canGoForward))
+                    .help(runtime.canGoForward ? "前进" : "没有可前进的目录")
+                    .accessibilityLabel("前进")
+                    .accessibilityHint(runtime.canGoForward ? "前往下一个访问过的目录" : "没有可前进的目录")
+                Button { navigateUp() } label: { Image(systemName: "arrow.up") }
+                    .buttonStyle(SFTPNavigationButtonStyle(isAvailable: runtime.currentPath != "/"))
+                    .help(runtime.currentPath == "/" ? "已经位于顶级目录" : "返回上一级")
+                    .accessibilityLabel("返回上一级")
+                    .accessibilityHint(runtime.currentPath == "/" ? "已经位于顶级目录" : "打开父目录")
+                HStack(spacing: 6) {
+                    Image(systemName: "folder")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(SnakeStyle.muted)
+                    TextField("输入远程地址", text: $pathDraft)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 12, design: .monospaced))
+                        .focused($isEditingPath)
+                        .onSubmit { submitPath() }
+                    if isEditingPath && pathDraft != runtime.currentPath {
+                        Button { pathDraft = runtime.currentPath } label: {
+                            Image(systemName: "xmark.circle.fill")
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(SnakeStyle.muted)
+                        .help("恢复当前地址")
+                    }
+                }
+                .padding(.horizontal, 10)
+                .frame(height: 28)
+                .frame(maxWidth: .infinity)
+                .background(SnakeStyle.raisedSurface, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .stroke(isEditingPath ? SnakeStyle.action.opacity(0.72) : SnakeStyle.hairline, lineWidth: 1)
+                }
+                Button { runtime.refresh() } label: { Image(systemName: "arrow.clockwise") }
+                    .buttonStyle(SnakeIconButtonStyle())
+                    .help("刷新")
+                    .disabled(runtime.connectionState == .connecting)
+                Button { toggleSearch() } label: {
+                    Image(systemName: searchQuery.isEmpty ? "magnifyingglass" : "magnifyingglass.circle.fill")
+                }
+                    .buttonStyle(SnakeIconButtonStyle())
+                    .foregroundStyle(searchQuery.isEmpty ? SnakeStyle.ink : SnakeStyle.action)
+                    .help(isSearchPresented ? "关闭检索" : "检索当前目录")
+                    .accessibilityLabel(isSearchPresented ? "关闭当前目录检索" : "检索当前目录")
+                    .disabled(runtime.connectionState != .connected || runtime.loadingPath != nil)
+        }
+        .padding(.horizontal, 12)
+        .frame(height: 42)
+        .background(SnakeStyle.chromeFrost)
+    }
+
+    private var searchBar: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(SnakeStyle.muted)
+            TextField("检索当前目录", text: $searchQuery)
+                .textFieldStyle(.plain)
+                .font(.system(size: 12))
+                .focused($isEditingSearch)
+            Text(searchResultLabel)
+                .font(.system(size: 10, weight: .medium, design: .monospaced))
+                .foregroundStyle(SnakeStyle.muted)
+                .fixedSize()
+            if !searchQuery.isEmpty {
+                Button { clearSearch() } label: { Image(systemName: "xmark.circle.fill") }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(SnakeStyle.muted)
+                    .help("清除检索")
             }
         }
+        .padding(.horizontal, 11)
+        .frame(height: 32)
+        .background(SnakeStyle.raisedSurface)
+        .overlay(alignment: .bottom) { Divider() }
+        .transition(.move(edge: .top).combined(with: .opacity))
+        .onExitCommand { endSearch() }
     }
 
     private var uploadConflictAlert: some View {
@@ -963,6 +1018,39 @@ private struct SFTPBrowserView: View {
         isEditingPath = false
     }
 
+    private var searchResultLabel: String {
+        guard !searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return "\(runtime.entries.count) 项"
+        }
+        return "\(SFTPEntrySearch.results(in: runtime.entries, query: searchQuery).count) / \(runtime.entries.count)"
+    }
+
+    private func toggleSearch() {
+        if isSearchPresented {
+            endSearch()
+        } else {
+            beginSearch()
+        }
+    }
+
+    private func beginSearch() {
+        guard runtime.connectionState == .connected, runtime.loadingPath == nil else { return }
+        withAnimation(.easeOut(duration: 0.12)) { isSearchPresented = true }
+        isEditingPath = false
+        Task { @MainActor in isEditingSearch = true }
+    }
+
+    private func clearSearch() {
+        searchQuery = ""
+        isEditingSearch = true
+    }
+
+    private func endSearch() {
+        isEditingSearch = false
+        searchQuery = ""
+        withAnimation(.easeIn(duration: 0.1)) { isSearchPresented = false }
+    }
+
     private enum RemoteItemCreationKind {
         case file
         case directory
@@ -974,6 +1062,7 @@ private struct SFTPBrowserView: View {
 private struct SFTPFileTable: View {
     @EnvironmentObject private var store: ApplicationStore
     @ObservedObject var runtime: SFTPRuntime
+    let searchQuery: String
     let onFocusFiles: () -> Void
     let onOpen: (RemoteFile) -> Void
     let onCreateFile: () -> Void
@@ -988,6 +1077,15 @@ private struct SFTPFileTable: View {
     @State private var deletingFiles: [RemoteFile] = []
     @FocusState private var filesFocused: Bool
 
+    private var visibleEntries: [RemoteFile] {
+        SFTPEntrySearch.results(in: runtime.entries, query: searchQuery)
+    }
+
+    private var visibleEntryIDs: [UUID] { visibleEntries.map(\.id) }
+
+    private var isFiltering: Bool {
+        !searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -1012,7 +1110,7 @@ private struct SFTPFileTable: View {
             GeometryReader { geometry in
                 ScrollView {
                     LazyVStack(spacing: 0) {
-                        ForEach(runtime.entries) { file in
+                        ForEach(visibleEntries) { file in
                             ViewThatFits(in: .horizontal) {
                             HStack(spacing: 10) {
                                 HStack(spacing: 9) {
@@ -1059,13 +1157,13 @@ private struct SFTPFileTable: View {
                             .contentShape(Rectangle())
                             .onTapGesture(count: 2) {
                                 focusFileList()
-                                runtime.fileSelection.click(file.id, order: runtime.entries.map(\.id))
+                                runtime.fileSelection.click(file.id, order: visibleEntryIDs)
                                 onOpen(file)
                             }
                             .simultaneousGesture(TapGesture().onEnded {
                                     focusFileList()
                                     let flags = NSEvent.modifierFlags
-                                    runtime.fileSelection.click(file.id, order: runtime.entries.map(\.id), command: flags.contains(.command), shift: flags.contains(.shift))
+                                    runtime.fileSelection.click(file.id, order: visibleEntryIDs, command: flags.contains(.command), shift: flags.contains(.shift))
                             })
                             .onDrag { remoteFileProvider(for: file) }
                             .contextMenu {
@@ -1073,7 +1171,7 @@ private struct SFTPFileTable: View {
                                     onOpen(file)
                                 }
                                 Button("下载…", systemImage: "square.and.arrow.down") {
-                                    runtime.fileSelection.contextClick(file.id, order: runtime.entries.map(\.id))
+                                    runtime.fileSelection.contextClick(file.id, order: visibleEntryIDs)
                                     chooseDownloadDirectory()
                                 }
                                 .disabled(runtime.directoryActionDestination == nil)
@@ -1092,7 +1190,7 @@ private struct SFTPFileTable: View {
                                 Divider()
                                 Button("删除…", systemImage: "trash", role: .destructive) {
                                     focusFileList()
-                                    runtime.fileSelection.contextClick(file.id, order: runtime.entries.map(\.id))
+                                    runtime.fileSelection.contextClick(file.id, order: visibleEntryIDs)
                                     requestDeletion()
                                 }
                                 .disabled(runtime.isDeleting || runtime.loadingPath != nil)
@@ -1101,7 +1199,7 @@ private struct SFTPFileTable: View {
                         }
                         Color.clear
                             .frame(maxWidth: .infinity)
-                            .frame(height: max(1, geometry.size.height - CGFloat(runtime.entries.count * 32)))
+                            .frame(height: max(1, geometry.size.height - CGFloat(visibleEntries.count * 32)))
                             .contentShape(Rectangle())
                             .onTapGesture {
                                 focusFileList()
@@ -1109,6 +1207,19 @@ private struct SFTPFileTable: View {
                             }
                             .contextMenu { emptyAreaContextMenu }
                     }
+                }
+                if isFiltering && visibleEntries.isEmpty && runtime.loadingPath == nil {
+                    VStack(spacing: 8) {
+                        Image(systemName: "doc.text.magnifyingglass")
+                            .font(.system(size: 25, weight: .light))
+                            .foregroundStyle(SnakeStyle.muted)
+                        Text("当前目录没有匹配项目")
+                            .font(.system(size: 13, weight: .semibold))
+                        Text("尝试缩短关键词，或清除检索。")
+                            .font(.system(size: 11))
+                            .foregroundStyle(SnakeStyle.muted)
+                    }
+                    .allowsHitTesting(false)
                 }
             }
             .overlay {
@@ -1143,11 +1254,13 @@ private struct SFTPFileTable: View {
                 Spacer(minLength: 8)
                 UploadStatusEntry(uploader: runtime.uploader, contextName: "SFTP", showsLabel: false)
                     .layoutPriority(1)
-                let itemCount = runtime.entries.count
-                let total = runtime.entries.reduce(Int64(0)) { $0 + $1.size }
+                let itemCount = visibleEntries.count
+                let total = visibleEntries.reduce(Int64(0)) { $0 + $1.size }
                 ViewThatFits(in: .horizontal) {
-                    Text("\(itemCount) 个项目 · \(ByteCountFormatter.string(fromByteCount: total, countStyle: .file))")
-                    Text("\(itemCount) 个项目")
+                    Text(isFiltering
+                         ? "显示 \(itemCount) / \(runtime.entries.count) 个项目 · \(ByteCountFormatter.string(fromByteCount: total, countStyle: .file))"
+                         : "\(itemCount) 个项目 · \(ByteCountFormatter.string(fromByteCount: total, countStyle: .file))")
+                    Text(isFiltering ? "\(itemCount) / \(runtime.entries.count) 个项目" : "\(itemCount) 个项目")
                 }
                     .font(.system(size: 11))
                     .foregroundStyle(SnakeStyle.muted)
@@ -1189,10 +1302,19 @@ private struct SFTPFileTable: View {
         .focusable()
         .focusEffectDisabled()
         .focused($filesFocused)
-        .onKeyPress(keys: [.delete, .deleteForward], phases: .down) { _ in
-            guard filesFocused, deletingFiles.isEmpty, renamingFile == nil, permissionsFile == nil else { return .ignored }
+        .onKeyPress(keys: [.delete, .deleteForward], phases: .down) { key in
+            guard key.modifiers.intersection([.command, .control, .option, .shift]).isEmpty,
+                  filesFocused, deletingFiles.isEmpty, renamingFile == nil, permissionsFile == nil else { return .ignored }
             requestDeletion()
             return .handled
+        }
+        .onChange(of: runtime.deleteCommandRequest) { _, _ in
+            guard deletingFiles.isEmpty, renamingFile == nil, permissionsFile == nil else { return }
+            requestDeletion()
+        }
+        .onChange(of: runtime.uploadFileCommandRequest) { _, _ in
+            guard runtime.canUploadFileWithShortcut else { return }
+            onUploadFiles()
         }
         .alert("删除 \(deletingFiles.count) 个远程项目？", isPresented: Binding(
             get: { !deletingFiles.isEmpty },
@@ -2978,6 +3100,7 @@ private struct MountDependencyStatus {
 
 public struct SnakeSettingsView: View {
     @EnvironmentObject private var store: ApplicationStore
+    @State private var shortcutError: String?
 
     public init() {}
 
@@ -3022,6 +3145,31 @@ public struct SnakeSettingsView: View {
             }
             .padding(20)
             .tabItem { Label("传输", systemImage: "arrow.up.arrow.down") }
+
+            Form {
+                Section("SFTP 快捷键") {
+                    shortcutRow(.search, detail: "打开并聚焦当前目录检索")
+                    shortcutRow(.delete, detail: "确认后删除当前选中的远程项目")
+                    shortcutRow(.uploadFile, detail: "打开访达文件选择器并上传到当前目录")
+                }
+                if let shortcutError {
+                    Label(shortcutError, systemImage: "exclamationmark.triangle.fill")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.red)
+                }
+                Section {
+                    Button("恢复默认快捷键") {
+                        store.resetSFTPShortcuts()
+                        shortcutError = nil
+                    }
+                    Text("点击右侧键帽后按下新组合。为避免在地址栏中误操作，快捷键必须包含 Command、Control 或 Option；冲突组合不会保存。")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .padding(20)
+            .tabItem { Label("快捷键", systemImage: "command") }
 
             ScrollView {
               Form {
@@ -3071,6 +3219,30 @@ public struct SnakeSettingsView: View {
         TerminalTheme(preset: store.terminalThemePreset, isDark: store.isDarkAppearancePreferred,
                       logHighlightEnabled: store.terminalLogHighlightEnabled,
                       fieldHighlightEnabled: store.terminalFieldHighlightEnabled)
+    }
+
+    private func shortcutRow(_ action: SFTPShortcutAction, detail: String) -> some View {
+        LabeledContent {
+            SFTPShortcutRecorder(shortcut: shortcut(for: action)) { newShortcut in
+                shortcutError = store.updateSFTPShortcut(action, shortcut: newShortcut)
+            }
+            .frame(width: 150, height: 28)
+        } label: {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(action.title)
+                Text(detail)
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private func shortcut(for action: SFTPShortcutAction) -> SFTPShortcut {
+        switch action {
+        case .search: store.sftpSearchShortcut
+        case .delete: store.sftpDeleteShortcut
+        case .uploadFile: store.sftpUploadShortcut
+        }
     }
 
     private var terminalColorPreview: some View {

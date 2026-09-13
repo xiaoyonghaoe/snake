@@ -2,6 +2,20 @@ import XCTest
 @testable import SnakeApp
 
 final class SFTPSelectionTests: XCTestCase {
+    func testEntrySearchSupportsMultipleTermsCaseDiacriticsAndLinks() {
+        let entries = [
+            RemoteFile(name: "Release Notes.md", path: "/Release Notes.md", isDirectory: false),
+            RemoteFile(name: "Résumé.PDF", path: "/Résumé.PDF", isDirectory: false),
+            RemoteFile(name: "current", path: "/current", isDirectory: false, isSymbolicLink: true, linkTarget: "releases/v2"),
+            RemoteFile(name: "archive.zip", path: "/archive.zip", isDirectory: false)
+        ]
+
+        XCTAssertEqual(SFTPEntrySearch.results(in: entries, query: "release md").map(\.name), ["Release Notes.md"])
+        XCTAssertEqual(SFTPEntrySearch.results(in: entries, query: "resume").map(\.name), ["Résumé.PDF"])
+        XCTAssertEqual(SFTPEntrySearch.results(in: entries, query: "V2").map(\.name), ["current"])
+        XCTAssertEqual(SFTPEntrySearch.results(in: entries, query: "   "), entries)
+    }
+
     func testCommandAddsAndRemovesWithoutLosingOtherItems() {
         let ids = (0..<5).map { _ in UUID() }
         var selection = SFTPSelection()

@@ -6,6 +6,65 @@ import XCTest
 
 @MainActor
 final class WorkspaceDraggingTests: XCTestCase {
+    func testCommandWStillClosesOnlySelectedTabAfterSettingsRebuildsMenu() throws {
+        let fixture = try DragFixture()
+        defer { fixture.cleanUp() }
+        let previousMenu = NSApp.mainMenu
+        defer { NSApp.mainMenu = previousMenu }
+        let (window, state) = fixture.window()
+        state.openManager(.sessions)
+        state.openManager(.sessions)
+        let left = try XCTUnwrap(state.activePaneID)
+        let right = try XCTUnwrap(state.splitFocusedPane(.horizontal))
+        state.openManager(.mounts)
+        let rightRuntime = state.selectedRuntime
+        state.bonsplit.focusPane(left)
+        let closing = try XCTUnwrap(state.selectedRuntime)
+
+        // Reproduce a Settings menu rebuild exposing native Close Window again.
+        let menu = NSMenu(title: "Settings")
+        let item = NSMenuItem(title: "Close Window", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
+        item.keyEquivalentModifierMask = [.command]
+        item.target = window
+        menu.addItem(item)
+        NSApp.mainMenu = menu
+        let event = try commandW(in: window)
+        XCTAssertTrue(window.performKeyEquivalent(with: event))
+        XCTAssertEqual(state.tabs.count, 2)
+        XCTAssertFalse(state.tabs.values.contains { $0 === closing })
+        XCTAssertTrue(state.tabs.values.contains { $0 === rightRuntime })
+        XCTAssertTrue(fixture.owner.workspaceState(for: window) === state, "The workspace window must remain registered")
+
+        state.bonsplit.focusPane(right)
+        XCTAssertTrue(window.performKeyEquivalent(with: event))
+        XCTAssertEqual(state.tabs.count, 1)
+        XCTAssertTrue(window.performKeyEquivalent(with: event))
+        XCTAssertTrue(state.tabs.isEmpty)
+        XCTAssertTrue(window.performKeyEquivalent(with: event), "An empty workspace still consumes Command-W")
+        XCTAssertEqual(state.bonsplit.allPaneIds.count, 1)
+        XCTAssertTrue(fixture.owner.workspaceState(for: window) === state)
+    }
+
+    func testWorkspaceCloseShortcutIgnoresRepeatAndDoesNotCloseOtherWindow() throws {
+        let fixture = try DragFixture()
+        defer { fixture.cleanUp() }
+        let (firstWindow, first) = fixture.window()
+        let (_, second) = fixture.window()
+        first.openManager(.sessions)
+        second.openManager(.sessions)
+        XCTAssertTrue(firstWindow.performKeyEquivalent(with: try commandW(in: firstWindow, repeated: true)))
+        XCTAssertEqual(first.tabs.count, 1)
+        XCTAssertTrue(firstWindow.performKeyEquivalent(with: try commandW(in: firstWindow)))
+        XCTAssertTrue(first.tabs.isEmpty)
+        XCTAssertEqual(second.tabs.count, 1)
+    }
+
+    private func commandW(in window: NSWindow, repeated: Bool = false) throws -> NSEvent {
+        try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [.command],
+            timestamp: 0, windowNumber: window.windowNumber, context: nil,
+            characters: "w", charactersIgnoringModifiers: "w", isARepeat: repeated, keyCode: 13))
+    }
+
     func testTrailingDoubleClickCreatesOneChooserInClickedPane() throws {
         let state = WorkspaceWindowState()
         state.openManager(.mounts)
@@ -350,7 +409,7 @@ private final class DragFixture {
         try store.save(profile: profile)
     }
     func window() -> (NSWindow, WorkspaceWindowState) {
-        let window = NSWindow(contentRect: .init(x: 0, y: 0, width: 1000, height: 550), styleMask: [.borderless], backing: .buffered, defer: false)
+        let window = SnakeWorkspaceWindow(contentRect: .init(x: 0, y: 0, width: 1000, height: 550), styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentView = NSView(frame: .init(x: 0, y: 0, width: 1000, height: 550))
         let state = WorkspaceWindowState()

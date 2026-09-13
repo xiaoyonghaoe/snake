@@ -52,6 +52,15 @@ public final class ApplicationStore: ObservableObject {
             defaults.set(value, forKey: terminalFontSizeKey)
         }
     }
+    @Published private(set) var sftpSearchShortcut: SFTPShortcut {
+        didSet { persist(shortcut: sftpSearchShortcut, key: sftpSearchShortcutKey) }
+    }
+    @Published private(set) var sftpDeleteShortcut: SFTPShortcut {
+        didSet { persist(shortcut: sftpDeleteShortcut, key: sftpDeleteShortcutKey) }
+    }
+    @Published private(set) var sftpUploadShortcut: SFTPShortcut {
+        didSet { persist(shortcut: sftpUploadShortcut, key: sftpUploadShortcutKey) }
+    }
 
     weak var workspaceCoordinator: WorkspaceWindowCoordinator?
 
@@ -70,6 +79,9 @@ public final class ApplicationStore: ObservableObject {
     private let terminalShellColorsKey = "com.snake.terminal.shell-colors"
     private let tokyoMigrationKey = "com.snake.terminal.tokyo-migration-v1"
     private let appearanceKey = "com.snake.appearance.dark"
+    private let sftpSearchShortcutKey = "com.snake.shortcuts.sftp-search"
+    private let sftpDeleteShortcutKey = "com.snake.shortcuts.sftp-delete"
+    private let sftpUploadShortcutKey = "com.snake.shortcuts.sftp-upload"
     private var transferControls: [UUID: CoreTransferControl] = [:]
     private var ephemeralTransferJobIDs: Set<UUID> = []
     private var mountStateMonitor: AnyCancellable?
@@ -98,6 +110,13 @@ public final class ApplicationStore: ObservableObject {
             ?? NSFont.monospacedSystemFont(ofSize: 13, weight: .regular).fontName
         let savedFontSize = defaults.double(forKey: terminalFontSizeKey)
         self.terminalFontSize = savedFontSize == 0 ? 13 : min(max(savedFontSize, 9), 32)
+        let loadedShortcuts = Self.loadSFTPShortcuts(
+            from: defaults,
+            keys: [.search: sftpSearchShortcutKey, .delete: sftpDeleteShortcutKey, .uploadFile: sftpUploadShortcutKey]
+        )
+        self.sftpSearchShortcut = loadedShortcuts[.search]!
+        self.sftpDeleteShortcut = loadedShortcuts[.delete]!
+        self.sftpUploadShortcut = loadedShortcuts[.uploadFile]!
         let persistence = try? CorePersistence(databaseURL: databaseURL)
         self.corePersistence = persistence
         let sqliteGroups = (try? persistence?.loadGroups()) ?? []
@@ -138,6 +157,59 @@ public final class ApplicationStore: ObservableObject {
                 for mappingID in automaticMappings { self?.mount(mappingID: mappingID) }
             }
         }
+    }
+
+    var sftpShortcuts: [SFTPShortcutAction: SFTPShortcut] {
+        [
+            .search: sftpSearchShortcut,
+            .delete: sftpDeleteShortcut,
+            .uploadFile: sftpUploadShortcut
+        ]
+    }
+
+    @discardableResult
+    func updateSFTPShortcut(_ action: SFTPShortcutAction, shortcut: SFTPShortcut) -> String? {
+        if let error = SFTPShortcutPolicy.validationError(action: action, shortcut: shortcut, configured: sftpShortcuts) {
+            return error
+        }
+        switch action {
+        case .search: sftpSearchShortcut = shortcut
+        case .delete: sftpDeleteShortcut = shortcut
+        case .uploadFile: sftpUploadShortcut = shortcut
+        }
+        workspaceCoordinator?.refreshApplicationCommands()
+        return nil
+    }
+
+    func resetSFTPShortcuts() {
+        sftpSearchShortcut = SFTPShortcutAction.search.defaultShortcut
+        sftpDeleteShortcut = SFTPShortcutAction.delete.defaultShortcut
+        sftpUploadShortcut = SFTPShortcutAction.uploadFile.defaultShortcut
+        workspaceCoordinator?.refreshApplicationCommands()
+    }
+
+    private func persist(shortcut: SFTPShortcut, key: String) {
+        if let data = try? JSONEncoder().encode(shortcut) { defaults.set(data, forKey: key) }
+    }
+
+    private static func loadShortcut(from defaults: UserDefaults, key: String, fallback: SFTPShortcut) -> SFTPShortcut {
+        guard let data = defaults.data(forKey: key),
+              let shortcut = try? JSONDecoder().decode(SFTPShortcut.self, from: data) else { return fallback }
+        return shortcut
+    }
+
+    private static func loadSFTPShortcuts(
+        from defaults: UserDefaults,
+        keys: [SFTPShortcutAction: String]
+    ) -> [SFTPShortcutAction: SFTPShortcut] {
+        var result = Dictionary(uniqueKeysWithValues: SFTPShortcutAction.allCases.map { ($0, $0.defaultShortcut) })
+        for action in SFTPShortcutAction.allCases {
+            let candidate = loadShortcut(from: defaults, key: keys[action]!, fallback: action.defaultShortcut)
+            if SFTPShortcutPolicy.validationError(action: action, shortcut: candidate, configured: result) == nil {
+                result[action] = candidate
+            }
+        }
+        return result
     }
 
     public var selectedProfile: SSHProfile? {

@@ -14,6 +14,10 @@ final class WorkspaceHostingView<Content: View>: NSHostingView<Content> {
         super.init(rootView: rootView)
         registerForDraggedTypes([])
     }
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if let window, workspaceCoordinator?.handleWorkspaceCloseShortcut(event, in: window) == true { return true }
+        return super.performKeyEquivalent(with: event)
+    }
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("Use init(rootView:)") }
     override func registerForDraggedTypes(_ newTypes: [NSPasteboard.PasteboardType]) {
