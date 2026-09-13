@@ -40,6 +40,8 @@ enum TerminalShellIntegration {
 
 @MainActor
 public final class TerminalRuntime: ObservableObject, Identifiable {
+    // Updated by the host; snapshotted at connection start, never applied to a busy shell.
+    var shellColorsEnabled = true
     public let id = WorkspaceTabID()
     public let profile: SSHProfile
     public let uploader: LocalUploadCoordinator
@@ -234,6 +236,7 @@ public final class TerminalRuntime: ObservableObject, Identifiable {
 
     private func connect(accepting fingerprint: String?, columns: UInt32? = nil, rows: UInt32? = nil) {
         guard !isStarting else { return }
+        let enableShellColors = shellColorsEnabled
         isStarting = true
         state = .connecting
         errorMessage = nil
@@ -296,6 +299,13 @@ public final class TerminalRuntime: ObservableObject, Identifiable {
                     isStarting = false
                     state = .connected
                     installDirectoryHook(shellName: shellName)
+                    if enableShellColors {
+                        if let command = TerminalShellColors.command(for: shellName) {
+                            send(Data(command.utf8))
+                        } else {
+                            terminalView?.feed(text: "\r\n[Snake] 当前 Shell 暂不支持自动彩色 ls／ll，保留原有配置。\r\n")
+                        }
+                    }
                     terminalView?.window?.makeFirstResponder(terminalView)
                     return
                 } catch let error as CoreError {
@@ -1142,6 +1152,10 @@ public final class SFTPRuntime: ObservableObject, Identifiable {
         return .directory(currentPath)
     }
 
+    var directoryActionDestination: SFTPDirectoryDestination? {
+        SFTPDirectoryDestination(connectionState: connectionState, currentPath: currentPath, loadingPath: loadingPath)
+    }
+
     func uploadFromFinder(providers: [NSItemProvider], to path: String, store: ApplicationStore) {
         finderDropLog.notice("SFTP drop submitted: items=\(providers.count)")
         let attempt = connectionAttemptID
@@ -1245,14 +1259,14 @@ public final class SFTPRuntime: ObservableObject, Identifiable {
         }
     }
 
-    public func createDirectory(named name: String) {
+    public func createDirectory(named name: String, in directory: String? = nil) {
         guard let handle else { return }
         let cleaned = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleaned.isEmpty, !cleaned.contains("/") else {
             errorMessage = "文件夹名称不能为空，也不能包含 /。"
             return
         }
-        let path = (currentPath as NSString).appendingPathComponent(cleaned)
+        let path = ((directory ?? currentPath) as NSString).appendingPathComponent(cleaned)
         Task {
             do {
                 try await Task.detached(priority: .userInitiated) {
@@ -1265,14 +1279,14 @@ public final class SFTPRuntime: ObservableObject, Identifiable {
         }
     }
 
-    public func createFile(named name: String) {
+    public func createFile(named name: String, in directory: String? = nil) {
         guard let handle else { return }
         let cleaned = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleaned.isEmpty, !cleaned.contains("/") else {
             errorMessage = "文件名称不能为空，也不能包含 /。"
             return
         }
-        let path = (currentPath as NSString).appendingPathComponent(cleaned)
+        let path = ((directory ?? currentPath) as NSString).appendingPathComponent(cleaned)
         Task {
             do {
                 try await Task.detached(priority: .userInitiated) {
@@ -2554,23 +2568,27 @@ public struct TerminalHost: NSViewRepresentable {
     let theme: TerminalTheme
     let fontName: String
     let fontSize: Double
+    let shellColorsEnabled: Bool
 
     init(
         runtime: TerminalRuntime,
         theme: TerminalTheme,
         fontName: String,
-        fontSize: Double
+        fontSize: Double,
+        shellColorsEnabled: Bool = true
     ) {
         self.runtime = runtime
         self.theme = theme
         self.fontName = fontName
         self.fontSize = fontSize
+        self.shellColorsEnabled = shellColorsEnabled
     }
 
     public func makeNSView(context: Context) -> TerminalView {
         let terminalView = runtime.terminalSurface()
         runtime.applyTheme(theme)
         runtime.applyFont(name: fontName, size: fontSize)
+        runtime.shellColorsEnabled = shellColorsEnabled
         runtime.startIfNeeded(terminalView)
         return terminalView
     }
@@ -2578,6 +2596,7 @@ public struct TerminalHost: NSViewRepresentable {
     public func updateNSView(_ nsView: TerminalView, context: Context) {
         runtime.applyTheme(theme)
         runtime.applyFont(name: fontName, size: fontSize)
+        runtime.shellColorsEnabled = shellColorsEnabled
         runtime.startIfNeeded(nsView)
     }
 }

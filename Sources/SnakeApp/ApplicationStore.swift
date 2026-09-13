@@ -33,6 +33,18 @@ public final class ApplicationStore: ObservableObject {
     @Published public var terminalFontName: String {
         didSet { defaults.set(terminalFontName, forKey: terminalFontNameKey) }
     }
+    @Published var terminalThemePreset: TerminalThemePreset {
+        didSet { defaults.set(terminalThemePreset.rawValue, forKey: terminalThemeKey) }
+    }
+    @Published var terminalLogHighlightEnabled: Bool {
+        didSet { defaults.set(terminalLogHighlightEnabled, forKey: terminalHighlightKey) }
+    }
+    @Published var terminalFieldHighlightEnabled: Bool {
+        didSet { defaults.set(terminalFieldHighlightEnabled, forKey: terminalFieldHighlightKey) }
+    }
+    @Published var terminalShellColorsEnabled: Bool {
+        didSet { defaults.set(terminalShellColorsEnabled, forKey: terminalShellColorsKey) }
+    }
     @Published public var terminalFontSize: Double {
         didSet {
             let value = min(max(terminalFontSize, 9), 32)
@@ -52,6 +64,11 @@ public final class ApplicationStore: ObservableObject {
     private let multipartConcurrencyKey = "com.snake.transfer.multipart-concurrency"
     private let terminalFontNameKey = "com.snake.terminal.font-name"
     private let terminalFontSizeKey = "com.snake.terminal.font-size"
+    private let terminalThemeKey = "com.snake.terminal.theme"
+    private let terminalHighlightKey = "com.snake.terminal.log-highlight"
+    private let terminalFieldHighlightKey = "com.snake.terminal.field-highlight"
+    private let terminalShellColorsKey = "com.snake.terminal.shell-colors"
+    private let tokyoMigrationKey = "com.snake.terminal.tokyo-migration-v1"
     private let appearanceKey = "com.snake.appearance.dark"
     private var transferControls: [UUID: CoreTransferControl] = [:]
     private var ephemeralTransferJobIDs: Set<UUID> = []
@@ -62,6 +79,17 @@ public final class ApplicationStore: ObservableObject {
     public init(databaseURL: URL? = nil, userDefaults: UserDefaults = .standard) {
         defaults = userDefaults
         self.isDarkAppearancePreferred = defaults.bool(forKey: appearanceKey)
+        if !defaults.bool(forKey: tokyoMigrationKey) {
+            defaults.set(TerminalThemePreset.tokyoNight.rawValue, forKey: terminalThemeKey)
+            defaults.set(true, forKey: tokyoMigrationKey)
+        }
+        self.terminalThemePreset = TerminalThemePreset(rawValue: defaults.string(forKey: terminalThemeKey) ?? "") ?? .tokyoNight
+        self.terminalLogHighlightEnabled = defaults.object(forKey: terminalHighlightKey) == nil
+            ? true : defaults.bool(forKey: terminalHighlightKey)
+        self.terminalFieldHighlightEnabled = defaults.object(forKey: terminalFieldHighlightKey) == nil
+            ? true : defaults.bool(forKey: terminalFieldHighlightKey)
+        self.terminalShellColorsEnabled = defaults.object(forKey: terminalShellColorsKey) == nil
+            ? true : defaults.bool(forKey: terminalShellColorsKey)
         let savedThreshold = defaults.integer(forKey: multipartThresholdKey)
         let savedConcurrency = defaults.integer(forKey: multipartConcurrencyKey)
         self.multipartThresholdMB = savedThreshold == 0 ? 50 : min(max(savedThreshold, 1), 10_240)

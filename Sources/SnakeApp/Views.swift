@@ -681,7 +681,8 @@ private struct TerminalTabView: View {
                     runtime: runtime,
                     theme: terminalTheme,
                     fontName: store.terminalFontName,
-                    fontSize: store.terminalFontSize
+                    fontSize: store.terminalFontSize,
+                    shellColorsEnabled: store.terminalShellColorsEnabled
                 )
                     .background(terminalBackground)
                     .background(FinderUploadArea())
@@ -715,9 +716,13 @@ private struct TerminalTabView: View {
         }
     }
 
-    private var terminalTheme: TerminalTheme { colorScheme == .dark ? .dark : .light }
-    private var terminalForeground: Color { colorScheme == .dark ? SnakeStyle.terminalText : SnakeStyle.ink }
-    private var terminalBackground: Color { colorScheme == .dark ? SnakeStyle.terminal : .white }
+    private var terminalTheme: TerminalTheme {
+        TerminalTheme(preset: store.terminalThemePreset, isDark: colorScheme == .dark,
+                      logHighlightEnabled: store.terminalLogHighlightEnabled,
+                      fieldHighlightEnabled: store.terminalFieldHighlightEnabled)
+    }
+    private var terminalForeground: Color { Color(nsColor: TerminalTheme.nsColor(terminalTheme.foregroundHex)) }
+    private var terminalBackground: Color { Color(nsColor: TerminalTheme.nsColor(terminalTheme.backgroundHex)) }
 
 }
 
@@ -740,16 +745,17 @@ private struct TerminalPreview: View {
                 .buttonStyle(SnakeOutlineButtonStyle(emphasized: true))
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(theme == .dark ? SnakeStyle.terminal : Color.white)
+        .background(Color(nsColor: TerminalTheme.nsColor(theme.backgroundHex)))
     }
 
-    private var foreground: Color { theme == .dark ? SnakeStyle.terminalText : SnakeStyle.ink }
+    private var foreground: Color { Color(nsColor: TerminalTheme.nsColor(theme.foregroundHex)) }
 }
 
 private struct SFTPBrowserView: View {
     @EnvironmentObject private var store: ApplicationStore
     @ObservedObject var runtime: SFTPRuntime
     @State private var creationKind: RemoteItemCreationKind?
+    @State private var creationDestination: SFTPDirectoryDestination?
     @State private var newItemName = ""
     @State private var pathDraft = "/"
     @State private var navigationNotice: String?
@@ -892,16 +898,17 @@ private struct SFTPBrowserView: View {
                 newItemName = ""
             }
             Button("创建") {
+                guard let destination = creationDestination else { return }
                 if creationKind == .directory {
-                    runtime.createDirectory(named: newItemName)
+                    runtime.createDirectory(named: newItemName, in: destination.path)
                 } else {
-                    runtime.createFile(named: newItemName)
+                    runtime.createFile(named: newItemName, in: destination.path)
                 }
                 creationKind = nil
                 newItemName = ""
             }
         } message: {
-            Text("将在 \(runtime.currentPath) 中创建。")
+            Text("将在 \(creationDestination?.path ?? "") 中创建。")
         }
         .alert(runtime.pendingHostKey?.title ?? "确认主机密钥", isPresented: Binding(
             get: { runtime.pendingHostKey != nil },
@@ -942,6 +949,8 @@ private struct SFTPBrowserView: View {
     }
 
     private func beginCreation(_ kind: RemoteItemCreationKind) {
+        guard let destination = runtime.directoryActionDestination else { return }
+        creationDestination = destination
         newItemName = ""
         creationKind = kind
     }
@@ -1061,27 +1070,16 @@ private struct SFTPFileTable: View {
                                     onOpen(file)
                                 }
                                 Divider()
+                                if file.isDirectory {
+                                    creationAndUploadMenu
+                                    Divider()
+                                }
                                 Button("重命名…", systemImage: "pencil") {
                                     renamingFile = file
                                     renameText = file.name
                                 }
                                 Button("修改权限…", systemImage: "lock.shield") {
                                     permissionsFile = file
-                                }
-                                Button("复制地址", systemImage: "doc.on.doc") {
-                                    copyRemotePath(file.path)
-                                }
-                                Menu("复制到", systemImage: "arrow.left.arrow.right") {
-                                    let destinations = SFTPRuntime.connectedRuntimes(excluding: runtime.id)
-                                    if destinations.isEmpty {
-                                        Text("没有其他已连接的 SFTP 面板")
-                                    } else {
-                                        ForEach(destinations) { destination in
-                                            Button(destination.profile.name) {
-                                                destination.copy(file: file, from: runtime, store: store)
-                                            }
-                                        }
-                                    }
                                 }
                                 Divider()
                                 Button("删除…", systemImage: "trash", role: .destructive) {
@@ -1226,23 +1224,23 @@ private struct SFTPFileTable: View {
 
     @ViewBuilder
     private var emptyAreaContextMenu: some View {
-        Button("新建文件…", systemImage: "doc.badge.plus") { onCreateFile() }
-            .disabled(runtime.connectionState != .connected)
-        Button("新建文件夹…", systemImage: "folder.badge.plus") { onCreateDirectory() }
-            .disabled(runtime.connectionState != .connected)
-        Divider()
-        Button("上传文件…", systemImage: "square.and.arrow.up") { onUploadFiles() }
-            .disabled(runtime.connectionState != .connected)
-        Button("上传文件夹…", systemImage: "folder.badge.plus") { onUploadDirectory() }
-            .disabled(runtime.connectionState != .connected)
+        creationAndUploadMenu
         Divider()
         Button("刷新", systemImage: "arrow.clockwise") { runtime.refresh() }
             .disabled(runtime.connectionState == .connecting)
     }
 
-    private func copyRemotePath(_ path: String) {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(path, forType: .string)
+    @ViewBuilder
+    private var creationAndUploadMenu: some View {
+        Button("新建文件…", systemImage: "doc.badge.plus") { onCreateFile() }
+            .disabled(runtime.directoryActionDestination == nil)
+        Button("新建文件夹…", systemImage: "folder.badge.plus") { onCreateDirectory() }
+            .disabled(runtime.directoryActionDestination == nil)
+        Divider()
+        Button("上传文件…", systemImage: "square.and.arrow.up") { onUploadFiles() }
+            .disabled(runtime.directoryActionDestination == nil)
+        Button("上传文件夹…", systemImage: "folder.badge.plus") { onUploadDirectory() }
+            .disabled(runtime.directoryActionDestination == nil)
     }
 
     private func remoteFileProvider(for file: RemoteFile) -> NSItemProvider {
@@ -1335,7 +1333,9 @@ private struct SFTPFileTable: View {
     }
 
     private func chooseFiles(allowsDirectories: Bool) {
+        guard let destination = runtime.directoryActionDestination else { return }
         let panel = NSOpenPanel()
+        panel.message = "上传到远程目录：\(destination.path)"
         panel.canChooseFiles = !allowsDirectories
         panel.canChooseDirectories = allowsDirectories
         panel.allowsMultipleSelection = true
@@ -1344,7 +1344,7 @@ private struct SFTPFileTable: View {
         panel.begin { response in
             guard response == .OK else { return }
             Task { @MainActor in
-                runtime.upload(urls: panel.urls, store: store)
+                runtime.upload(urls: panel.urls, to: destination.path, store: store)
             }
         }
     }
@@ -2953,7 +2953,24 @@ public struct SnakeSettingsView: View {
             .padding(20)
             .tabItem { Label("传输", systemImage: "arrow.up.arrow.down") }
 
-            Form {
+            ScrollView {
+              Form {
+                Section("终端配色") {
+                    Picker("配色主题", selection: $store.terminalThemePreset) {
+                        ForEach(TerminalThemePreset.allCases, id: \.self) { preset in
+                            Text(preset.title).tag(preset)
+                        }
+                    }
+                    Toggle("日志关键词高亮", isOn: $store.terminalLogHighlightEnabled)
+                    Toggle("输出字段高亮", isOn: $store.terminalFieldHighlightEnabled)
+                    Text("区分权限、时间、地址、路径、大小和状态；保留远端颜色，Vim、top 等备用屏幕不启用。")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                    Toggle("自动启用 ls／ll 彩色输出", isOn: $store.terminalShellColorsEnabled)
+                    Text("下次连接生效。仅临时配置当前 Shell，不修改服务器配置文件；保留复杂函数及 NO_COLOR。")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                }
                 Section("终端字体") {
                     Picker("字体", selection: $store.terminalFontName) {
                         ForEach(terminalFonts, id: \.self) { fontName in
@@ -2966,22 +2983,62 @@ public struct SnakeSettingsView: View {
                                 .frame(width: 52, alignment: .trailing)
                         }
                     }
-                    Text("Snake  /  user@host  /  $ ssh ready")
-                        .font(.custom(store.terminalFontName, size: store.terminalFontSize))
-                        .foregroundStyle(SnakeStyle.terminalText)
-                        .padding(.horizontal, 12)
-                        .frame(maxWidth: .infinity, minHeight: 58, alignment: .leading)
-                        .background(SnakeStyle.terminal, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                 }
-                Text("字体和字号会立即应用到已打开的终端，不会重连或清空屏幕缓冲。")
+                terminalColorPreview
+                Text("配色、高亮与字体立即应用到所有终端，不会重连或清空屏幕缓冲。")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
+              }
+              .padding(20)
             }
-            .padding(20)
             .tabItem { Label("终端", systemImage: "textformat") }
         }
-        .frame(width: 520, height: 330)
+        .frame(width: 580, height: 520)
         .preferredColorScheme(store.isDarkAppearancePreferred ? .dark : .light)
+    }
+
+    private var previewTheme: TerminalTheme {
+        TerminalTheme(preset: store.terminalThemePreset, isDark: store.isDarkAppearancePreferred,
+                      logHighlightEnabled: store.terminalLogHighlightEnabled,
+                      fieldHighlightEnabled: store.terminalFieldHighlightEnabled)
+    }
+
+    private var terminalColorPreview: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("user@snake ~ % ls")
+            (Text("Documents/  ").foregroundColor(Color(nsColor: TerminalTheme.nsColor(previewTheme.ansiHex[4])))
+             + Text("logs/  ").foregroundColor(Color(nsColor: TerminalTheme.nsColor(previewTheme.ansiHex[6])))
+             + Text("start.sh").foregroundColor(Color(nsColor: TerminalTheme.nsColor(previewTheme.ansiHex[2]))))
+            Text("普通输出 · 连接保持正常")
+            previewLog("drwxr-xr-x  4.0K  2026-09-13 09:30")
+            previewLog("running  192.0.2.10:22  /var/log  80%")
+            previewLog("[ERROR] FATAL 连接超时")
+            previewLog("WARN / WARNING 正在重试")
+            previewLog("INFO 服务已启动")
+            previewLog("DEBUG / TRACE 请求完成")
+        }
+        .font(.custom(store.terminalFontName, size: store.terminalFontSize))
+        .foregroundStyle(Color(nsColor: TerminalTheme.nsColor(previewTheme.foregroundHex)))
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(nsColor: TerminalTheme.nsColor(previewTheme.backgroundHex)),
+                    in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .accessibilityLabel("终端配色预览")
+    }
+
+    private func previewLog(_ line: String) -> Text {
+        let source = line as NSString
+        var result = Text("")
+        var offset = 0
+        let matcher = TerminalOutputHighlighter(logs: store.terminalLogHighlightEnabled,
+                                               fields: store.terminalFieldHighlightEnabled)
+        for match in matcher.matches(in: line) {
+            result = result + Text(source.substring(with: NSRange(location: offset, length: match.range.location - offset)))
+                + Text(source.substring(with: match.range)).foregroundColor(
+                    Color(nsColor: TerminalTheme.nsColor(match.color(in: previewTheme))))
+            offset = NSMaxRange(match.range)
+        }
+        return result + Text(source.substring(from: offset))
     }
 
     private var terminalFonts: [String] {

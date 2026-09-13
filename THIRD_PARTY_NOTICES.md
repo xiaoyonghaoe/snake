@@ -10,6 +10,7 @@ and does not replace the terms of third-party components.
 | --- | --- | --- |
 | Bonsplit | [almonk/bonsplit@77b9cce](https://github.com/almonk/bonsplit/tree/77b9ccebf1c6e6533c3df1030b5efa9a3db2f351) | MIT; see `Vendor/Bonsplit/LICENSE` (Copyright © 2026 Alasdair Monk) |
 | SwiftTerm | [migueldeicaza/SwiftTerm@v1.13.0](https://github.com/migueldeicaza/SwiftTerm/tree/8e7a1e154f470e19c709a00a8768df348ba5fc43) | MIT; see `Vendor/SwiftTerm/LICENSE`, including xterm.js and SourceLair copyright notices |
+| Tokyo Night Day / Night palettes | [folke/tokyonight.nvim@cdc07ac](https://github.com/folke/tokyonight.nvim/tree/cdc07ac78467a233fd62c493de29a17e0cf2b2b6) | Folke Lemaitre; root Apache-2.0 LICENSE retained in `Vendor/TokyoNight/LICENSE`. Original generated palette headers also identify MIT; see the preserved files and provenance README. |
 
 `Vendor/Bonsplit` contains Snake-specific modifications. They are recorded in
 `Vendor/Bonsplit/CHANGES-SNAKE.md`; its upstream MIT license and copyright

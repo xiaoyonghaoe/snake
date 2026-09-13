@@ -598,6 +598,10 @@ extension TerminalView {
         var lastAttr: Attribute? = nil
         var lastHasUrl = false
         var lastIsSelected = false
+        #if os(macOS)
+        let highlightColors = displayHighlightColors(row: row, line: line, cols: cols)
+        var lastHighlight: NSColor?
+        #endif
 
         func flushPending() {
             if !pendingText.isEmpty, let attrs = pendingAttrs {
@@ -632,6 +636,15 @@ extension TerminalView {
             }
 
             let isSelected = isColumnSelected(selectionColumns, column: col, width: width)
+            #if os(macOS)
+            let highlight = !isSelected && attr.fg == .defaultColor
+                && !attr.style.contains(.inverse) && !attr.style.contains(.invisible)
+                ? highlightColors[col] : nil
+            if highlight != lastHighlight {
+                flushPending()
+                lastHighlight = highlight
+            }
+            #endif
 
             // Flush batch when attributes change
             if attr != lastAttr || hasUrl != lastHasUrl || isSelected != lastIsSelected {
@@ -641,7 +654,7 @@ extension TerminalView {
                 lastIsSelected = isSelected
             }
 
-            let currentAttributes: [NSAttributedString.Key: Any]
+            var currentAttributes: [NSAttributedString.Key: Any]
             if isSelected {
                 var mutable = attributes
                 mutable[.selectionBackgroundColor] = selectedTextBackgroundColor
@@ -649,6 +662,9 @@ extension TerminalView {
             } else {
                 currentAttributes = attributes
             }
+            #if os(macOS)
+            if let highlight { currentAttributes[.foregroundColor] = highlight }
+            #endif
             pendingAttrs = currentAttributes
 
             let character = ch.code == 0 ? " " : terminal.getCharacter(for: ch)
@@ -1569,7 +1585,7 @@ extension TerminalView {
     {
         defer { pendingDisplay = false }
         updateCursorPosition()
-        guard let (rowStart, rowEnd) = terminal.getUpdateRange () else {
+        guard var (rowStart, rowEnd) = terminal.getUpdateRange () else {
             if notifyUpdateChanges {
                 let buffer = terminal.displayBuffer
                 let y = buffer.yDisp+buffer.y
@@ -1577,6 +1593,19 @@ extension TerminalView {
             }
             return
         }
+        #if os(macOS)
+        if displayHighlights != nil {
+            // Invalidate the visible part of affected logical lines, not just the
+            // arriving chunk; this also handles a line crossing the decoration cap.
+            let buffer = terminal.displayBuffer
+            rowStart = max(0, rowStart)
+            rowEnd = min(terminal.rows - 1, rowEnd)
+            while rowStart > 0, buffer.yDisp + rowStart < buffer.lines.count,
+                  buffer.lines[buffer.yDisp + rowStart].isWrapped { rowStart -= 1 }
+            while rowEnd + 1 < buffer.rows, buffer.yDisp + rowEnd + 1 < buffer.lines.count,
+                  buffer.lines[buffer.yDisp + rowEnd + 1].isWrapped { rowEnd += 1 }
+        }
+        #endif
         if notifyUpdateChanges {
             terminalDelegate?.rangeChanged (source: self, startY: rowStart, endY: rowEnd)
         }

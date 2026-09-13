@@ -144,6 +144,15 @@ open class TerminalView: NSView, NSTextInputClient, NSUserInterfaceValidations, 
     var cellDimension: CellDimension!
     var caretView: CaretView!
     public var terminal: Terminal!
+
+    /// Optional local, render-only foreground decorations (UTF-16 ranges).
+    /// Assigning a new provider also invalidates already rendered CG/Metal rows.
+    public var displayHighlights: ((String) -> [TerminalDisplayHighlight])? {
+        didSet {
+            terminal?.updateFullScreen()
+            queuePendingDisplay()
+        }
+    }
     private var progressBarView: TerminalProgressBarView?
     private var progressReportTimer: Timer?
     private var lastProgressValue: UInt8?
