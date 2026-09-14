@@ -489,7 +489,7 @@
 "请选择一个 SSH 会话。" = "Choose an SSH session.";
 "请重新选择并裁剪头像照片。" = "Choose and crop the avatar photo again.";
 "读取本地校验文件失败" = "Failed to read the local verification file";
-"超过阈值的文件使用独立 SFTP 连接分片上传或下载；下载文件和分片共享并发上限。上传支持续传，下载重试重新传输。校验优先 SHA-256，其次 MD5，不可用时标记未校验，不读回文件。同时进行多个传输时，对同一台主机的传输连接总数不超过「每主机连接数」，超出的传输会在记录里显示“等待中”。" = "Files above the threshold use separate SFTP connections for multipart upload or download; downloaded files and shards share the concurrency limit. Uploads can resume, while downloads restart on retry. Verification prefers SHA-256, then MD5, marks files unverified when unavailable, and does not read files back. Across concurrent transfers, the total number of transfer connections to one host never exceeds \"Connections per host\"; transfers that would exceed it show as waiting in the transfer record.";
+"超过阈值的文件使用独立 SFTP 连接分片上传或下载；下载文件和分片共享并发上限。上传支持续传，下载重试重新传输。校验优先 SHA-256，其次 MD5，不可用时标记未校验，不读回文件。同时进行多个传输时，同一台主机的分片与逐文件传输连接受「每主机连接数」约束；每个标签的常驻连接、每个上传批次的 1 条操作连接不计入。超出的传输会在记录里显示“等待中”。" = "Files above the threshold use separate SFTP connections for multipart upload or download; downloaded files and shards share the concurrency limit. Uploads can resume, while downloads restart on retry. Verification prefers SHA-256, then MD5, marks files unverified when unavailable, and does not read files back. Across concurrent transfers, the shard and per-file transfer connections to one host are capped by \"Connections per host\"; each tab's long-lived connection and each upload batch's single operation connection are not counted. Transfers that would exceed the cap show as waiting in the transfer record.";
 "跟随系统" = "Follow System";
 "跳过" = "Skip";
 "身份验证未通过，未显示密码。" = "Authentication failed; the password was not shown.";
