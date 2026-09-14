@@ -24,7 +24,7 @@ Already delivered:
 
 Still in later phases:
 
-- SFTP name conflicts "apply to current batch", automatic renaming, per-host global concurrency limits, and LRU cleanup of the remote open cache.
+- SFTP name conflicts "apply to current batch" and automatic renaming.
 - The managed `SSH_ASKPASS` FIFO for password-based SSHFS, `lsof` prompts for processes holding the mount, and forced unmount confirmation.
 - Universal 2, Developer ID, notarized DMG, and isolated OpenSSH integration tests.
 
@@ -343,10 +343,12 @@ Double-clicking a directory enters it; double-clicking a file first downloads it
 Remote open cache:
 
 ```text
-~/Library/Caches/Snake/RemoteOpen/<profileID>/<path-hash>/
+<cache root>/<profileID>/<first 16 hex characters of the remote path SHA-256>-<file name>
 ```
 
-The cache uses LRU cleanup and enters cleanup when either condition is met: files older than 7 days or a total size over 500 MB.
+The cache root defaults to `~/Library/Caches/Snake/RemoteOpen` and can be changed in Settings. Writes use a temporary file followed by an atomic replace, with `0600` files inside `0700` directories.
+
+Cleanup runs at launch, before opening a file, and on demand. An entry is removed when either condition is met: it is older than the retention period (7 days by default) or the total size exceeds the limit (500 MB by default). Size-driven eviction removes the least recently used entries first and always keeps the one that was just opened. Cleanup only touches entries matching the layout above and never other files in the chosen folder.
 
 ### 7.2 Upload Entry Points
 
@@ -358,7 +360,7 @@ The cache uses LRU cleanup and enters cleanup when either condition is met: file
 #### 7.2.1 Resume and Parallel Chunking
 
 - Small and large files are uniformly written to deterministic hidden chunks in the target directory, without truncating the real target directly.
-- The default threshold is 50 MB; parallelism is enabled only when the file is strictly larger than the threshold, with a default concurrency of 4, configurable in settings from 1 to 8.
+- The default threshold is 50 MB; parallelism is enabled only when the file is strictly larger than the threshold, with a default concurrency of 4, configurable in settings from 1 to 8. A separate "Connections per host" setting (2-16, 8 by default) caps the total transfer connections to a single host; transfers beyond it queue, so several tabs transferring at once cannot turn into a connection storm against one server.
 - Parallel chunks use mutually independent SSH/SFTP connections. Each connection writes only one contiguous range, avoiding random writes to the same remote handle from multiple threads.
 - Chunk names are derived from a SHA-256 digest computed from the target path, local size, modification time, and chunk count, and contain no credentials. When the same version of a file is selected again, Rust reads the remote chunk lengths and continues from the corresponding local offsets.
 - Pause and cancel are driven by a `CoreTransferControl` shared by all chunks; on interruption, complete or partial chunks are retained so the user can resume by starting the same upload again.
@@ -729,7 +731,7 @@ Exit criteria: All acceptance matrix items pass, and there are no high-priority 
 - File resume and source change validation.
 - Conflict policies and batch rules.
 - Session deletion transaction and history snapshot retention.
-- Scheduler global/per-host concurrency limits.
+- Scheduler global concurrency limit (the per-host transfer connection cap is implemented on the client).
 
 ### 14.2 Swift Unit Tests
 

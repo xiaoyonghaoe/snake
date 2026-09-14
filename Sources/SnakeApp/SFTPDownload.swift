@@ -80,7 +80,11 @@ extension LocalUploadCoordinator {
 
     func download(files: [RemoteFile], to root: URL, store: ApplicationStore) {
         guard !files.isEmpty else { return }
-        let concurrency = max(1, store.multipartConcurrency)
+        let host = TransferHost(profile: profile)
+        let concurrency = HostTransferPlan.workerCount(
+            requested: store.multipartConcurrency,
+            hostLimit: store.hostConcurrencyLimit
+        )
         let threshold = store.multipartThresholdBytes
         let profile = profile
         let makeHandle = makeHandle
@@ -95,8 +99,11 @@ extension LocalUploadCoordinator {
             defer { activity.finish(outcome) }
             do {
                 let (items, capability) = try await Task.detached(priority: .userInitiated) {
-                    let handle = try makeHandle()
-                    return (try DownloadManifest.scan(files: files, handle: handle), TransferIntegrity.bestEffortCapability { try handle.checksumCapability() })
+                    // 清单扫描只需一条短命连接，单独占用一次预算。
+                    try await HostTransferBudget.shared.withConnection(host: host) {
+                        let handle = try makeHandle()
+                        return (try DownloadManifest.scan(files: files, handle: handle), TransferIntegrity.bestEffortCapability { try handle.checksumCapability() })
+                    }
                 }.value
                 let location = try DownloadLocation(root: root)
                 var tasks: [(UUID, DownloadItem, Bool, CoreTransferControl)] = []
@@ -214,56 +221,62 @@ extension LocalUploadCoordinator {
     private func performDownload(id: UUID, item: DownloadItem, location: DownloadLocation, overwrite: Bool, workers: Int,
         capability: CoreChecksumCapability, control: CoreTransferControl, store: ApplicationStore, refreshMetadata: Bool = false) async {
         guard records.first(where: { $0.jobID == id })?.state != .cancelled else { return }
-        update(jobID: id, state: .running)
-        setVerification(id, .pending)
-        store.markTransferRunning(id)
         let makeHandle = makeHandle
+        let host = TransferHost(profile: profile)
         do {
-            let result = try await Task.detached(priority: .userInitiated) { [weak self] in
-                try control.checkpoint()
-                let handle = try makeHandle()
-                let current = try handle.fileMetadata(path: item.remotePath)
-                if !refreshMetadata, current != item.metadata { throw TransferIntegrity.error(L10n.text("下载源文件在扫描后已变化")) }
-                guard current.kind == item.metadata.kind else { throw TransferIntegrity.error(L10n.text("下载源文件类型已变化")) }
-                let parent = try location.directory(Array(item.components.dropLast()), create: false)
-                let name = item.components.last!
-                if current.kind == "link" {
-                    guard let target = current.linkTarget else { throw TransferIntegrity.error(L10n.text("无法读取软链接目标")) }
+            // 整笔预留「外层 handle + 分片」；等待预算期间记录保持「等待中」。
+            let result = try await HostTransferBudget.shared.reserve(host: host, connections: 1 + workers) {
+                await MainActor.run {
+                    update(jobID: id, state: .running)
+                    setVerification(id, .pending)
+                    store.markTransferRunning(id)
+                }
+                return try await Task.detached(priority: .userInitiated) { [weak self] in
                     try control.checkpoint()
-                    try parent.createLink(name: name, target: target, overwrite: overwrite)
-                    return TransferVerification.notApplicable(L10n.text("软链接目标已核对"))
-                }
-                let staging = try DownloadStaging(parent: parent, size: current.size)
-                let progress = SFTPMultipartProgress(jobID: id, totalBytes: current.size, store: store)
-                let ranges = Self.uploadRanges(totalBytes: current.size, workerCount: workers)
-                do {
-                    try await withThrowingTaskGroup(of: Void.self) { group in
-                        for (index, range) in ranges.enumerated() {
-                            group.addTask {
-                                let partHandle = try makeHandle()
-                                try partHandle.downloadRange(remotePath: item.remotePath, localFd: staging.fd,
-                                    offset: range.offset, length: range.length, control: control,
-                                    observer: SFTPPartTransferObserver(index: index, progress: progress))
-                            }
-                        }
-                        do { try await group.waitForAll() } catch { control.cancel(); throw error }
+                    let handle = try makeHandle()
+                    let current = try handle.fileMetadata(path: item.remotePath)
+                    if !refreshMetadata, current != item.metadata { throw TransferIntegrity.error(L10n.text("下载源文件在扫描后已变化")) }
+                    guard current.kind == item.metadata.kind else { throw TransferIntegrity.error(L10n.text("下载源文件类型已变化")) }
+                    let parent = try location.directory(Array(item.components.dropLast()), create: false)
+                    let name = item.components.last!
+                    if current.kind == "link" {
+                        guard let target = current.linkTarget else { throw TransferIntegrity.error(L10n.text("无法读取软链接目标")) }
+                        try control.checkpoint()
+                        try parent.createLink(name: name, target: target, overwrite: overwrite)
+                        return TransferVerification.notApplicable(L10n.text("软链接目标已核对"))
                     }
-                }
-                let verification: TransferVerification
-                if capability.algorithm.isEmpty { verification = .unavailable(capability.reason) }
-                else {
-                    await self?.setVerification(id, .checking(capability.algorithm))
-                    verification = try TransferIntegrity.bestEffortVerification(algorithm: capability.algorithm, local: {
-                        try TransferIntegrity.localDigest(fd: staging.fd, algorithm: capability.algorithm, control: control)
-                    }, remote: {
-                        try handle.remoteChecksum(path: item.remotePath, capability: capability, control: control)
-                    })
-                }
-                guard try handle.fileMetadata(path: item.remotePath) == current else { throw TransferIntegrity.error(L10n.text("传输或校验期间远端源文件已变化")) }
-                try control.checkpoint()
-                try staging.publish(as: name, overwrite: overwrite)
-                return verification
-            }.value
+                    let staging = try DownloadStaging(parent: parent, size: current.size)
+                    let progress = SFTPMultipartProgress(jobID: id, totalBytes: current.size, store: store)
+                    let ranges = Self.uploadRanges(totalBytes: current.size, workerCount: workers)
+                    do {
+                        try await withThrowingTaskGroup(of: Void.self) { group in
+                            for (index, range) in ranges.enumerated() {
+                                group.addTask {
+                                    let partHandle = try makeHandle()
+                                    try partHandle.downloadRange(remotePath: item.remotePath, localFd: staging.fd,
+                                        offset: range.offset, length: range.length, control: control,
+                                        observer: SFTPPartTransferObserver(index: index, progress: progress))
+                                }
+                            }
+                            do { try await group.waitForAll() } catch { control.cancel(); throw error }
+                        }
+                    }
+                    let verification: TransferVerification
+                    if capability.algorithm.isEmpty { verification = .unavailable(capability.reason) }
+                    else {
+                        await self?.setVerification(id, .checking(capability.algorithm))
+                        verification = try TransferIntegrity.bestEffortVerification(algorithm: capability.algorithm, local: {
+                            try TransferIntegrity.localDigest(fd: staging.fd, algorithm: capability.algorithm, control: control)
+                        }, remote: {
+                            try handle.remoteChecksum(path: item.remotePath, capability: capability, control: control)
+                        })
+                    }
+                    guard try handle.fileMetadata(path: item.remotePath) == current else { throw TransferIntegrity.error(L10n.text("传输或校验期间远端源文件已变化")) }
+                    try control.checkpoint()
+                    try staging.publish(as: name, overwrite: overwrite)
+                    return verification
+                }.value
+            }
             setVerification(id, result)
             update(jobID: id, state: .succeeded, finishedAt: .now)
             store.markTransferSucceeded(id)

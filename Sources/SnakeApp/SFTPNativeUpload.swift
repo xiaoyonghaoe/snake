@@ -4,12 +4,13 @@ import SnakeCoreBindings
 extension LocalUploadCoordinator {
     nonisolated static func uploadSFTPOnly(item: SFTPUploadItem, initialVersion: TransferIntegrity.LocalVersion,
         capability: CoreChecksumCapability, operation: CoreSftpHandle, overwrite: Bool,
-        thresholdBytes: Int64, concurrency: Int, control: CoreTransferControl, jobID: UUID,
+        thresholdBytes: Int64, workers: Int, control: CoreTransferControl, jobID: UUID,
         store: ApplicationStore, makeHandle: @escaping @Sendable () throws -> CoreSftpHandle) async throws -> TransferVerification {
         let parent = (item.remotePath as NSString).deletingLastPathComponent
         let staging = (parent as NSString).appendingPathComponent(".snake-upload-\(UUID()).staging")
         let total = UInt64(max(0, item.size))
-        let ranges = uploadRanges(totalBytes: total, workerCount: item.size > thresholdBytes ? concurrency : 1)
+        // 连接数由调用方按每主机预算整笔预留，这里不再单独申请。
+        let ranges = uploadRanges(totalBytes: total, workerCount: workers)
         let progress = SFTPMultipartProgress(jobID: jobID, totalBytes: total, store: store)
         try operation.prepareNativeUpload(staging: staging)
         do {

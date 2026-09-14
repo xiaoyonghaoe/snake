@@ -37,6 +37,29 @@ public final class ApplicationStore: ObservableObject {
             defaults.set(value, forKey: multipartConcurrencyKey)
         }
     }
+    /// Ceiling on transfer connections to one host, shared by every window and tab.
+    @Published public var hostConcurrencyLimit: Int {
+        didSet {
+            let value = HostTransferBudget.clamp(hostConcurrencyLimit)
+            if value != hostConcurrencyLimit { hostConcurrencyLimit = value; return }
+            defaults.set(value, forKey: hostConcurrencyKey)
+            HostTransferBudget.shared.setLimit(value)
+        }
+    }
+    /// Bookmarked folder used when opening a remote file; `nil` means the system cache.
+    @Published public var remoteOpenDirectoryBookmark: Data? {
+        didSet { persistRemoteOpenLocation() }
+    }
+    /// Resolved location, for display in Settings.
+    @Published public private(set) var remoteOpenDirectoryPath: String = ""
+    @Published public var remoteOpenCleanupPolicy: RemoteOpenCleanupPolicy {
+        didSet { defaults.set(remoteOpenCleanupPolicy.rawValue, forKey: remoteOpenRetentionKey) }
+    }
+    @Published public var remoteOpenSizeLimit: RemoteOpenSizeLimit {
+        didSet { defaults.set(remoteOpenSizeLimit.rawValue, forKey: remoteOpenSizeLimitKey) }
+    }
+    /// Set when a stored folder could not be resolved and the default is in use.
+    @Published public private(set) var remoteOpenCacheNotice: String?
     @Published public var terminalFontName: String {
         didSet { defaults.set(terminalFontName, forKey: terminalFontNameKey) }
     }
@@ -78,6 +101,10 @@ public final class ApplicationStore: ObservableObject {
     private let mountsKey = "com.snake.mounts"
     private let multipartThresholdKey = "com.snake.transfer.multipart-threshold-mb"
     private let multipartConcurrencyKey = "com.snake.transfer.multipart-concurrency"
+    private let hostConcurrencyKey = "com.snake.transfer.host-concurrency"
+    private let remoteOpenDirectoryKey = "com.snake.transfer.remote-open-directory"
+    private let remoteOpenRetentionKey = "com.snake.transfer.remote-open-retention"
+    private let remoteOpenSizeLimitKey = "com.snake.transfer.remote-open-size-limit"
     private let terminalFontNameKey = "com.snake.terminal.font-name"
     private let terminalFontSizeKey = "com.snake.terminal.font-size"
     private let terminalThemeKey = "com.snake.terminal.theme"
@@ -117,6 +144,23 @@ public final class ApplicationStore: ObservableObject {
         let savedConcurrency = defaults.integer(forKey: multipartConcurrencyKey)
         self.multipartThresholdMB = savedThreshold == 0 ? 50 : min(max(savedThreshold, 1), 10_240)
         self.multipartConcurrency = savedConcurrency == 0 ? 4 : min(max(savedConcurrency, 1), 8)
+        let storedHostLimit = defaults.object(forKey: hostConcurrencyKey) as? Int
+        let hostLimit = storedHostLimit.flatMap { HostTransferBudget.allowedLimits.contains($0) ? $0 : nil }
+            ?? HostTransferBudget.defaultLimit
+        self.hostConcurrencyLimit = hostLimit
+        HostTransferBudget.shared.setLimit(hostLimit)
+        let storedBookmark = defaults.data(forKey: remoteOpenDirectoryKey)
+        let openLocation = RemoteOpenCache.location(bookmark: storedBookmark, accessScope: false)
+        self.remoteOpenDirectoryBookmark = storedBookmark
+        self.remoteOpenDirectoryPath = openLocation.url.path
+        self.remoteOpenCacheNotice = openLocation.fellBackFromBookmark
+            ? L10n.text("所选目录不可用，已恢复默认位置。") : nil
+        self.remoteOpenCleanupPolicy = defaults.object(forKey: remoteOpenRetentionKey) == nil
+            ? .sevenDays
+            : (RemoteOpenCleanupPolicy(rawValue: defaults.integer(forKey: remoteOpenRetentionKey)) ?? .sevenDays)
+        self.remoteOpenSizeLimit = defaults.object(forKey: remoteOpenSizeLimitKey) == nil
+            ? .mb500
+            : (RemoteOpenSizeLimit(rawValue: defaults.integer(forKey: remoteOpenSizeLimitKey)) ?? .mb500)
         self.terminalFontName = defaults.string(forKey: terminalFontNameKey)
             ?? NSFont.monospacedSystemFont(ofSize: 13, weight: .regular).fontName
         let savedFontSize = defaults.double(forKey: terminalFontSizeKey)
@@ -311,6 +355,7 @@ public final class ApplicationStore: ObservableObject {
             try? CredentialStore.delete(account: profile.keychainPassphraseAccount)
         }
         ProfileIconStore.delete(for: profile.id)
+        cleanRemoteOpenCache(for: profile.id)
         persistConfiguration()
     }
 
@@ -449,6 +494,108 @@ public final class ApplicationStore: ObservableObject {
         for job in removed {
             ephemeralTransferJobIDs.remove(job.id)
             try? corePersistence?.deleteTransfer(id: job.id)
+        }
+    }
+
+    // MARK: - Open-remote-file cache
+
+    /// Settings the SFTP "open remote file" path needs to locate and trim its cache.
+    public var remoteOpenCacheConfiguration: RemoteOpenCacheConfiguration {
+        RemoteOpenCacheConfiguration(
+            directoryBookmark: remoteOpenDirectoryBookmark,
+            policy: remoteOpenCleanupPolicy,
+            sizeLimit: remoteOpenSizeLimit
+        )
+    }
+
+    /// Stores a folder for opened remote files; `nil` restores the system cache location.
+    ///
+    /// Returns a localized error message when the folder cannot be used, otherwise `nil`.
+    @discardableResult
+    public func setRemoteOpenDirectory(_ url: URL?) -> String? {
+        let previous = RemoteOpenCache.location(bookmark: remoteOpenDirectoryBookmark, accessScope: false)
+        if let url {
+            do {
+                try RemoteOpenCache.prepare(directory: url, owned: false)
+            } catch {
+                return L10n.format("无法写入所选目录：%@", error.localizedDescription)
+            }
+            guard let bookmark = try? RemoteOpenCache.bookmark(for: url) else {
+                return L10n.format("无法写入所选目录：%@", url.path)
+            }
+            remoteOpenDirectoryBookmark = bookmark
+        } else {
+            remoteOpenDirectoryBookmark = nil
+        }
+        // The folder we just left is no longer reachable from Settings; trim it once so
+        // its files do not sit there forever.
+        let current = RemoteOpenCache.location(bookmark: remoteOpenDirectoryBookmark, accessScope: false)
+        if previous.url != current.url {
+            let policy = remoteOpenCleanupPolicy
+            let limit = remoteOpenSizeLimit
+            Task.detached(priority: .utility) {
+                try? RemoteOpenCache.prune(root: previous.url, policy: policy, sizeLimit: limit)
+            }
+        }
+        return nil
+    }
+
+    /// Current cache usage, or `nil` when the location cannot be read.
+    public func remoteOpenCacheUsage() async -> RemoteOpenCacheReport? {
+        let bookmark = remoteOpenDirectoryBookmark
+        return await Task.detached(priority: .utility) {
+            let location = RemoteOpenCache.location(bookmark: bookmark, accessScope: true)
+            defer { if location.scoped { location.url.stopAccessingSecurityScopedResource() } }
+            return try? RemoteOpenCache.usage(root: location.url)
+        }.value
+    }
+
+    /// Removes every cached copy this app created, leaving the rest of the folder alone.
+    public func clearRemoteOpenCache() async -> RemoteOpenCacheReport? {
+        let bookmark = remoteOpenDirectoryBookmark
+        return await Task.detached(priority: .utility) {
+            let location = RemoteOpenCache.location(bookmark: bookmark, accessScope: true)
+            defer { if location.scoped { location.url.stopAccessingSecurityScopedResource() } }
+            return try? RemoteOpenCache.clear(root: location.url)
+        }.value
+    }
+
+    /// Applies the retention and size policy without user interaction (launch, or before a write).
+    @discardableResult
+    public func pruneRemoteOpenCache() async -> RemoteOpenCacheReport? {
+        let bookmark = remoteOpenDirectoryBookmark
+        let policy = remoteOpenCleanupPolicy
+        let limit = remoteOpenSizeLimit
+        return await Task.detached(priority: .utility) {
+            let location = RemoteOpenCache.location(bookmark: bookmark, accessScope: true)
+            defer { if location.scoped { location.url.stopAccessingSecurityScopedResource() } }
+            return try? RemoteOpenCache.prune(root: location.url, policy: policy, sizeLimit: limit)
+        }.value
+    }
+
+    private func persistRemoteOpenLocation() {
+        if let bookmark = remoteOpenDirectoryBookmark {
+            defaults.set(bookmark, forKey: remoteOpenDirectoryKey)
+        } else {
+            defaults.removeObject(forKey: remoteOpenDirectoryKey)
+        }
+        let location = RemoteOpenCache.location(bookmark: remoteOpenDirectoryBookmark, accessScope: false)
+        remoteOpenDirectoryPath = location.url.path
+        remoteOpenCacheNotice = location.fellBackFromBookmark
+            ? L10n.text("所选目录不可用，已恢复默认位置。") : nil
+    }
+
+    /// Clears the copies cached for a deleted session.
+    ///
+    /// Only entries this app created are removed, and the session folder is dropped only
+    /// once it ends up empty: the cache can live in a folder the user chose, so deleting a
+    /// session must never take unrelated files with it.
+    private func cleanRemoteOpenCache(for profileID: UUID) {
+        let bookmark = remoteOpenDirectoryBookmark
+        Task.detached(priority: .utility) {
+            let location = RemoteOpenCache.location(bookmark: bookmark, accessScope: true)
+            defer { if location.scoped { location.url.stopAccessingSecurityScopedResource() } }
+            RemoteOpenCache.removeProfileDirectory(root: location.url, profileID: profileID)
         }
     }
 

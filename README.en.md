@@ -24,19 +24,6 @@ shasum -a 256 -c Snake-1.1.1-macos-arm64.dmg.sha256
 
 See the [1.1.1 release notes](docs/RELEASE_NOTES_1.1.1.md) for this update, and the [release process](docs/en/RELEASING.md) for build, signing, and notarization steps.
 
-## Interface preview
-
-<img width="1120" height="840" alt="image" src="https://github.com/user-attachments/assets/d9f0fd93-cc37-468d-8256-0020b76ac4f5" />
-<img width="1120" height="840" alt="image" src="https://github.com/user-attachments/assets/711f9420-4b34-4621-baab-fb8f64d4e9a0" />
-<img width="1120" height="840" alt="image" src="https://github.com/user-attachments/assets/5a3191e4-2f8f-467c-803d-fc2be2273275" />
-<img width="1120" height="840" alt="image" src="https://github.com/user-attachments/assets/d6e4ae1c-2fa5-47a8-8071-b5d571061f6e" />
-<img width="1120" height="840" alt="image" src="https://github.com/user-attachments/assets/b8586934-23b7-4b10-be21-ea05357c86f5" />
-<img width="1120" height="840" alt="image" src="https://github.com/user-attachments/assets/68f66f07-2eb6-400a-83da-158eeabf8b4e" />
-<img width="1120" height="840" alt="image" src="https://github.com/user-attachments/assets/c11929f1-a08b-4af1-aee9-9fd6472b8ccc" />
-<img width="1120" height="840" alt="image" src="https://github.com/user-attachments/assets/2f150786-87b7-4950-a307-9670158da30c" />
-
-See the [development plan](docs/en/SNAKE_DEVELOPMENT_PLAN.md) for the complete product and security constraints. The public source does not include the internal interaction design prototypes.
-
 ## Current features
 
 ### Sessions and multi-window workspace
@@ -57,9 +44,10 @@ See the [development plan](docs/en/SNAKE_DEVELOPMENT_PLAN.md) for the complete p
 ### SFTP and file transfer
 
 - Supports path entry, forward/back/up-one-level, file search, symbolic links, creating files/folders, renaming, visual permission display and recursive permission changes, Command/Shift multi-select deletion, and downloading remote files to a cache before opening them.
+- The cache used for opened remote files can be moved in Settings (the system cache directory by default) and is trimmed automatically by age and by size, 7 days / 500 MB by default; it can also be cleared on demand. Cleanup only touches the copies Snake downloaded and never other files in the chosen folder.
 - Right-clicking a folder or an empty area offers new-file and upload entries, both targeting the currently browsed directory. Files and folders can be downloaded to a local directory chosen by the user; folder transfers preserve the directory hierarchy and empty folders.
 - Finder files and folders can be dragged onto the SSH terminal or the SFTP content area to upload, isolated from tab dragging. SSH uses the most recently reported shell directory, confirming first when it is unknown; SFTP uses the current directory. See the [Finder upload guide](docs/en/FINDER_UPLOAD.md) for details.
-- Uploads and downloads support configurable parallel transfer, using 4 connection shards by default for files over 50 MB. Uploads support shard resume and safe overwrite through a hidden staging file; retries on the SFTP-only compatibility path re-upload from scratch. Dragging remote files between SFTP splits/windows still transfers them from one to the other.
+- Uploads and downloads support configurable parallel transfer, using 4 connection shards by default for files over 50 MB. Uploads support shard resume and safe overwrite through a hidden staging file; retries on the SFTP-only compatibility path re-upload from scratch. Dragging remote files between SFTP splits/windows still transfers them from one to the other. Across concurrent transfers, the total number of transfer connections to one host is capped by "Connections per host" (8 by default, 2-16); transfers that would exceed it queue and show as waiting in the record.
 - Remote SHA-256 is preferred, falling back to MD5 when it is unavailable; when neither is available or probing fails, the transfer is marked "unverified", which does not block normal uploads/downloads and never reads the remote file back. Digests obtained for both sides that disagree are still treated as a failure and do not overwrite the older file. See [downloads and integrity verification](docs/en/SFTP_DOWNLOAD_INTEGRITY.md) for details.
 - The SSH connection strip and the bottom of SFTP show a compact progress entry on demand; clicking it shows the current tab's file-level records, elapsed time, result, and verification status, and allows pausing, resuming, cancelling, or retrying. Records are not written to SQLite and are cleared when the tab is closed or the app quits.
 - Default SFTP shortcuts: `Command-F` to search, `Command-Delete (⌫)` to delete, and `Command-U` to upload files; these can be changed in Settings.
@@ -69,6 +57,42 @@ See the [development plan](docs/en/SNAKE_DEVELOPMENT_PLAN.md) for the complete p
 - Supports macFUSE/sshfs dependency detection, mapping editing, private-key SSHFS mounts, opening in Finder, and safe unmounting, using a constrained `SnakeMountHelper`.
 - The Finder disk name shows "mapping name · SSH session name"; the system's actual mount table is authoritative. Before quitting, the app waits for mount operations and safely unmounts managed mappings, and a failed unmount cancels the quit. Only closing a window or a mapping tab does not unmount the disk.
 - The Rust `snake_core` provides SQLite data storage, session/mapping/transfer record interfaces, and UniFFI Swift bindings; credentials are stored separately, encrypted, and never written to the database.
+
+## Security boundaries
+
+- Passwords and private-key passphrases are encrypted with AES-256-GCM and stored in `~/Library/Application Support/Snake/credentials.json`, with the random 256-bit key kept in the system keychain, file permissions of `0600`, and directory permissions of `0700`. If the file is corrupted or the key is lost, the original file is not overwritten and there is no fallback to plaintext.
+- Connections are decrypted automatically; revealing saved plaintext on the edit page requires system authentication such as Touch ID or the Mac login password, and it is hidden after 30 seconds or when the window loses focus. Ad-hoc-signed updates may still trigger a separate keychain access authorization, so development builds are not guaranteed to be prompt-free.
+- SQLite still stores only a credential reference, never passwords; integrating a password tool later will replace only the `CredentialStore` backend.
+- Private keys are referenced through security-scoped bookmarks and the files are not copied.
+- When a host key changes, the SSH terminal, SFTP, and remote directory picker show the old and new fingerprints; only after explicit confirmation is the trust record for the corresponding address and port updated and the connection re-established; cancelling keeps the original record, and the actual fingerprint is verified again on reconnect.
+- `SnakeMountHelper` accepts only managed mount directories and sshfs executable paths from the allowlist.
+- Terminal credentials are passed as bytes to Rust/libssh2 through UniFFI, and the authentication material is zeroed after use; the system `ssh` is never launched, and the password is never passed through argv, environment variables, or drag-and-drop payloads.
+- SSHFS currently performs real mounts only for private-key sessions; password-based mounts fail explicitly until the managed SSH_ASKPASS FIFO is complete, and never fall back to passing secrets through insecure argv/environment variables.
+
+## Localization
+
+- Snake ships Simplified Chinese (the source language, default, and fallback) and English.
+- The interface language can be changed in Settings › Appearance › Language; it applies immediately and is remembered.
+- Text provided by macOS (permission prompts, Finder and system menus) follows the system language.
+- How to add a language: copy `Resources/Localization/en.lproj` to a new `<language>.lproj`, translate `Localizable.strings` (keys are the Simplified Chinese source strings; keep every `%@` placeholder and the `<key>#plural` entries), add the language to `CFBundleLocalizations` in `Resources/Info.plist` and to `AppLanguage.supportedIdentifiers`, then run `swift test --disable-sandbox --filter LocalizationTests` to verify the table is complete.
+- Note that `swift run Snake` is not a bundled app, so `Bundle.main` cannot find the `.lproj` tables and the interface stays Simplified Chinese; use `scripts/package-debug-app.sh` to test another language.
+
+## Not yet delivered
+
+- Workspaces are not restored across app restarts and interrupted transfers are not resumed automatically; a failed download retries from a fresh source version, and resumable downloads are not promised.
+- Password-based mount AskPass, the Intel / Universal 2 installer package, and Developer ID signing and notarization have not been delivered yet.
+- The known mount test `MountOperationsTests.testQuitIsCancelledWhenMountIsBusyOrMountTableCannotBeRead` fails with `invalidMapping`, so the overall test suite cannot be claimed to pass completely. The 24 shortcut/workspace tests related to this packaging and the installer integrity check pass; page and clean-Mac installation acceptance still need to be performed.
+
+## Interface preview
+
+<img width="1120" height="840" alt="image" src="https://github.com/user-attachments/assets/d9f0fd93-cc37-468d-8256-0020b76ac4f5" />
+<img width="1120" height="840" alt="image" src="https://github.com/user-attachments/assets/711f9420-4b34-4621-baab-fb8f64d4e9a0" />
+<img width="1120" height="840" alt="image" src="https://github.com/user-attachments/assets/5a3191e4-2f8f-467c-803d-fc2be2273275" />
+<img width="1120" height="840" alt="image" src="https://github.com/user-attachments/assets/d6e4ae1c-2fa5-47a8-8071-b5d571061f6e" />
+<img width="1120" height="840" alt="image" src="https://github.com/user-attachments/assets/b8586934-23b7-4b10-be21-ea05357c86f5" />
+<img width="1120" height="840" alt="image" src="https://github.com/user-attachments/assets/68f66f07-2eb6-400a-83da-158eeabf8b4e" />
+<img width="1120" height="840" alt="image" src="https://github.com/user-attachments/assets/c11929f1-a08b-4af1-aee9-9fd6472b8ccc" />
+<img width="1120" height="840" alt="image" src="https://github.com/user-attachments/assets/2f150786-87b7-4950-a307-9670158da30c" />
 
 ## Local development
 
@@ -101,30 +125,6 @@ The version and build numbers are stored in `Resources/Info.plist` and are curre
 
 On launch, the app automatically migrates legacy plaintext credentials to the encrypted file; if an old session still has only a Keychain reference, it is migrated into encrypted storage after its first successful read. See [credential encryption and viewing](docs/en/CREDENTIAL_SECURITY.md) for the detailed design and manual acceptance steps.
 
-## Security boundaries
-
-- Passwords and private-key passphrases are encrypted with AES-256-GCM and stored in `~/Library/Application Support/Snake/credentials.json`, with the random 256-bit key kept in the system keychain, file permissions of `0600`, and directory permissions of `0700`. If the file is corrupted or the key is lost, the original file is not overwritten and there is no fallback to plaintext.
-- Connections are decrypted automatically; revealing saved plaintext on the edit page requires system authentication such as Touch ID or the Mac login password, and it is hidden after 30 seconds or when the window loses focus. Ad-hoc-signed updates may still trigger a separate keychain access authorization, so development builds are not guaranteed to be prompt-free.
-- SQLite still stores only a credential reference, never passwords; integrating a password tool later will replace only the `CredentialStore` backend.
-- Private keys are referenced through security-scoped bookmarks and the files are not copied.
-- When a host key changes, the SSH terminal, SFTP, and remote directory picker show the old and new fingerprints; only after explicit confirmation is the trust record for the corresponding address and port updated and the connection re-established; cancelling keeps the original record, and the actual fingerprint is verified again on reconnect.
-- `SnakeMountHelper` accepts only managed mount directories and sshfs executable paths from the allowlist.
-- Terminal credentials are passed as bytes to Rust/libssh2 through UniFFI, and the authentication material is zeroed after use; the system `ssh` is never launched, and the password is never passed through argv, environment variables, or drag-and-drop payloads.
-- SSHFS currently performs real mounts only for private-key sessions; password-based mounts fail explicitly until the managed SSH_ASKPASS FIFO is complete, and never fall back to passing secrets through insecure argv/environment variables.
-
-## Not yet delivered
-
-- Workspaces are not restored across app restarts and interrupted transfers are not resumed automatically; a failed download retries from a fresh source version, and resumable downloads are not promised.
-- Per-host concurrency limits and LRU cleanup of the remote-open cache still need work; the existing concurrency settings are not the same as global per-host scheduling.
-- Password-based mount AskPass, the Intel / Universal 2 installer package, and Developer ID signing and notarization have not been delivered yet.
-- The known mount test `MountOperationsTests.testQuitIsCancelledWhenMountIsBusyOrMountTableCannotBeRead` fails with `invalidMapping`, so the overall test suite cannot be claimed to pass completely. The 24 shortcut/workspace tests related to this packaging and the installer integrity check pass; page and clean-Mac installation acceptance still need to be performed.
-
-## Localization
-
-- Snake ships Simplified Chinese (the source language, default, and fallback) and English.
-- The interface language can be changed in Settings › Appearance › Language; it applies immediately and is remembered.
-- Text provided by macOS (permission prompts, Finder and system menus) follows the system language.
-- How to add a language: copy `Resources/Localization/en.lproj` to a new `<language>.lproj`, translate `Localizable.strings` (keys are the Simplified Chinese source strings; keep every `%@` placeholder and the `<key>#plural` entries), add the language to `CFBundleLocalizations` in `Resources/Info.plist` and to `AppLanguage.supportedIdentifiers`, then run `swift test --disable-sandbox --filter LocalizationTests` to verify the table is complete.
-- Note that `swift run Snake` is not a bundled app, so `Bundle.main` cannot find the `.lproj` tables and the interface stays Simplified Chinese; use `scripts/package-debug-app.sh` to test another language.
+See the [development plan](docs/en/SNAKE_DEVELOPMENT_PLAN.md) for the complete product and security constraints. The public source does not include the internal interaction design prototypes.
 
 See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for the complete third-party attribution.

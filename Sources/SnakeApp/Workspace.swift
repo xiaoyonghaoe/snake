@@ -554,7 +554,10 @@ public final class LocalUploadCoordinator: ObservableObject {
         let profile = profile
         let threshold = store.multipartThresholdBytes
         let makeHandle = makeHandle
-        let concurrency = store.multipartConcurrency
+        let concurrency = HostTransferPlan.workerCount(
+            requested: store.multipartConcurrency,
+            hostLimit: store.hostConcurrencyLimit
+        )
         errorMessage = nil
         activity.begin()
         let previousBatch = batchTask
@@ -570,6 +573,9 @@ public final class LocalUploadCoordinator: ObservableObject {
                 let items = try await Task.detached(priority: .userInitiated) {
                     try urls.flatMap { try Self.uploadItems(for: $0, destinationRoot: destinationRoot) }
                 }.value
+                // One operation connection lives for the whole batch (it also spans user
+                // conflict prompts), so it stays outside the per-host transfer budget:
+                // charging it would let a batch hold budget while its own shards wait.
                 let operationHandle = try await Task.detached(priority: .userInitiated) {
                     try makeHandle()
                 }.value
@@ -634,7 +640,10 @@ public final class LocalUploadCoordinator: ObservableObject {
     public func remoteHomeDirectory() async throws -> String {
         let profile = profile
         return try await Task.detached(priority: .userInitiated) {
-            try Self.openTransferHandle(profile: profile).homeDirectory()
+            // A single short-lived connection, so it takes one slot on its own.
+            try await HostTransferBudget.shared.withConnection(host: TransferHost(profile: profile)) {
+                try Self.openTransferHandle(profile: profile).homeDirectory()
+            }
         }.value
     }
 
@@ -678,7 +687,10 @@ public final class LocalUploadCoordinator: ObservableObject {
                 overwrite: record.overwrite,
                 jobID: jobID,
                 thresholdBytes: store.multipartThresholdBytes,
-                concurrency: store.multipartConcurrency,
+                concurrency: HostTransferPlan.workerCount(
+                    requested: store.multipartConcurrency,
+                    hostLimit: store.hostConcurrencyLimit
+                ),
                 store: store
             )
             var outcome = UploadActivity.Outcome()
@@ -797,6 +809,12 @@ public final class LocalUploadCoordinator: ObservableObject {
         }
     }
 
+    /// Connections one upload opens: its operation handle plus its shards.
+    nonisolated static func plannedWorkerCount(size: Int64, thresholdBytes: Int64, concurrency: Int) -> Int {
+        guard size > thresholdBytes else { return 1 }
+        return min(max(concurrency, 1), Int(max(size, 1)))
+    }
+
     nonisolated private static func uploadResumable(
         item: SFTPUploadItem,
         profile: SSHProfile,
@@ -809,13 +827,50 @@ public final class LocalUploadCoordinator: ObservableObject {
         makeHandle: @escaping @Sendable () throws -> CoreSftpHandle,
         onVerification: @escaping @Sendable (TransferVerification) async -> Void
     ) async throws -> TransferVerification {
+        // 整笔预留「外层 operation + 分片」；宿主空闲时超限作业仍会独占放行，避免死锁。
+        let plannedWorkers = plannedWorkerCount(
+            size: item.size,
+            thresholdBytes: thresholdBytes,
+            concurrency: concurrency
+        )
+        return try await HostTransferBudget.shared.reserve(
+            host: TransferHost(profile: profile),
+            connections: 1 + plannedWorkers
+        ) {
+            try await uploadResumableWork(
+                item: item,
+                profile: profile,
+                overwrite: overwrite,
+                thresholdBytes: thresholdBytes,
+                workers: plannedWorkers,
+                control: control,
+                jobID: jobID,
+                store: store,
+                makeHandle: makeHandle,
+                onVerification: onVerification
+            )
+        }
+    }
+
+    nonisolated private static func uploadResumableWork(
+        item: SFTPUploadItem,
+        profile: SSHProfile,
+        overwrite: Bool,
+        thresholdBytes: Int64,
+        workers: Int,
+        control: CoreTransferControl,
+        jobID: UUID,
+        store: ApplicationStore,
+        makeHandle: @escaping @Sendable () throws -> CoreSftpHandle,
+        onVerification: @escaping @Sendable (TransferVerification) async -> Void
+    ) async throws -> TransferVerification {
         let initialVersion = try TransferIntegrity.LocalVersion(item.localURL)
         guard initialVersion.size == item.size else { throw TransferIntegrity.error(L10n.text("本地源文件已变化，请重新上传")) }
         let operation = try makeHandle()
         let capability = TransferIntegrity.bestEffortCapability { try operation.checksumCapability() }
         if capability.tool == "sftp-only" {
             return try await uploadSFTPOnly(item: item, initialVersion: initialVersion, capability: capability,
-                operation: operation, overwrite: overwrite, thresholdBytes: thresholdBytes, concurrency: concurrency,
+                operation: operation, overwrite: overwrite, thresholdBytes: thresholdBytes, workers: workers,
                 control: control, jobID: jobID, store: store, makeHandle: makeHandle)
         }
         let localHash: String?
@@ -828,7 +883,7 @@ public final class LocalUploadCoordinator: ObservableObject {
             await onVerification(.pending)
         }
         let totalBytes = max(item.size, 0)
-        let workerCount = item.size > thresholdBytes ? min(max(concurrency, 1), Int(max(item.size, 1))) : 1
+        let workerCount = workers
         let ranges = uploadRanges(totalBytes: UInt64(totalBytes), workerCount: workerCount)
         let modified = try? item.localURL.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
         let identity = [item.remotePath, String(item.size), String(format: "%.6f", modified?.timeIntervalSince1970 ?? 0), String(ranges.count)].joined(separator: "\u{0}")
@@ -1233,11 +1288,11 @@ public final class SFTPRuntime: ObservableObject, Identifiable {
         }
     }
 
-    public func open(_ file: RemoteFile) {
+    public func open(_ file: RemoteFile, cache: RemoteOpenCacheConfiguration) {
         if file.isDirectory {
             refresh(path: file.path)
         } else {
-            downloadAndOpen(file)
+            downloadAndOpen(file, cache: cache)
         }
     }
 
@@ -1552,26 +1607,37 @@ public final class SFTPRuntime: ObservableObject, Identifiable {
         }
     }
 
-    private func downloadAndOpen(_ file: RemoteFile) {
+    /// Downloads a remote file into the local cache and hands the copy to the system.
+    ///
+    /// The cache obeys the user's Settings: location, retention and size limit. Only
+    /// files this app created inside that location are ever trimmed.
+    private func downloadAndOpen(_ file: RemoteFile, cache: RemoteOpenCacheConfiguration) {
         guard let handle else {
             errorMessage = L10n.text("SFTP 尚未连接，无法打开远程文件。")
             return
         }
-        let cacheRoot = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
-            .appendingPathComponent("Snake/RemoteOpen", isDirectory: true)
-            .appendingPathComponent(profile.id.uuidString, isDirectory: true)
-        let digest = SHA256.hash(data: Data(file.path.utf8))
-            .map { String(format: "%02x", $0) }
-            .joined()
-        let cacheURL = cacheRoot
-            .appendingPathComponent(String(digest.prefix(16)) + "-" + file.name, isDirectory: false)
+        let profileID = profile.id
         Task {
             do {
-                try FileManager.default.createDirectory(at: cacheRoot, withIntermediateDirectories: true)
-                try await Task.detached(priority: .userInitiated) {
-                    try handle.download(remotePath: file.path, localPath: cacheURL.path)
+                let target = try await Task.detached(priority: .userInitiated) { () -> URL in
+                    let location = RemoteOpenCache.location(bookmark: cache.directoryBookmark, accessScope: true)
+                    defer { if location.scoped { location.url.stopAccessingSecurityScopedResource() } }
+                    try RemoteOpenCache.prepare(directory: location.url, owned: location.isDefault)
+                    _ = try? RemoteOpenCache.prune(
+                        root: location.url,
+                        policy: cache.policy,
+                        sizeLimit: cache.sizeLimit
+                    )
+                    let directory = RemoteOpenCache.profileDirectory(root: location.url, profileID: profileID)
+                    try RemoteOpenCache.prepare(directory: directory, owned: true)
+                    let target = RemoteOpenCache.fileURL(in: directory, remotePath: file.path, fileName: file.name)
+                    try RemoteOpenCache.store(at: target) { temporary in
+                        try handle.download(remotePath: file.path, localPath: temporary.path)
+                    }
+                    if location.isDefault { RemoteOpenCache.excludeFromBackup(target) }
+                    return target
                 }.value
-                NSWorkspace.shared.open(cacheURL)
+                NSWorkspace.shared.open(target)
             } catch {
                 errorMessage = Self.message(for: error)
             }
@@ -2793,11 +2859,19 @@ public final class SnakeAppDelegate: NSObject, NSApplicationDelegate {
                 }
             }
         }
+        pruneRemoteOpenCacheOnLaunch()
     }
 
     public func applicationDidBecomeActive(_ notification: Notification) {
         installApplicationIcon()
         coordinator?.installApplicationCommands()
+    }
+
+    /// Trims the open-remote-file cache once per launch, off the main thread.
+    private func pruneRemoteOpenCacheOnLaunch() {
+        Task { @MainActor in
+            _ = await store.pruneRemoteOpenCache()
+        }
     }
 
     private func installApplicationIcon() {

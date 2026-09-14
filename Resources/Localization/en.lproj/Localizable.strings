@@ -5,6 +5,8 @@
 "%@ · %@\n远程目录：%@\n本地目录：%@\n挂载点：%@" = "%@ · %@\nRemote directory: %@\nLocal directory: %@\nMount point: %@";
 "%@ · %@\n远程目录：%@\n本地目录：%@\n挂载点：%@\n原因：%@" = "%@ · %@\nRemote directory: %@\nLocal directory: %@\nMount point: %@\nReason: %@";
 "%@ 个" = "%@";
+"%@ 个文件 · %@" = "%@ file · %@";
+"%@ 个文件 · %@#plural" = "%@ files · %@";
 "%@ 个项目" = "%@ item";
 "%@ 个项目 · %@" = "%@ item · %@";
 "%@ 个项目 · %@#plural" = "%@ items · %@";
@@ -21,6 +23,9 @@
 "%@%@\n日志：%@" = "%@%@\nLog: %@";
 "%@:%@ 的主机密钥与已保存的记录不同。\n\n原指纹：\n%@\n\n新指纹（%@）：\n%@\n\n这可能是服务器重装或更换密钥，也可能是连接被冒充。请通过可信渠道核对新指纹。信任后将更新此地址的记录并重新连接；取消则保留原记录。" = "The host key for %@:%@ differs from the saved record.\n\nOriginal fingerprint:\n%@\n\nNew fingerprint (%@):\n%@\n\nThis may mean the server was reinstalled or its key changed, or that the connection is being impersonated. Verify the new fingerprint through a trusted channel. If you trust it, the record for this address is updated and the connection resumes; if you cancel, the original record is kept.";
 "%@：%@" = "%@: %@";
+"1 天" = "After 1 day";
+"30 天" = "After 30 days";
+"7 天" = "After 7 days";
 "DEBUG / TRACE 请求完成" = "DEBUG / TRACE request completed";
 "FINDER 入口 · 软链接" = "FINDER ENTRY · SYMLINK";
 "Finder 入口创建失败：%@" = "Failed to create Finder entry: %@";
@@ -74,6 +79,7 @@
 "下载源文件在扫描后已变化" = "Download source file changed after scanning";
 "下载源文件类型已变化" = "Download source file type changed";
 "下载路径包含软链接或非目录：%@" = "Download path contains a symbolic link or is not a directory: %@";
+"不限" = "No limit";
 "主机密钥" = "Host Key";
 "主机密钥已变化" = "Host key changed";
 "以下目录未能安全卸载。请关闭正在使用这些目录的文件或终端后，再次退出 Snake。" = "The following directories could not be safely unmounted. Close any files or terminals using these directories, then quit Snake again.";
@@ -91,6 +97,7 @@
 "保存会话" = "Save Session";
 "保存后会生成 512×512 PNG，仅存放在 Snake 数据目录中。" = "Saving generates a 512×512 PNG that is stored only in the Snake data directory.";
 "保存映射" = "Save Mount";
+"保存目录" = "Destination folder";
 "信任并连接" = "Trust and Connect";
 "信任新密钥并连接" = "Trust New Key and Connect";
 "修改" = "Edit";
@@ -158,11 +165,12 @@
 "安全覆盖" = "Safe Overwrite";
 "完成" = "Done";
 "实际挂载点" = "Actual mount point";
+"容量上限" = "Size limit";
 "密码" = "Password";
 "密码型 SSHFS 需要受管 SSH_ASKPASS 通道；当前版本不会通过参数或环境变量传递密码。" = "Password-based SSHFS requires a managed SSH_ASKPASS channel; this version does not pass passwords through arguments or environment variables.";
 "密钥交换" = "Key exchange";
 "对象" = "Class";
-"将关闭相关终端和 SFTP 连接、禁用关联映射，并删除该会话保存的凭据。传输历史会保留会话快照。" = "This closes related terminals and SFTP connections, disables associated mounts, and deletes credentials saved for this session. Transfer history keeps a session snapshot.";
+"将关闭相关终端和 SFTP 连接、禁用关联映射，并删除该会话保存的凭据。传输历史会保留会话快照。同时清理该会话已下载的远程文件副本，仅限 Snake 自己缓存的副本，不会改动目录中的其他内容。" = "This closes related terminals and SFTP connections, disables associated mounts, and deletes credentials saved for this session. Transfer history keeps a session snapshot. It also removes the remote-file copies cached for this session — only the copies Snake downloaded, never other content in the folder.";
 "将在 %@ 中创建。" = "Will be created in %@.";
 "尚未建立 SSH 连接" = "SSH connection not established yet";
 "尚未连接" = "Not connected";
@@ -201,6 +209,7 @@
 "开始时间" = "Start Time";
 "开始连接" = "Connect";
 "当前%@标签的文件传输记录" = "File transfer history for the current %@ tab";
+"当前占用" = "Current usage";
 "当前目录没有匹配项目" = "No matching items in the current directory";
 "当前终端尚未报告目录，请确认这些文件的远程上传位置。" = "The current terminal has not reported a directory yet. Confirm where these files should be uploaded remotely.";
 "录制快捷键" = "Record Shortcut";
@@ -208,7 +217,9 @@
 "快捷键" = "Shortcuts";
 "快捷键必须包含 Command、Control 或 Option。" = "The shortcut must include Command, Control, or Option.";
 "恢复当前地址" = "Restore Current Address";
+"恢复默认" = "Use Default";
 "恢复默认快捷键" = "Restore Default Shortcuts";
+"所选目录不可用，已恢复默认位置。" = "The selected folder is unavailable; the default location is in use.";
 "打开" = "Open";
 "打开 SFTP" = "Open SFTP";
 "打开 SSH 会话" = "Open SSH Session";
@@ -219,6 +230,8 @@
 "打开父目录" = "Open Parent Directory";
 "打开磁盘映射" = "Open Mount";
 "打开访达文件选择器并上传到当前目录" = "Open the Finder file picker and upload to the current directory";
+"打开远程文件" = "Open Remote Files";
+"打开远程文件时先下载到该目录再交给系统打开；Snake 只清理自己下载的副本，不会改动所选目录中的其他内容。默认位置是系统缓存目录。" = "Opened remote files are downloaded here first and then handed to the system; Snake only cleans up the copies it downloaded and never touches other content in the chosen folder. The default location is the system cache directory.";
 "执行" = "Execute";
 "找不到凭据加密密钥，无法解密。请恢复原钥匙串；原凭据文件不会被覆盖。" = "The credential encryption key could not be found, so decryption is not possible. Restore the original keychain; the original credential file will not be overwritten.";
 "拖动照片调整位置，使用滑块缩放" = "Drag the photo to reposition it, and use the slider to zoom";
@@ -258,6 +271,7 @@
 "新的本地目录已被占用。" = "The new local directory is already in use.";
 "无法上传" = "Cannot upload";
 "无法保存私钥访问授权。" = "Cannot save private key access authorization.";
+"无法写入所选目录：%@" = "Cannot write to the selected folder: %@";
 "无法分配本地暂存文件" = "Cannot allocate local staging file";
 "无法创建下载子目录：%@" = "Cannot create download subdirectory: %@";
 "无法创建本地暂存文件" = "Cannot create local staging file";
@@ -360,6 +374,8 @@
 "此会话尚未保存该密码或口令。" = "This session has not saved that password or passphrase.";
 "此会话尚未选择私钥文件。" = "This session has no private key file selected.";
 "此目录正在使用挂载连接，删除前需要安全卸载。若目录被占用或卸载失败，会保留映射。" = "This directory is using a mount connection and must be safely unmounted before deletion. If the directory is in use or unmounting fails, the mount is kept.";
+"每主机连接数" = "Connections per host";
+"永不" = "Never";
 "没有匹配的会话" = "No matching sessions";
 "没有可前进的目录" = "No directory to go forward to";
 "没有可回退的目录" = "No directory to go back to";
@@ -369,6 +385,7 @@
 "测试连接" = "Test connection";
 "浏览目录…" = "Browse directory…";
 "深色" = "Dark";
+"清理后再次打开会重新下载。" = "Opening a file again downloads it once more.";
 "清除标签筛选" = "Clear tag filter";
 "清除检索" = "Clear search";
 "清除记录" = "Clear history";
@@ -403,6 +420,7 @@
 "目标目录已被其他挂载占用，请先安全卸载。" = "The destination directory is in use by another mount. Unmount it safely first.";
 "知道了" = "OK";
 "确定" = "OK";
+"确定要清理已下载的远程文件副本吗？" = "Delete every downloaded remote file copy?";
 "确认主机密钥" = "Confirm host key";
 "确认后删除当前选中的远程项目" = "Delete the currently selected remote item after confirmation";
 "磁盘仍处于挂载状态。" = "The disk is still mounted.";
@@ -418,6 +436,7 @@
 "移动标签 · 边缘分屏 / 拖出独立窗口" = "Move tab · Edge split / Drag out to a separate window";
 "空格分隔：生产 API" = "Separated by spaces: Production API";
 "立即应用到所有窗口与终端，并记住本次选择；不会重新连接或清空终端内容。" = "Applies immediately to all windows and terminals and remembers this choice; it does not reconnect or clear terminal content.";
+"立即清理" = "Clean Up Now";
 "端口" = "Port";
 "端口 · %@" = "Port · %@";
 "端口必须是 1 到 65535 之间的数字。" = "The port must be a number between 1 and 65535.";
@@ -437,6 +456,7 @@
 "终端配色预览" = "Terminal theme preview";
 "经典" = "Classic";
 "继续" = "Resume";
+"缓存目录无法访问，暂时无法显示占用。" = "The cache folder cannot be read, so usage is unavailable right now.";
 "编辑" = "Edit";
 "编辑会话" = "Edit session";
 "编辑映射" = "Edit mount";
@@ -444,6 +464,7 @@
 "耗时" = "Duration";
 "自动启用 ls／ll 彩色输出" = "Automatically enable colored ls/ll output";
 "自动挂载" = "Mount automatically";
+"自动清理" = "Clean up";
 "裁剪会话头像" = "Crop session avatar";
 "覆盖" = "Overwrite";
 "覆盖前会先下载到临时文件并完成校验流程；校验工具不可用时会标记未校验。原文件不会提前被清空。" = "Overwriting first downloads to a temporary file and completes the verification flow; if the verification tool is unavailable, the file is marked unverified. The original file is never cleared in advance.";
@@ -468,7 +489,7 @@
 "请选择一个 SSH 会话。" = "Choose an SSH session.";
 "请重新选择并裁剪头像照片。" = "Choose and crop the avatar photo again.";
 "读取本地校验文件失败" = "Failed to read the local verification file";
-"超过阈值的文件使用独立 SFTP 连接分片上传或下载；下载文件和分片共享并发上限。上传支持续传，下载重试重新传输。校验优先 SHA-256，其次 MD5，不可用时标记未校验，不读回文件。" = "Files above the threshold use separate SFTP connections for multipart upload or download; downloaded files and shards share the concurrency limit. Uploads can resume, while downloads restart on retry. Verification prefers SHA-256, then MD5, marks files unverified when unavailable, and does not read files back.";
+"超过阈值的文件使用独立 SFTP 连接分片上传或下载；下载文件和分片共享并发上限。上传支持续传，下载重试重新传输。校验优先 SHA-256，其次 MD5，不可用时标记未校验，不读回文件。同时进行多个传输时，对同一台主机的传输连接总数不超过「每主机连接数」，超出的传输会在记录里显示“等待中”。" = "Files above the threshold use separate SFTP connections for multipart upload or download; downloaded files and shards share the concurrency limit. Uploads can resume, while downloads restart on retry. Verification prefers SHA-256, then MD5, marks files unverified when unavailable, and does not read files back. Across concurrent transfers, the total number of transfer connections to one host never exceeds \"Connections per host\"; transfers that would exceed it show as waiting in the transfer record.";
 "跟随系统" = "Follow System";
 "跳过" = "Skip";
 "身份验证未通过，未显示密码。" = "Authentication failed; the password was not shown.";
@@ -505,6 +526,7 @@
 "选择会话和目录后生成" = "Generated after you choose a session and directory";
 "选择会话，在当前标签打开终端或 SFTP。" = "Choose a session to open a terminal or SFTP in the current tab.";
 "选择位置…" = "Choose location…";
+"选择保存已打开远程文件的目录。" = "Choose where opened remote files are saved.";
 "选择后可裁剪为会话头像" = "Choose a photo, then crop it as the session avatar";
 "选择存放位置及入口名称，挂载后即可在 Finder 中访问。" = "Choose a location and entry name; after mounting, it is available in Finder.";
 "选择本地保存目录，将下载 %@ 个选中项目（包含文件夹内的内容）。" = "Choose a local destination folder; %@ selected item will be downloaded (including the contents of folders).";

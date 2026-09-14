@@ -407,7 +407,7 @@ private struct SessionProfileCard: View {
             Button("取消", role: .cancel) {}
             Button("删除", role: .destructive) { store.delete(profile: profile) }
         } message: {
-            Text("将关闭相关终端和 SFTP 连接、禁用关联映射，并删除该会话保存的凭据。传输历史会保留会话快照。")
+            Text("将关闭相关终端和 SFTP 连接、禁用关联映射，并删除该会话保存的凭据。传输历史会保留会话快照。同时清理该会话已下载的远程文件副本，仅限 Snake 自己缓存的副本，不会改动目录中的其他内容。")
         }
     }
 }
@@ -1533,7 +1533,7 @@ private struct SFTPFileTable: View {
 
     private func open(_ file: RemoteFile) {
         isEditingPath = false
-        runtime.open(file)
+        runtime.open(file, cache: store.remoteOpenCacheConfiguration)
     }
 
     private func chooseFiles(allowsDirectories: Bool) {
@@ -3200,6 +3200,9 @@ private struct SettingsFooter: View {
 public struct SnakeSettingsView: View {
     @EnvironmentObject private var store: ApplicationStore
     @State private var shortcutError: String?
+    @State private var remoteOpenUsage: RemoteOpenCacheReport?
+    @State private var remoteOpenError: String?
+    @State private var confirmsRemoteOpenClear = false
 
     public init() {}
 
@@ -3273,10 +3276,116 @@ public struct SnakeSettingsView: View {
                             .frame(width: 48, alignment: .trailing)
                     }
                 }
+                LabeledContent("每主机连接数") {
+                    Stepper(value: $store.hostConcurrencyLimit, in: HostTransferBudget.allowedLimits) {
+                        Text(L10n.format("%@ 个", store.hostConcurrencyLimit))
+                            .frame(width: 48, alignment: .trailing)
+                    }
+                }
             } header: {
                 Text("SFTP 传输")
             } footer: {
-                SettingsFooter("超过阈值的文件使用独立 SFTP 连接分片上传或下载；下载文件和分片共享并发上限。上传支持续传，下载重试重新传输。校验优先 SHA-256，其次 MD5，不可用时标记未校验，不读回文件。")
+                SettingsFooter("超过阈值的文件使用独立 SFTP 连接分片上传或下载；下载文件和分片共享并发上限。上传支持续传，下载重试重新传输。校验优先 SHA-256，其次 MD5，不可用时标记未校验，不读回文件。同时进行多个传输时，对同一台主机的传输连接总数不超过「每主机连接数」，超出的传输会在记录里显示“等待中”。")
+            }
+            Section {
+                LabeledContent("保存目录") {
+                    HStack(spacing: 8) {
+                        Text(store.remoteOpenDirectoryPath)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .foregroundStyle(.secondary)
+                            .help(store.remoteOpenDirectoryPath)
+                        Button("选择…") { chooseRemoteOpenDirectory() }
+                        if store.remoteOpenDirectoryBookmark != nil {
+                            Button("恢复默认") {
+                                remoteOpenError = store.setRemoteOpenDirectory(nil)
+                                Task { await refreshRemoteOpenUsage() }
+                            }
+                        }
+                    }
+                }
+                Picker("自动清理", selection: $store.remoteOpenCleanupPolicy) {
+                    ForEach(RemoteOpenCleanupPolicy.allCases) { policy in
+                        Text(policy.title).tag(policy)
+                    }
+                }
+                Picker("容量上限", selection: $store.remoteOpenSizeLimit) {
+                    ForEach(RemoteOpenSizeLimit.allCases) { limit in
+                        Text(limit.title).tag(limit)
+                    }
+                }
+                LabeledContent("当前占用") {
+                    HStack(spacing: 8) {
+                        Text(remoteOpenUsageText).foregroundStyle(.secondary)
+                        Button("立即清理") { confirmsRemoteOpenClear = true }
+                            .disabled((remoteOpenUsage?.files ?? 0) == 0)
+                    }
+                }
+                if let remoteOpenError {
+                    Label(remoteOpenError, systemImage: "exclamationmark.triangle.fill")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.red)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if let notice = store.remoteOpenCacheNotice {
+                    Label(notice, systemImage: "exclamationmark.triangle")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.orange)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            } header: {
+                Text("打开远程文件")
+            } footer: {
+                SettingsFooter("打开远程文件时先下载到该目录再交给系统打开；Snake 只清理自己下载的副本，不会改动所选目录中的其他内容。默认位置是系统缓存目录。")
+            }
+        }
+        .task { await refreshRemoteOpenUsage() }
+        .confirmationDialog("确定要清理已下载的远程文件副本吗？", isPresented: $confirmsRemoteOpenClear, titleVisibility: .visible) {
+            Button("立即清理", role: .destructive) {
+                Task {
+                    _ = await store.clearRemoteOpenCache()
+                    await refreshRemoteOpenUsage()
+                }
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("清理后再次打开会重新下载。")
+        }
+    }
+
+    private var remoteOpenUsageText: String {
+        guard let remoteOpenUsage else { return L10n.text("正在读取…") }
+        return L10n.plural(
+            "%@ 个文件 · %@",
+            count: remoteOpenUsage.files,
+            remoteOpenUsage.files,
+            L10n.byteCount(remoteOpenUsage.bytes)
+        )
+    }
+
+    private func refreshRemoteOpenUsage() async {
+        if let usage = await store.remoteOpenCacheUsage() {
+            remoteOpenUsage = usage
+            remoteOpenError = nil
+        } else {
+            remoteOpenError = L10n.text("缓存目录无法访问，暂时无法显示占用。")
+        }
+    }
+
+    private func chooseRemoteOpenDirectory() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.canCreateDirectories = true
+        panel.prompt = L10n.text("选择")
+        panel.message = L10n.text("选择保存已打开远程文件的目录。")
+        panel.directoryURL = URL(fileURLWithPath: store.remoteOpenDirectoryPath, isDirectory: true)
+        panel.begin { response in
+            guard response == .OK, let url = panel.url else { return }
+            Task { @MainActor in
+                remoteOpenError = store.setRemoteOpenDirectory(url)
+                await refreshRemoteOpenUsage()
             }
         }
     }
