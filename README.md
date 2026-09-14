@@ -10,7 +10,7 @@ Snake 是面向 macOS 15+ 的原生 SSH 工作台：会话管理、终端、SFTP
 2. 将 **Snake.app 拖到 Applications（应用程序）**，等待复制完成。
 3. 推出磁盘映像，从“应用程序”启动 Snake。更新旧版前先退出应用，复制时选择替换。
 
-目前已生成本地安装包，尚未上传 GitHub Releases。构建产物在 `release/`，不随源码提交；发布附件为 DMG 和同名 `.dmg.sha256` 校验文件。
+目前已生成本地安装包，上传 GitHub Releases。构建产物在 `release/`，不随源码提交；发布附件为 DMG 和同名 `.dmg.sha256` 校验文件。
 
 **当前包仅使用 ad-hoc 临时签名，未经过 Developer ID 签名与 Apple 公证，首次打开可能被系统拦截。** 签名完整性检查通过不代表 Gatekeeper 放行；安装与安全提示见 [安装说明](docs/INSTALL.md)。安装包不包含用户会话、密码或测试配置，磁盘映射所需的 macFUSE / sshfs 也不自动安装。
 
