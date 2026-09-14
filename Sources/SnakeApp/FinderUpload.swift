@@ -96,6 +96,27 @@ enum FinderUploadTarget: Equatable {
     }
 }
 
+/// Whether a native drop surface is actually drawn on screen.
+///
+/// Bonsplit keeps every tab's content alive at the same time
+/// (`BonsplitConfiguration.contentViewLifecycle == .keepAllAlive`) and hides the
+/// unselected ones with `.opacity(0)`, so their hosting views keep the same frame as
+/// the visible tab. `isHiddenOrHasHiddenAncestor` does not see that: measured on a
+/// `ZStack` with one `.opacity(0)` child, the hidden view keeps `alphaValue == 1` and
+/// `isHidden == false`, while an ancestor has `alphaValue == 0`. Without this check a
+/// Finder drop can be claimed by a tab that is not on screen.
+@MainActor
+enum FinderDropVisibility {
+    static func isDrawn(_ view: NSView) -> Bool {
+        var node: NSView? = view
+        while let current = node {
+            if current.isHidden || current.alphaValue < 0.01 { return false }
+            node = current.superview
+        }
+        return !view.bounds.isEmpty && !view.visibleRect.isEmpty
+    }
+}
+
 /// A real AppKit ancestor of both SwiftTerm and the SFTP browser. It moves with
 /// the tab and converts current window coordinates rather than caching frames.
 struct FinderUploadSurface<Content: View>: NSViewRepresentable {
@@ -103,6 +124,8 @@ struct FinderUploadSurface<Content: View>: NSViewRepresentable {
     let isActive: () -> Bool
     let target: () -> FinderUploadTarget
     let perform: ([URL], FinderUploadTarget, NSWindow) -> Void
+    /// Diagnostic identity of the owning tab, for the drag log.
+    let identity: String
 
     func makeNSView(context: Context) -> FinderUploadHostingView<Content> {
         let view = FinderUploadHostingView(rootView: content)
@@ -116,10 +139,19 @@ struct FinderUploadSurface<Content: View>: NSViewRepresentable {
     }
 
     private func configure(_ view: FinderUploadHostingView<Content>) {
+        let active = isActive()
         view.requiresUploadArea = true
         view.isActiveTarget = isActive
         view.uploadTarget = target
         view.performUpload = perform
+        view.dropIdentity = identity
+        // Only the tab on screen may be an AppKit drop destination; the others stay in
+        // the hierarchy but must not capture a drag aimed at the visible one.
+        view.setDropEnabled(active)
+        if view.lastConfiguration != active {
+            view.lastConfiguration = active
+            finderDropLog.notice("Surface configured: \(identity, privacy: .public) active=\(active, privacy: .public) view=\(UInt(bitPattern: ObjectIdentifier(view).hashValue), privacy: .public)")
+        }
     }
 }
 
@@ -140,9 +172,16 @@ final class FinderUploadHostingView<Content: View>: NSHostingView<Content>, Find
     var isActiveTarget: () -> Bool = { false }
     var uploadTarget: () -> FinderUploadTarget = { .unavailable(L10n.text("请先连接")) }
     var performUpload: ([URL], FinderUploadTarget, NSWindow) -> Void = { _, _, _ in }
+    /// Owning tab, used only by the drag log.
+    var dropIdentity = "-"
+    /// Last value handed to `setDropEnabled`, so `configure` only logs transitions.
+    var lastConfiguration: Bool?
+    private var dropEnabled = true
     private var indicator: FinderUploadIndicator?
     var destinationView: NSView { self }
-    var isAvailableTarget: Bool { isActiveTarget() && window?.attachedSheet == nil && !isHiddenOrHasHiddenAncestor }
+    var isAvailableTarget: Bool {
+        isActiveTarget() && window?.attachedSheet == nil && FinderDropVisibility.isDrawn(self)
+    }
 
     required init(rootView: Content) {
         super.init(rootView: rootView)
@@ -152,19 +191,45 @@ final class FinderUploadHostingView<Content: View>: NSHostingView<Content>, Find
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("Use init(rootView:)") }
 
+    /// Keeps this surface from being an AppKit drag destination while its tab is not
+    /// the one on screen. The destination predicate alone is not enough: several tab
+    /// contents share the same frame, so AppKit may hand the drag to any of them.
+    func setDropEnabled(_ enabled: Bool) {
+        guard dropEnabled != enabled else {
+            // Keep SwiftUI's own registrations and just make sure ours is present.
+            if enabled { registerForDraggedTypes(registeredDraggedTypes + [.fileURL]) }
+            return
+        }
+        dropEnabled = enabled
+        if enabled {
+            registerForDraggedTypes(registeredDraggedTypes + [.fileURL])
+        } else {
+            unregisterDraggedTypes()
+        }
+    }
+
     override func registerForDraggedTypes(_ newTypes: [NSPasteboard.PasteboardType]) {
         // SwiftUI can change registrations when its content updates.
+        guard dropEnabled else {
+            super.registerForDraggedTypes(newTypes.filter { $0 != .fileURL })
+            return
+        }
         super.registerForDraggedTypes(Array(Set(newTypes + [.fileURL])))
     }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         clearIndicator()
+        guard dropEnabled else { return }
         registerForDraggedTypes(registeredDraggedTypes)
     }
 
+    private var dropLogContext: String {
+        "\(dropIdentity) view=\(UInt(bitPattern: ObjectIdentifier(self).hashValue)) active=\(isActiveTarget()) drawn=\(FinderDropVisibility.isDrawn(self))"
+    }
+
     override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        finderDropLog.notice("Native entered: fileURL=\(FinderUploadPasteboard.accepts(sender.draggingPasteboard)), active=\(self.isAvailableTarget), inArea=\(self.containsDropLocation(sender))")
+        finderDropLog.notice("Native entered: fileURL=\(FinderUploadPasteboard.accepts(sender.draggingPasteboard)), active=\(self.isAvailableTarget), inArea=\(self.containsDropLocation(sender)), \(self.dropLogContext, privacy: .public)")
         guard FinderUploadPasteboard.accepts(sender.draggingPasteboard) else { return super.draggingEntered(sender) }
         return updateDrag(sender)
     }
@@ -187,12 +252,14 @@ final class FinderUploadHostingView<Content: View>: NSHostingView<Content>, Find
 
     override func prepareForDragOperation(_ sender: any NSDraggingInfo) -> Bool {
         guard FinderUploadPasteboard.accepts(sender.draggingPasteboard) else { return super.prepareForDragOperation(sender) }
-        return isAvailableTarget && containsDropLocation(sender)
+        let ready = isAvailableTarget && containsDropLocation(sender)
             && sender.draggingSourceOperationMask.contains(.copy) && uploadTarget().canUpload
+        finderDropLog.notice("Native prepare: ready=\(ready), \(self.dropLogContext, privacy: .public)")
+        return ready
     }
 
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
-        finderDropLog.notice("Native perform: accepted=\(self.prepareForDragOperation(sender))")
+        finderDropLog.notice("Native perform: accepted=\(self.prepareForDragOperation(sender)), \(self.dropLogContext, privacy: .public)")
         defer { clearIndicator() }
         // Preserve SwiftUI's remote-file and Bonsplit handlers for other types.
         guard FinderUploadPasteboard.accepts(sender.draggingPasteboard) else { return super.performDragOperation(sender) }
@@ -296,7 +363,9 @@ final class FinderUploadWindowRouter: NSObject, NSDraggingDestination {
     private weak var current: (any FinderUploadDestination)?
 
     static func destination(in root: NSView, at point: NSPoint) -> (any FinderUploadDestination)? {
-        guard !root.isHiddenOrHasHiddenAncestor,
+        // `keepAllAlive` keeps unselected tabs in the hierarchy with the same frame as
+        // the visible one, so visibility has to be checked through ancestors' alpha.
+        guard FinderDropVisibility.isDrawn(root),
               root.bounds.contains(root.convert(point, from: nil)),
               root.visibleRect.contains(root.convert(point, from: nil)) else { return nil }
         for child in root.subviews.reversed() {
@@ -316,6 +385,11 @@ final class FinderUploadWindowRouter: NSObject, NSDraggingDestination {
             Self.destination(in: $0, at: sender.draggingLocation)
         }
         if current?.destinationView !== next?.destinationView {
+            if let next {
+                finderDropLog.notice("Router picked view=\(UInt(bitPattern: ObjectIdentifier(next.destinationView).hashValue), privacy: .public)")
+            } else {
+                finderDropLog.notice("Router picked none")
+            }
             current?.draggingExited(sender)
             current = next
         }

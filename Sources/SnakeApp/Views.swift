@@ -8,9 +8,45 @@ private extension UTType {
     static let snakeRemoteFile = UTType(exportedAs: "com.snake.remote-file-reference")
 }
 
+/// Attaches the Finder/remote drop target only to the tab that is on screen.
+///
+/// Bonsplit keeps every tab's content alive (`keepAllAlive`) and hides the unselected
+/// ones with `.opacity(0)`, which does not stop AppKit from offering them a drop. A
+/// hidden table that stayed registered could swallow a drag meant for the visible tab,
+/// so the drop target is simply absent while the tab is not on screen.
+private struct SFTPFinderDropModifier: ViewModifier {
+    @EnvironmentObject private var store: ApplicationStore
+    @ObservedObject var runtime: SFTPRuntime
+    let isOnScreen: () -> Bool
+    @Binding var receivesRemoteFile: Bool
+    @Binding var receivesFinderFiles: Bool
+    let perform: ([NSItemProvider]) -> Void
+
+    func body(content: Content) -> some View {
+        if isOnScreen() {
+            content.onDrop(
+                of: [UTType.snakeRemoteFile.identifier, UTType.fileURL.identifier],
+                delegate: SFTPFileDropDelegate(
+                    isTargeted: $receivesRemoteFile,
+                    receivesFinderFiles: $receivesFinderFiles,
+                    isOnScreen: isOnScreen,
+                    identity: "SFTP \(runtime.profile.name) runtime=\(runtime.id.rawValue.uuidString.prefix(8))",
+                    finderTarget: { runtime.finderUploadTarget },
+                    upload: { providers, path in runtime.uploadFromFinder(providers: providers, to: path, store: store) },
+                    perform: perform
+                )
+            )
+        } else {
+            content
+        }
+    }
+}
+
 private struct SFTPFileDropDelegate: DropDelegate {
     @Binding var isTargeted: Bool
     @Binding var receivesFinderFiles: Bool
+    let isOnScreen: () -> Bool
+    let identity: String
     let finderTarget: () -> FinderUploadTarget
     let upload: ([NSItemProvider], String) -> Void
     let perform: ([NSItemProvider]) -> Void
@@ -20,6 +56,9 @@ private struct SFTPFileDropDelegate: DropDelegate {
     }
 
     func validateDrop(info: DropInfo) -> Bool {
+        // Only the tab that is actually on screen may take a Finder drop: Bonsplit
+        // keeps every tab's content alive, so a hidden table is still in the hierarchy.
+        guard isOnScreen() else { return false }
         let remote = info.hasItemsConforming(to: [UTType.snakeRemoteFile.identifier])
         let local = info.hasItemsConforming(to: [UTType.fileURL.identifier])
         return !isWorkspace(info) && remote != local
@@ -46,7 +85,7 @@ private struct SFTPFileDropDelegate: DropDelegate {
     }
 
     func performDrop(info: DropInfo) -> Bool {
-        finderDropLog.notice("Table perform")
+        finderDropLog.notice("Table perform: onScreen=\(self.isOnScreen()), \(self.identity, privacy: .public)")
         dropExited(info: info)
         guard validateDrop(info: info) else { return false }
         // Route by the validated drag type, not by the number of providers
@@ -464,10 +503,15 @@ private struct WorkspaceTabContent: View {
                     perform: { urls, target, window in
                         windowState.bonsplit.focusPane(paneID)
                         runtime.uploadFromFinder(urls: urls, target: target, window: window, store: store)
-                    }
+                    },
+                    identity: "\(runtime.kind) \(runtime.profile?.name ?? "-") runtime=\(runtime.id.rawValue.uuidString.prefix(8))"
                 )
             }
         }
+        // Keep each tab's content on its own SwiftUI identity: Bonsplit renders every
+        // tab at once (`keepAllAlive`), and a shared identity could let one tab's view
+        // carry another tab's drop closures.
+        .id(tabID)
         .sheet(isPresented: $creatingProfile) { SessionEditorView(profile: nil).environmentObject(store) }
         .sheet(item: $editingProfile) { SessionEditorView(profile: $0).environmentObject(store) }
         .sheet(isPresented: $creatingMapping) { MappingEditorView(mapping: nil).environmentObject(store) }
@@ -480,7 +524,11 @@ private struct WorkspaceTabContent: View {
     @ViewBuilder
     private var connectionContent: some View {
         if let terminal = runtime.terminal { TerminalTabView(runtime: terminal) }
-        else if let sftp = runtime.sftp { SFTPBrowserView(runtime: sftp) }
+        else if let sftp = runtime.sftp {
+            SFTPBrowserView(runtime: sftp, isOnScreen: {
+                windowState.tabs[tabID] === runtime && windowState.bonsplit.selectedTab(inPane: paneID)?.id == tabID
+            })
+        }
     }
 }
 
@@ -758,6 +806,9 @@ private struct TerminalPreview: View {
 private struct SFTPBrowserView: View {
     @EnvironmentObject private var store: ApplicationStore
     @ObservedObject var runtime: SFTPRuntime
+    /// Whether this tab is the one on screen in its pane; Finder drops are refused
+    /// otherwise, because every tab's content stays alive in the hierarchy.
+    var isOnScreen: () -> Bool = { true }
     @State private var creationKind: RemoteItemCreationKind?
     @State private var creationDestination: SFTPDirectoryDestination?
     @State private var newItemName = ""
@@ -828,6 +879,7 @@ private struct SFTPBrowserView: View {
             SFTPFileTable(
                 runtime: runtime,
                 searchQuery: searchQuery,
+                isOnScreen: isOnScreen,
                 onFocusFiles: {
                     isEditingPath = false
                     isEditingSearch = false
@@ -1067,6 +1119,8 @@ private struct SFTPFileTable: View {
     @EnvironmentObject private var store: ApplicationStore
     @ObservedObject var runtime: SFTPRuntime
     let searchQuery: String
+    /// Whether the owning tab is the one on screen; a hidden table must not take drops.
+    let isOnScreen: () -> Bool
     let onFocusFiles: () -> Void
     let onOpen: (RemoteFile) -> Void
     let onCreateFile: () -> Void
@@ -1275,16 +1329,13 @@ private struct SFTPFileTable: View {
             .frame(height: 30)
         }
         .background(SnakeStyle.canvas)
-        .onDrop(
-            of: [UTType.snakeRemoteFile.identifier, UTType.fileURL.identifier],
-            delegate: SFTPFileDropDelegate(
-                isTargeted: $receivesRemoteFile,
-                receivesFinderFiles: $receivesFinderFiles,
-                finderTarget: { runtime.finderUploadTarget },
-                upload: { providers, path in runtime.uploadFromFinder(providers: providers, to: path, store: store) },
-                perform: loadRemoteFilePayloads
-            )
-        )
+        .modifier(SFTPFinderDropModifier(
+            runtime: runtime,
+            isOnScreen: isOnScreen,
+            receivesRemoteFile: $receivesRemoteFile,
+            receivesFinderFiles: $receivesFinderFiles,
+            perform: loadRemoteFilePayloads
+        ))
         .background(FinderUploadArea())
         .alert("重命名", isPresented: Binding(
             get: { renamingFile != nil },
