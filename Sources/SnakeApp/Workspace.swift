@@ -777,23 +777,37 @@ public final class LocalUploadCoordinator: ObservableObject {
         store: ApplicationStore
     ) async {
         let control = store.makeTransferControl(for: jobID)
-        store.markTransferRunning(jobID)
-        update(jobID: jobID, state: .running)
+        // 与下载侧一致：先整笔预留「外层 operation + 分片」，拿到预算后才标记为传输中，
+        // 所以等待预算期间记录保持「等待中」而不是「传输中」。
+        let plannedWorkers = Self.plannedWorkerCount(
+            size: item.size,
+            thresholdBytes: thresholdBytes,
+            concurrency: concurrency
+        )
         do {
-            let verification = try await Self.uploadResumable(
-                item: item,
-                profile: profile,
-                overwrite: overwrite,
-                thresholdBytes: thresholdBytes,
-                concurrency: concurrency,
-                control: control,
-                jobID: jobID,
-                store: store,
-                makeHandle: makeHandle,
-                onVerification: { [weak self] value in
-                    await self?.setVerification(jobID, value)
+            let verification = try await HostTransferBudget.shared.reserve(
+                host: TransferHost(profile: profile),
+                connections: 1 + plannedWorkers
+            ) {
+                await MainActor.run {
+                    store.markTransferRunning(jobID)
+                    update(jobID: jobID, state: .running)
                 }
-            )
+                return try await Self.uploadResumableWork(
+                    item: item,
+                    profile: profile,
+                    overwrite: overwrite,
+                    thresholdBytes: thresholdBytes,
+                    workers: plannedWorkers,
+                    control: control,
+                    jobID: jobID,
+                    store: store,
+                    makeHandle: makeHandle,
+                    onVerification: { [weak self] value in
+                        await self?.setVerification(jobID, value)
+                    }
+                )
+            }
             setVerification(jobID, verification)
             store.markTransferSucceeded(jobID)
             update(jobID: jobID, state: .succeeded, finishedAt: .now)
@@ -815,43 +829,6 @@ public final class LocalUploadCoordinator: ObservableObject {
         return min(max(concurrency, 1), Int(max(size, 1)))
     }
 
-    nonisolated private static func uploadResumable(
-        item: SFTPUploadItem,
-        profile: SSHProfile,
-        overwrite: Bool,
-        thresholdBytes: Int64,
-        concurrency: Int,
-        control: CoreTransferControl,
-        jobID: UUID,
-        store: ApplicationStore,
-        makeHandle: @escaping @Sendable () throws -> CoreSftpHandle,
-        onVerification: @escaping @Sendable (TransferVerification) async -> Void
-    ) async throws -> TransferVerification {
-        // 整笔预留「外层 operation + 分片」；宿主空闲时超限作业仍会独占放行，避免死锁。
-        let plannedWorkers = plannedWorkerCount(
-            size: item.size,
-            thresholdBytes: thresholdBytes,
-            concurrency: concurrency
-        )
-        return try await HostTransferBudget.shared.reserve(
-            host: TransferHost(profile: profile),
-            connections: 1 + plannedWorkers
-        ) {
-            try await uploadResumableWork(
-                item: item,
-                profile: profile,
-                overwrite: overwrite,
-                thresholdBytes: thresholdBytes,
-                workers: plannedWorkers,
-                control: control,
-                jobID: jobID,
-                store: store,
-                makeHandle: makeHandle,
-                onVerification: onVerification
-            )
-        }
-    }
-
     nonisolated private static func uploadResumableWork(
         item: SFTPUploadItem,
         profile: SSHProfile,
@@ -864,6 +841,8 @@ public final class LocalUploadCoordinator: ObservableObject {
         makeHandle: @escaping @Sendable () throws -> CoreSftpHandle,
         onVerification: @escaping @Sendable (TransferVerification) async -> Void
     ) async throws -> TransferVerification {
+        // 预算可能让我们等了一会儿；等待期间被取消/暂停要在开连接前就退出。
+        try control.checkpoint()
         let initialVersion = try TransferIntegrity.LocalVersion(item.localURL)
         guard initialVersion.size == item.size else { throw TransferIntegrity.error(L10n.text("本地源文件已变化，请重新上传")) }
         let operation = try makeHandle()

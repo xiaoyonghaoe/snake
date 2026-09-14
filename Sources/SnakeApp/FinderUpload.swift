@@ -195,11 +195,10 @@ final class FinderUploadHostingView<Content: View>: NSHostingView<Content>, Find
     /// the one on screen. The destination predicate alone is not enough: several tab
     /// contents share the same frame, so AppKit may hand the drag to any of them.
     func setDropEnabled(_ enabled: Bool) {
-        guard dropEnabled != enabled else {
-            // Keep SwiftUI's own registrations and just make sure ours is present.
-            if enabled { registerForDraggedTypes(registeredDraggedTypes + [.fileURL]) }
-            return
-        }
+        // 状态没变就什么都不做：`init` 已经注册过 `.fileURL`，`viewDidMoveToWindow` 会补一次，
+        // 而 `registerForDraggedTypes` 的覆写在启用时始终强制包含 `.fileURL`。每次 SwiftUI
+        // 重算都重写注册只会白白搅动 AppKit 的拖拽目的地（拖拽进行中甚至可能让目标被重建）。
+        guard dropEnabled != enabled else { return }
         dropEnabled = enabled
         if enabled {
             registerForDraggedTypes(registeredDraggedTypes + [.fileURL])
