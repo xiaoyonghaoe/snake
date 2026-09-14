@@ -8,8 +8,8 @@ public enum AuthMethod: String, Codable, CaseIterable, Identifiable, Sendable {
 
     public var label: String {
         switch self {
-        case .password: "密码"
-        case .privateKey: "私钥"
+        case .password: L10n.text("密码")
+        case .privateKey: L10n.text("私钥")
         }
     }
 }
@@ -23,11 +23,11 @@ public enum ConnectionState: String, Codable, Sendable {
 
     public var label: String {
         switch self {
-        case .idle: "未连接"
-        case .connecting: "正在连接"
-        case .connected: "已连接"
-        case .disconnected: "已断开"
-        case .failed: "连接失败"
+        case .idle: L10n.text("未连接")
+        case .connecting: L10n.text("正在连接")
+        case .connected: L10n.text("已连接")
+        case .disconnected: L10n.text("已断开")
+        case .failed: L10n.text("连接失败")
         }
     }
 }
@@ -44,14 +44,14 @@ public enum TransferState: String, Codable, CaseIterable, Sendable {
 
     public var label: String {
         switch self {
-        case .scanning: "正在扫描"
-        case .queued: "等待中"
-        case .running: "传输中"
-        case .paused: "已暂停"
-        case .succeeded: "已完成"
-        case .failed: "失败"
-        case .cancelled: "已取消"
-        case .interrupted: "已中断"
+        case .scanning: L10n.text("正在扫描")
+        case .queued: L10n.text("等待中")
+        case .running: L10n.text("传输中")
+        case .paused: L10n.text("已暂停")
+        case .succeeded: L10n.text("已完成")
+        case .failed: L10n.text("失败")
+        case .cancelled: L10n.text("已取消")
+        case .interrupted: L10n.text("已中断")
         }
     }
 }
@@ -66,12 +66,12 @@ public enum MountState: String, Codable, Sendable {
 
     public var label: String {
         switch self {
-        case .unavailable: "缺少依赖"
-        case .idle: "未挂载"
-        case .mounting: "正在挂载"
-        case .mounted: "已挂载"
-        case .failed: "挂载失败"
-        case .external: "外部挂载"
+        case .unavailable: L10n.text("缺少依赖")
+        case .idle: L10n.text("未挂载")
+        case .mounting: L10n.text("正在挂载")
+        case .mounted: L10n.text("已挂载")
+        case .failed: L10n.text("挂载失败")
+        case .external: L10n.text("外部挂载")
         }
     }
 }
@@ -215,6 +215,12 @@ public struct RemoteFileTransferPayload: Codable, Sendable {
 }
 
 public struct TransferJob: Identifiable, Hashable, Sendable {
+    /// Persisted sentinel for transfers that originate on, or target, this Mac.
+    ///
+    /// It is stored data rather than interface text, so it must never be
+    /// localized: changing it would orphan existing records.
+    public static let localEndpointName = "本机"
+
     public var id: UUID
     public var sourceProfileName: String
     public var targetProfileName: String

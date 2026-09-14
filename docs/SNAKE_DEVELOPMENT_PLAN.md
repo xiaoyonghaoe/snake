@@ -1,3 +1,5 @@
+**简体中文** · [English](en/SNAKE_DEVELOPMENT_PLAN.md)
+
 # Snake macOS SSH 客户端开发计划
 
 ## 当前实现进度（2026-09-02）
@@ -28,7 +30,7 @@
 
 > 文档版本：1.0  
 > 目标平台：macOS 15+  
-> 界面语言：简体中文  
+> 界面语言：简体中文（源语言、默认与回退）、English  
 > 技术栈：Swift、SwiftUI、AppKit、Rust、UniFFI  
 > 当前阶段：生产工程持续实现，Rust SSH PTY 与核心 SFTP 链路已完成
 

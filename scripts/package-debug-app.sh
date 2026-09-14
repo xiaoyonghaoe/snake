@@ -21,6 +21,11 @@ cp "$SNAKE_BIN_DIR/SnakeMountHelper" "$MACOS_DIR/SnakeMountHelper"
 cp "$PROJECT_DIR/Rust/snake_core/target/release/libsnake_core.dylib" "$FRAMEWORKS_DIR/libsnake_core.dylib"
 cp "$PROJECT_DIR/Resources/Info.plist" "$APP_DIR/Contents/Info.plist"
 cp "$PROJECT_DIR/Resources/AppIcon.icns" "$RESOURCES_DIR/AppIcon.icns"
+# Localized .lproj tables must land directly in Contents/Resources so
+# Bundle.main (used by SwiftUI's LocalizedStringKey and L10n) resolves them.
+for lproj in "$PROJECT_DIR"/Resources/Localization/*.lproj; do
+    ditto "$lproj" "$RESOURCES_DIR/${lproj:t}"
+done
 mkdir -p "$RESOURCES_DIR/Licenses/TokyoNight"
 cp "$PROJECT_DIR/THIRD_PARTY_NOTICES.md" "$RESOURCES_DIR/Licenses/THIRD_PARTY_NOTICES.md"
 cp "$PROJECT_DIR/Vendor/TokyoNight/LICENSE" "$PROJECT_DIR/Vendor/TokyoNight/README.md" "$PROJECT_DIR/Vendor/TokyoNight/"*.conf "$RESOURCES_DIR/Licenses/TokyoNight/"

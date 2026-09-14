@@ -18,7 +18,7 @@ final class DeviceOwnerCredentialAuthentication: CredentialAuthenticating {
     private let context = LAContext()
 
     func authenticate() async throws {
-        context.localizedCancelTitle = "取消"
+        context.localizedCancelTitle = L10n.text("取消")
         context.touchIDAuthenticationAllowableReuseDuration = 0
         var error: NSError?
         guard context.canEvaluatePolicy(.deviceOwnerAuthentication, error: &error) else {
@@ -27,7 +27,7 @@ final class DeviceOwnerCredentialAuthentication: CredentialAuthenticating {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             context.evaluatePolicy(
                 .deviceOwnerAuthentication,
-                localizedReason: "验证身份以查看 Snake 中已保存的密码或私钥口令"
+                localizedReason: L10n.text("验证身份以查看 Snake 中已保存的密码或私钥口令")
             ) { approved, error in
                 if approved {
                     continuation.resume()
@@ -131,7 +131,7 @@ final class CredentialRevealController: @preconcurrency ObservableObject {
                     // the older saved credential, even when the user cleared it.
                     if !self.hasUserEdits {
                         guard let data else {
-                            self.errorMessage = "此会话尚未保存该密码或口令。"
+                            self.errorMessage = L10n.text("此会话尚未保存该密码或口令。")
                             self.finishRequest()
                             return
                         }
@@ -155,17 +155,17 @@ final class CredentialRevealController: @preconcurrency ObservableObject {
                 case CredentialAuthenticationError.cancelled:
                     self.errorMessage = nil
                 case CredentialAuthenticationError.unavailable:
-                    self.errorMessage = "系统身份验证不可用，请检查 Mac 登录密码或 Touch ID 设置。"
+                    self.errorMessage = L10n.text("系统身份验证不可用，请检查 Mac 登录密码或 Touch ID 设置。")
                 case CredentialAuthenticationError.failed:
-                    self.errorMessage = "身份验证未通过，未显示密码。"
+                    self.errorMessage = L10n.text("身份验证未通过，未显示密码。")
                 case CredentialAuthenticationError.windowNotReady:
-                    self.errorMessage = "验证已通过，但编辑窗口尚未恢复焦点。请回到原窗口后重新查看。"
+                    self.errorMessage = L10n.text("验证已通过，但编辑窗口尚未恢复焦点。请回到原窗口后重新查看。")
                 case let storageError as CredentialStoreError:
                     self.errorMessage = storageError.localizedDescription
                 case let keychainError as KeychainStoreError:
                     self.errorMessage = keychainError.localizedDescription
                 default:
-                    self.errorMessage = "无法读取已保存的凭据，请检查凭据文件和钥匙串权限。"
+                    self.errorMessage = L10n.text("无法读取已保存的凭据，请检查凭据文件和钥匙串权限。")
                 }
                 self.finishRequest()
             }
@@ -262,11 +262,11 @@ struct CredentialInputView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
-                Text(isPassphrase ? "私钥口令" : "密码")
+                Text(isPassphrase ? L10n.text("私钥口令") : L10n.text("密码"))
                     .font(.system(size: 11, weight: .medium)).foregroundStyle(SnakeStyle.muted)
                 Spacer()
                 if reveal.isLoading {
-                    Text(reveal.isAuthenticating ? "正在验证…" : "正在读取…")
+                    Text(reveal.isAuthenticating ? L10n.text("正在验证…") : L10n.text("正在读取…"))
                         .font(.system(size: 11)).foregroundStyle(.secondary)
                 }
             }
@@ -275,20 +275,20 @@ struct CredentialInputView: View {
                     if reveal.isRevealed {
                         TextField("", text: text)
                     } else {
-                        SecureField(isPassphrase ? "可选，留空保留原口令" : "留空保留原密码", text: text)
+                        SecureField(isPassphrase ? L10n.text("可选，留空保留原口令") : L10n.text("留空保留原密码"), text: text)
                     }
                 }
                 .textFieldStyle(.roundedBorder)
                 .font(.system(size: 13, design: .monospaced))
                 .frame(height: 32)
                 .focused($inputFocused)
-                .accessibilityLabel(isPassphrase ? "私钥口令" : "密码")
+                .accessibilityLabel(isPassphrase ? L10n.text("私钥口令") : L10n.text("密码"))
                 Button {
                     if reveal.isRevealed { reveal.hide() }
                     else { reveal.reveal(account: account) }
                 } label: {
                     Label(
-                        reveal.isRevealed ? "隐藏" : "查看",
+                        reveal.isRevealed ? L10n.text("隐藏") : L10n.text("查看"),
                         systemImage: reveal.isRevealed ? "eye.slash" : "eye"
                     )
                     .fixedSize()

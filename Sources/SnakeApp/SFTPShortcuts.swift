@@ -8,9 +8,9 @@ enum SFTPShortcutAction: String, CaseIterable, Codable, Sendable {
 
     var title: String {
         switch self {
-        case .search: "检索"
-        case .delete: "删除"
-        case .uploadFile: "上传文件"
+        case .search: L10n.text("检索")
+        case .delete: L10n.text("删除")
+        case .uploadFile: L10n.text("上传文件")
         }
     }
 
@@ -112,13 +112,13 @@ enum SFTPShortcutPolicy {
     ) -> String? {
         let safeModifier: NSEvent.ModifierFlags = [.command, .control, .option]
         guard !shortcut.modifiers.intersection(safeModifier).isEmpty else {
-            return "快捷键必须包含 Command、Control 或 Option。"
+            return L10n.text("快捷键必须包含 Command、Control 或 Option。")
         }
         if reserved.contains(shortcut) {
-            return "\(shortcut.displayText) 已被 Snake 或 macOS 常用命令占用。"
+            return L10n.format("%@ 已被 Snake 或 macOS 常用命令占用。", shortcut.displayText)
         }
         if let conflict = configured.first(where: { $0.key != action && $0.value == shortcut })?.key {
-            return "\(shortcut.displayText) 已用于 SFTP \(conflict.title)。"
+            return L10n.format("%@ 已用于 SFTP %@。", shortcut.displayText, conflict.title)
         }
         return nil
     }

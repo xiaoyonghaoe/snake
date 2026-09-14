@@ -1,3 +1,5 @@
+**简体中文** · [English](en/SFTP_DOWNLOAD_INTEGRITY.md)
+
 # SFTP 下载与传输完整性校验
 
 ## 使用方式

@@ -16,6 +16,13 @@ public final class ApplicationStore: ObservableObject {
     @Published public var isDarkAppearancePreferred: Bool {
         didSet { defaults.set(isDarkAppearancePreferred, forKey: appearanceKey) }
     }
+    @Published public var appLanguage: AppLanguage {
+        didSet {
+            defaults.set(appLanguage.rawValue, forKey: appLanguageKey)
+            LocalizationStore.shared.setLanguage(appLanguage)
+            workspaceCoordinator?.applyLocalization()
+        }
+    }
     @Published public var multipartThresholdMB: Int {
         didSet {
             let value = min(max(multipartThresholdMB, 1), 10_240)
@@ -79,6 +86,7 @@ public final class ApplicationStore: ObservableObject {
     private let terminalShellColorsKey = "com.snake.terminal.shell-colors"
     private let tokyoMigrationKey = "com.snake.terminal.tokyo-migration-v1"
     private let appearanceKey = "com.snake.appearance.dark"
+    private let appLanguageKey = "com.snake.appearance.language"
     private let sftpSearchShortcutKey = "com.snake.shortcuts.sftp-search"
     private let sftpDeleteShortcutKey = "com.snake.shortcuts.sftp-delete"
     private let sftpUploadShortcutKey = "com.snake.shortcuts.sftp-upload"
@@ -91,6 +99,9 @@ public final class ApplicationStore: ObservableObject {
     public init(databaseURL: URL? = nil, userDefaults: UserDefaults = .standard) {
         defaults = userDefaults
         self.isDarkAppearancePreferred = defaults.bool(forKey: appearanceKey)
+        let initialLanguage = AppLanguage(rawValue: defaults.string(forKey: appLanguageKey) ?? "") ?? .system
+        self.appLanguage = initialLanguage
+        LocalizationStore.shared.setLanguage(initialLanguage)
         if !defaults.bool(forKey: tokyoMigrationKey) {
             defaults.set(TerminalThemePreset.tokyoNight.rawValue, forKey: terminalThemeKey)
             defaults.set(true, forKey: tokyoMigrationKey)
@@ -129,8 +140,8 @@ public final class ApplicationStore: ObservableObject {
         let legacyMounts = Self.decode([MountMapping].self, data: defaults.data(forKey: mountsKey))
         let restoredMounts = sqliteMounts.isEmpty ? legacyMounts : sqliteMounts
         let persistedTransfers = (try? persistence?.loadTransferJobs()) ?? []
-        let obsoleteLocalUploadRecords = persistedTransfers.filter { $0.sourceProfileName == "本机" }
-        self.transferJobs = persistedTransfers.filter { $0.sourceProfileName != "本机" }
+        let obsoleteLocalUploadRecords = persistedTransfers.filter { $0.sourceProfileName == TransferJob.localEndpointName }
+        self.transferJobs = persistedTransfers.filter { $0.sourceProfileName != TransferJob.localEndpointName }
 
         self.groups = restoredGroups
         self.profiles = restoredProfiles
@@ -289,7 +300,7 @@ public final class ApplicationStore: ObservableObject {
             disabled.profileID = nil
             disabled.enabled = false
             disabled.state = .failed
-            disabled.lastError = "原 SSH 会话已删除，请重新绑定会话。"
+            disabled.lastError = L10n.text("原 SSH 会话已删除，请重新绑定会话。")
             return disabled
         }
         if selectedProfileID == profile.id {
@@ -314,7 +325,7 @@ public final class ApplicationStore: ObservableObject {
     @discardableResult
     func registerRealUpload(url: URL, to profile: SSHProfile, targetPath: String, totalBytes: Int64) -> UUID {
         let job = TransferJob(
-            sourceProfileName: "本机",
+            sourceProfileName: TransferJob.localEndpointName,
             targetProfileName: profile.name,
             sourcePath: url.path,
             targetPath: targetPath,
@@ -335,7 +346,7 @@ public final class ApplicationStore: ObservableObject {
     }
 
     func registerRealDownload(profile: SSHProfile, remotePath: String, localURL: URL, size: Int64) -> UUID {
-        let job = TransferJob(sourceProfileName: profile.name, targetProfileName: "本机",
+        let job = TransferJob(sourceProfileName: profile.name, targetProfileName: TransferJob.localEndpointName,
                               sourcePath: remotePath, targetPath: localURL.path, totalBytes: max(1, size))
         transferJobs.insert(job, at: 0)
         ephemeralTransferJobIDs.insert(job.id)
@@ -416,7 +427,7 @@ public final class ApplicationStore: ObservableObject {
         }
         updateJob(jobID) {
             $0.state = .failed
-            $0.errorMessage = "应用重启或连接关闭后需从 SFTP 页面重新发起传输。"
+            $0.errorMessage = L10n.text("应用重启或连接关闭后需从 SFTP 页面重新发起传输。")
         }
     }
 
@@ -428,7 +439,7 @@ public final class ApplicationStore: ObservableObject {
     public func retry(jobID: UUID) {
         updateJob(jobID) {
             $0.state = .failed
-            $0.errorMessage = "请回到 SFTP 文件列表重新发起此传输。"
+            $0.errorMessage = L10n.text("请回到 SFTP 文件列表重新发起此传输。")
         }
     }
 
@@ -485,7 +496,7 @@ public final class ApplicationStore: ObservableObject {
             }
             let identity = try ManagedMountPath.make(profile: profile, local: mapping.userAccessPath, remote: mapping.remotePath)
             guard identities.insert(identity).inserted else {
-                throw ApplicationStoreError.mappingConflict("已存在相同主机、端口、本地目录和远程目录的映射。")
+                throw ApplicationStoreError.mappingConflict(L10n.text("已存在相同主机、端口、本地目录和远程目录的映射。"))
             }
             if let old, !ManagedMountPath.isStable(old.managedMountPath) {
                 mapping.managedMountPath = old.managedMountPath
@@ -501,7 +512,7 @@ public final class ApplicationStore: ObservableObject {
                 if changedIdentity {
                     guard mountOperations[old.id] == nil, old.state != .mounting,
                           !mounted.contains(old.managedMountPath) else {
-                        throw ApplicationStoreError.mappingConflict("请先安全卸载“\(old.name)”，再修改主机、端口或目录。")
+                        throw ApplicationStoreError.mappingConflict(L10n.format("请先安全卸载“%@”，再修改主机、端口或目录。", old.name))
                     }
                     mapping.state = .idle
                     mapping.lastError = nil
@@ -577,7 +588,7 @@ public final class ApplicationStore: ObservableObject {
         guard let mapping = mountMappings.first(where: { $0.id == mappingID }) else { return }
         Task {
             do { try await MountOperations.reveal(mapping: mapping) }
-            catch { mountActionError = "无法打开“\(mapping.name)”：\(error.localizedDescription)" }
+            catch { mountActionError = L10n.format("无法打开“%@”：%@", mapping.name, error.localizedDescription) }
         }
     }
 
@@ -585,7 +596,7 @@ public final class ApplicationStore: ObservableObject {
         guard !isPreparingToQuit else { return }
         guard let index = mountMappings.firstIndex(where: { $0.id == mappingID }) else { return }
         guard mountOperations[mappingID] == nil, mountMappings[index].state != .mounting else {
-            mountActionError = "“\(mountMappings[index].name)”正在执行挂载或卸载操作，请稍后再删除。"
+            mountActionError = L10n.format("“%@”正在执行挂载或卸载操作，请稍后再删除。", mountMappings[index].name)
             return
         }
         let mapping = mountMappings[index]
@@ -600,7 +611,7 @@ public final class ApplicationStore: ObservableObject {
             guard result.state == .idle else {
                 mountMappings[index].state = .failed
                 mountMappings[index].lastError = result.message
-                mountActionError = "无法删除“\(mapping.name)”：\(result.message ?? "安全卸载失败。")"
+                mountActionError = L10n.format("无法删除“%@”：%@", mapping.name, result.message ?? L10n.text("安全卸载失败。"))
                 persistConfiguration()
                 return
             }
@@ -612,7 +623,7 @@ public final class ApplicationStore: ObservableObject {
                 persistConfiguration()
             } catch {
                 mountMappings[index].state = .idle
-                mountActionError = "无法删除映射配置：\(error.localizedDescription)"
+                mountActionError = L10n.format("无法删除映射配置：%@", error.localizedDescription)
             }
         }
     }
@@ -633,7 +644,7 @@ public final class ApplicationStore: ObservableObject {
                     mountMappings[index].lastError = nil
                 } else if mountMappings[index].state == .mounted || mountMappings[index].state == .external {
                     mountMappings[index].state = .idle
-                    mountMappings[index].lastError = "磁盘已卸载或挂载进程已退出，请重新挂载。"
+                    mountMappings[index].lastError = L10n.text("磁盘已卸载或挂载进程已退出，请重新挂载。")
                 }
                 changed = changed || previous != mountMappings[index]
             }
@@ -656,33 +667,34 @@ public final class ApplicationStore: ObservableObject {
             var failedIDs: Set<UUID> = []
             var removed: Set<UUID> = []
             func describe(_ mapping: MountMapping, reason: String) -> String {
-                let connection = mapping.profileID.flatMap { connections[$0] } ?? "未绑定连接"
-                return "\(mapping.name) · \(connection)\n远程目录：\(mapping.remotePath)\n本地目录：\(mapping.userAccessPath)\n挂载点：\(mapping.managedMountPath)\n原因：\(reason)"
+                let connection = mapping.profileID.flatMap { connections[$0] } ?? L10n.text("未绑定连接")
+                return L10n.format("%@ · %@\n远程目录：%@\n本地目录：%@\n挂载点：%@\n原因：%@",
+            mapping.name, connection, mapping.remotePath, mapping.userAccessPath, mapping.managedMountPath, reason)
             }
             do {
                 let mounted = try mountedPaths()
                 for mapping in mappings where mounted.contains(mapping.managedMountPath) {
                     guard MountOperations.isManagedMountPath(mapping.managedMountPath) else {
                         failedIDs.insert(mapping.id)
-                        failures.append(describe(mapping, reason: "挂载点不在 Snake 受管目录中。"))
+                        failures.append(describe(mapping, reason: L10n.text("挂载点不在 Snake 受管目录中。")))
                         continue
                     }
                     let result = unmount(mapping)
                     if result.state == .idle { removed.insert(mapping.id) }
                     else {
                         failedIDs.insert(mapping.id)
-                        failures.append(describe(mapping, reason: result.message ?? "无法安全卸载，目录可能正被占用。"))
+                        failures.append(describe(mapping, reason: result.message ?? L10n.text("无法安全卸载，目录可能正被占用。")))
                     }
                 }
                 let remaining = try mountedPaths()
                 for mapping in mappings where remaining.contains(mapping.managedMountPath) {
                     removed.remove(mapping.id)
                     if !failedIDs.contains(mapping.id) {
-                        failures.append(describe(mapping, reason: "磁盘仍处于挂载状态。"))
+                        failures.append(describe(mapping, reason: L10n.text("磁盘仍处于挂载状态。")))
                     }
                 }
             } catch {
-                failures.append("无法确认系统挂载状态：\(error.localizedDescription)")
+                failures.append(L10n.format("无法确认系统挂载状态：%@", error.localizedDescription))
             }
             return (removed, failures)
         }.value
@@ -724,8 +736,8 @@ public enum ApplicationStoreError: LocalizedError {
 
     public var errorDescription: String? {
         switch self {
-        case .invalidProfile: "请填写名称、主机、端口和用户名。"
-        case .invalidMapping: "请填写映射名称、远程目录和本地访问目录。"
+        case .invalidProfile: L10n.text("请填写名称、主机、端口和用户名。")
+        case .invalidMapping: L10n.text("请填写映射名称、远程目录和本地访问目录。")
         case .mappingConflict(let message): message
         }
     }

@@ -31,7 +31,7 @@ final class CredentialEncryptionKeyStore: CredentialEncryptionKeyProviding {
         var request = query
         request[kSecValueData as String] = data
         request[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
-        request[kSecAttrLabel as String] = "Snake 凭据加密密钥"
+        request[kSecAttrLabel as String] = L10n.text("Snake 凭据加密密钥")
         let status = SecItemAdd(request as CFDictionary, nil)
         if status == errSecDuplicateItem {
             guard let existing = try loadKey() else { throw CredentialStoreError.missingKey }

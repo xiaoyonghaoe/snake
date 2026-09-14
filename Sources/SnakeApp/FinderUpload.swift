@@ -74,7 +74,7 @@ enum FinderUploadPasteboard {
 
 enum FinderUploadError: LocalizedError {
     case invalidFiles
-    var errorDescription: String? { "无法读取拖入的文件，请从访达重新选择文件或文件夹。" }
+    var errorDescription: String? { L10n.text("无法读取拖入的文件，请从访达重新选择文件或文件夹。") }
 }
 
 enum FinderUploadTarget: Equatable {
@@ -84,8 +84,8 @@ enum FinderUploadTarget: Equatable {
 
     var title: String {
         switch self {
-        case .directory(let path): "上传到 \(path)"
-        case .confirmDirectory: "松开后选择上传目录"
+        case .directory(let path): L10n.format("上传到 %@", path)
+        case .confirmDirectory: L10n.text("松开后选择上传目录")
         case .unavailable(let message): message
         }
     }
@@ -138,7 +138,7 @@ protocol FinderUploadDestination: AnyObject {
 final class FinderUploadHostingView<Content: View>: NSHostingView<Content>, FinderUploadDestination {
     var requiresUploadArea = false
     var isActiveTarget: () -> Bool = { false }
-    var uploadTarget: () -> FinderUploadTarget = { .unavailable("请先连接") }
+    var uploadTarget: () -> FinderUploadTarget = { .unavailable(L10n.text("请先连接")) }
     var performUpload: ([URL], FinderUploadTarget, NSWindow) -> Void = { _, _, _ in }
     private var indicator: FinderUploadIndicator?
     var destinationView: NSView { self }
@@ -206,7 +206,7 @@ final class FinderUploadHostingView<Content: View>: NSHostingView<Content>, Find
             return true
         } catch {
             let alert = NSAlert()
-            alert.messageText = "无法上传"
+            alert.messageText = L10n.text("无法上传")
             alert.informativeText = error.localizedDescription
             alert.beginSheetModal(for: window)
             return false
@@ -285,7 +285,7 @@ private final class FinderUploadIndicator: NSView {
         layer?.backgroundColor = NSColor.windowBackgroundColor.withAlphaComponent(0.94).cgColor
         layer?.borderColor = color.cgColor
         label.textColor = color
-        label.stringValue = target.title + (target.canUpload ? "\n文件夹将保留目录结构" : "")
+        label.stringValue = target.title + (target.canUpload ? L10n.text("\n文件夹将保留目录结构") : "")
     }
 }
 

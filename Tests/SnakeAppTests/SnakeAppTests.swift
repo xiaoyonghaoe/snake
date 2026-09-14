@@ -89,15 +89,15 @@ final class SnakeAppTests: XCTestCase {
 
     func testTerminalConnectionAutomaticallyRetriesOnlyOneConnectionFailure() {
         XCTAssertTrue(TerminalConnectionRetryPolicy.shouldRetry(
-            .Connection(message: "TCP 连接失败：temporarily unavailable"),
+            .Connection(message: "temporarily unavailable", stage: "tcp_connect"),
             retryIndex: 0
         ))
         XCTAssertFalse(TerminalConnectionRetryPolicy.shouldRetry(
-            .Connection(message: "SSH 握手失败：closed"),
+            .Connection(message: "closed", stage: "ssh_handshake"),
             retryIndex: 1
         ))
         XCTAssertFalse(TerminalConnectionRetryPolicy.shouldRetry(
-            .Authentication(message: "密码认证失败"),
+            .Authentication(message: "invalid password", stage: "auth_password"),
             retryIndex: 0
         ))
         XCTAssertFalse(TerminalConnectionRetryPolicy.shouldRetry(

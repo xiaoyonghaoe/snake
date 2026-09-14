@@ -1,3 +1,5 @@
+**简体中文** · [English](en/TERMINAL_THEMES.md)
+
 # 终端主题与日志关键词高亮
 
 > 本文记录首版实现。2026-09-13 已扩展 Tokyo Night、输出字段与远端文件类型颜色；当前设置、默认值和边界以 [Tokyo Night 与终端颜色提示](TOKYO_NIGHT_COLORS.md) 为准。

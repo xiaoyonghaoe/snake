@@ -800,10 +800,10 @@ public func FfiConverterTypeCoreDatabase_lower(_ value: CoreDatabase) -> UnsafeM
 
 public protocol CoreSftpHandleProtocol: AnyObject, Sendable {
     
-    func assembleUpload(parts: [String], staging: String, control: CoreTransferControl) throws
-
+    func assembleUpload(parts: [String], staging: String, control: CoreTransferControl) throws 
+    
     func checksumCapability() throws  -> CoreChecksumCapability
-
+    
     func copyFrom(source: CoreSftpHandle, sourcePath: String, destinationPath: String, isDirectory: Bool) throws 
     
     func copyFromControlled(source: CoreSftpHandle, sourcePath: String, destinationPath: String, isDirectory: Bool, totalBytes: UInt64, control: CoreTransferControl, observer: CoreTransferObserver) throws 
@@ -820,10 +820,10 @@ public protocol CoreSftpHandleProtocol: AnyObject, Sendable {
      * Swift owns an O_EXCL, no-follow staging descriptor for the duration of
      * all workers. Clone it but use positional writes (dup shares seek state).
      */
-    func downloadRange(remotePath: String, localFd: Int32, offset: UInt64, length: UInt64, control: CoreTransferControl, observer: CoreTransferObserver) throws
-
+    func downloadRange(remotePath: String, localFd: Int32, offset: UInt64, length: UInt64, control: CoreTransferControl, observer: CoreTransferObserver) throws 
+    
     func fileMetadata(path: String) throws  -> CoreFileMetadata
-
+    
     /**
      * Concatenates completed part files into a staging file and then moves
      * that staging file into place. `mv -f` is deliberately the final step:
@@ -841,22 +841,22 @@ public protocol CoreSftpHandleProtocol: AnyObject, Sendable {
      * SFTP-only accounts cannot run cat/mv. Independent handles write
      * disjoint ranges into one fresh, exclusively created staging file.
      */
-    func prepareNativeUpload(staging: String) throws
-
-    func publishNativeUpload(staging: String, target: String, overwrite: Bool, control: CoreTransferControl) throws
-
-    func publishUpload(staging: String, target: String, parts: [String], overwrite: Bool, control: CoreTransferControl) throws
-
+    func prepareNativeUpload(staging: String) throws 
+    
+    func publishNativeUpload(staging: String, target: String, overwrite: Bool, control: CoreTransferControl) throws 
+    
+    func publishUpload(staging: String, target: String, parts: [String], overwrite: Bool, control: CoreTransferControl) throws 
+    
     func remoteChecksum(path: String, capability: CoreChecksumCapability, control: CoreTransferControl) throws  -> String
-
+    
     func removeDirectory(path: String) throws 
     
     func removeDirectoryRecursive(path: String) throws 
     
     func removeFile(path: String) throws 
     
-    func removeTransferTemporary(path: String) throws
-
+    func removeTransferTemporary(path: String) throws 
+    
     func rename(source: String, destination: String) throws 
     
     func setPermissions(path: String, mode: UInt32) throws 
@@ -867,8 +867,8 @@ public protocol CoreSftpHandleProtocol: AnyObject, Sendable {
     
     func uploadControlled(localPath: String, remotePath: String, control: CoreTransferControl, observer: CoreTransferObserver) throws 
     
-    func uploadNativeRange(localPath: String, staging: String, offset: UInt64, length: UInt64, control: CoreTransferControl, observer: CoreTransferObserver) throws
-
+    func uploadNativeRange(localPath: String, staging: String, offset: UInt64, length: UInt64, control: CoreTransferControl, observer: CoreTransferObserver) throws 
+    
     /**
      * Uploads one deterministic part file. Existing bytes are kept and the
      * transfer continues at the remote part's current size. The caller uses
@@ -938,14 +938,14 @@ open func assembleUpload(parts: [String], staging: String, control: CoreTransfer
     )
 }
 }
-
+    
 open func checksumCapability()throws  -> CoreChecksumCapability  {
     return try  FfiConverterTypeCoreChecksumCapability_lift(try rustCallWithError(FfiConverterTypeCoreError_lift) {
     uniffi_snake_core_fn_method_coresftphandle_checksum_capability(self.uniffiClonePointer(),$0
     )
 })
 }
-
+    
 open func copyFrom(source: CoreSftpHandle, sourcePath: String, destinationPath: String, isDirectory: Bool)throws   {try rustCallWithError(FfiConverterTypeCoreError_lift) {
     uniffi_snake_core_fn_method_coresftphandle_copy_from(self.uniffiClonePointer(),
         FfiConverterTypeCoreSftpHandle_lower(source),
@@ -1015,7 +1015,7 @@ open func downloadRange(remotePath: String, localFd: Int32, offset: UInt64, leng
     )
 }
 }
-
+    
 open func fileMetadata(path: String)throws  -> CoreFileMetadata  {
     return try  FfiConverterTypeCoreFileMetadata_lift(try rustCallWithError(FfiConverterTypeCoreError_lift) {
     uniffi_snake_core_fn_method_coresftphandle_file_metadata(self.uniffiClonePointer(),
@@ -1023,7 +1023,7 @@ open func fileMetadata(path: String)throws  -> CoreFileMetadata  {
     )
 })
 }
-
+    
     /**
      * Concatenates completed part files into a staging file and then moves
      * that staging file into place. `mv -f` is deliberately the final step:
@@ -1072,7 +1072,7 @@ open func prepareNativeUpload(staging: String)throws   {try rustCallWithError(Ff
     )
 }
 }
-
+    
 open func publishNativeUpload(staging: String, target: String, overwrite: Bool, control: CoreTransferControl)throws   {try rustCallWithError(FfiConverterTypeCoreError_lift) {
     uniffi_snake_core_fn_method_coresftphandle_publish_native_upload(self.uniffiClonePointer(),
         FfiConverterString.lower(staging),
@@ -1082,7 +1082,7 @@ open func publishNativeUpload(staging: String, target: String, overwrite: Bool, 
     )
 }
 }
-
+    
 open func publishUpload(staging: String, target: String, parts: [String], overwrite: Bool, control: CoreTransferControl)throws   {try rustCallWithError(FfiConverterTypeCoreError_lift) {
     uniffi_snake_core_fn_method_coresftphandle_publish_upload(self.uniffiClonePointer(),
         FfiConverterString.lower(staging),
@@ -1093,7 +1093,7 @@ open func publishUpload(staging: String, target: String, parts: [String], overwr
     )
 }
 }
-
+    
 open func remoteChecksum(path: String, capability: CoreChecksumCapability, control: CoreTransferControl)throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeCoreError_lift) {
     uniffi_snake_core_fn_method_coresftphandle_remote_checksum(self.uniffiClonePointer(),
@@ -1103,7 +1103,7 @@ open func remoteChecksum(path: String, capability: CoreChecksumCapability, contr
     )
 })
 }
-
+    
 open func removeDirectory(path: String)throws   {try rustCallWithError(FfiConverterTypeCoreError_lift) {
     uniffi_snake_core_fn_method_coresftphandle_remove_directory(self.uniffiClonePointer(),
         FfiConverterString.lower(path),$0
@@ -1131,7 +1131,7 @@ open func removeTransferTemporary(path: String)throws   {try rustCallWithError(F
     )
 }
 }
-
+    
 open func rename(source: String, destination: String)throws   {try rustCallWithError(FfiConverterTypeCoreError_lift) {
     uniffi_snake_core_fn_method_coresftphandle_rename(self.uniffiClonePointer(),
         FfiConverterString.lower(source),
@@ -1185,7 +1185,7 @@ open func uploadNativeRange(localPath: String, staging: String, offset: UInt64, 
     )
 }
 }
-
+    
     /**
      * Uploads one deterministic part file. Existing bytes are kept and the
      * transfer continues at the remote part's current size. The caller uses
@@ -1426,8 +1426,8 @@ public protocol CoreTransferControlProtocol: AnyObject, Sendable {
     
     func cancel() 
     
-    func checkpoint() throws
-
+    func checkpoint() throws 
+    
     func pause() 
     
     func resume() 
@@ -1503,7 +1503,7 @@ open func checkpoint()throws   {try rustCallWithError(FfiConverterTypeCoreError_
     )
 }
 }
-
+    
 open func pause()  {try! rustCall() {
     uniffi_snake_core_fn_method_coretransfercontrol_pause(self.uniffiClonePointer(),$0
     )
@@ -1621,8 +1621,8 @@ public struct FfiConverterTypeCoreChecksumCapability: FfiConverterRustBuffer {
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> CoreChecksumCapability {
         return
             try CoreChecksumCapability(
-                tool: FfiConverterString.read(from: &buf),
-                algorithm: FfiConverterString.read(from: &buf),
+                tool: FfiConverterString.read(from: &buf), 
+                algorithm: FfiConverterString.read(from: &buf), 
                 reason: FfiConverterString.read(from: &buf)
         )
     }
@@ -1815,9 +1815,9 @@ public struct FfiConverterTypeCoreFileMetadata: FfiConverterRustBuffer {
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> CoreFileMetadata {
         return
             try CoreFileMetadata(
-                size: FfiConverterUInt64.read(from: &buf),
-                modifiedAt: FfiConverterUInt64.read(from: &buf),
-                kind: FfiConverterString.read(from: &buf),
+                size: FfiConverterUInt64.read(from: &buf), 
+                modifiedAt: FfiConverterUInt64.read(from: &buf), 
+                kind: FfiConverterString.read(from: &buf), 
                 linkTarget: FfiConverterOptionString.read(from: &buf)
         )
     }
@@ -2627,13 +2627,18 @@ public enum CoreError: Swift.Error {
     case InvalidInput(message: String
     )
     case StorageLock
-    case Connection(message: String
+    case Connection(message: String, 
+        /**
+         * Stable ASCII stage code (for example `ssh_handshake`) that the
+         * Swift layer maps onto a localized stage name. `None` means the
+         * message is already a complete technical detail.
+         */stage: String?
     )
     case HostKeyUnknown(host: String, port: UInt16, algorithm: String, fingerprint: String
     )
     case HostKeyMismatch(host: String, port: UInt16, algorithm: String, fingerprint: String, previousFingerprints: [String]
     )
-    case Authentication(message: String
+    case Authentication(message: String, stage: String?
     )
     case TerminalClosed
     case TransferCancelled
@@ -2666,7 +2671,8 @@ public struct FfiConverterTypeCoreError: FfiConverterRustBuffer {
             )
         case 4: return .StorageLock
         case 5: return .Connection(
-            message: try FfiConverterString.read(from: &buf)
+            message: try FfiConverterString.read(from: &buf), 
+            stage: try FfiConverterOptionString.read(from: &buf)
             )
         case 6: return .HostKeyUnknown(
             host: try FfiConverterString.read(from: &buf), 
@@ -2678,11 +2684,12 @@ public struct FfiConverterTypeCoreError: FfiConverterRustBuffer {
             host: try FfiConverterString.read(from: &buf), 
             port: try FfiConverterUInt16.read(from: &buf), 
             algorithm: try FfiConverterString.read(from: &buf), 
-            fingerprint: try FfiConverterString.read(from: &buf),
+            fingerprint: try FfiConverterString.read(from: &buf), 
             previousFingerprints: try FfiConverterSequenceString.read(from: &buf)
             )
         case 8: return .Authentication(
-            message: try FfiConverterString.read(from: &buf)
+            message: try FfiConverterString.read(from: &buf), 
+            stage: try FfiConverterOptionString.read(from: &buf)
             )
         case 9: return .TerminalClosed
         case 10: return .TransferCancelled
@@ -2720,9 +2727,10 @@ public struct FfiConverterTypeCoreError: FfiConverterRustBuffer {
             writeInt(&buf, Int32(4))
         
         
-        case let .Connection(message):
+        case let .Connection(message,stage):
             writeInt(&buf, Int32(5))
             FfiConverterString.write(message, into: &buf)
+            FfiConverterOptionString.write(stage, into: &buf)
             
         
         case let .HostKeyUnknown(host,port,algorithm,fingerprint):
@@ -2742,9 +2750,10 @@ public struct FfiConverterTypeCoreError: FfiConverterRustBuffer {
             FfiConverterSequenceString.write(previousFingerprints, into: &buf)
             
         
-        case let .Authentication(message):
+        case let .Authentication(message,stage):
             writeInt(&buf, Int32(8))
             FfiConverterString.write(message, into: &buf)
+            FfiConverterOptionString.write(stage, into: &buf)
             
         
         case .TerminalClosed:

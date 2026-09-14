@@ -8,9 +8,9 @@ public enum KeychainStoreError: LocalizedError {
     public var errorDescription: String? {
         switch self {
         case .unexpectedStatus(let status):
-            "无法访问系统钥匙串（状态码 \(status)）。"
+            L10n.format("无法访问系统钥匙串（状态码 %@）。", status)
         case .invalidData:
-            "钥匙串中的凭据格式无效。"
+            L10n.text("钥匙串中的凭据格式无效。")
         }
     }
 }

@@ -48,12 +48,14 @@ struct UploadActivity: Equatable {
 
     var summary: String {
         switch result {
-        case .idle: "暂无上传"
-        case .running: "正在上传"
-        case .succeeded: skipped > 0 ? "已上传 \(succeeded) 项，跳过 \(skipped) 项" : "已上传 \(succeeded) 项"
-        case .failed: "已上传 \(succeeded) 项，\(failed) 项失败"
-        case .cancelled: "上传已取消（完成 \(succeeded) 项）"
-        case .skipped: "本次上传已跳过"
+        case .idle: L10n.text("暂无上传")
+        case .running: L10n.text("正在上传")
+        case .succeeded: skipped > 0
+                ? L10n.plural("已上传 %@ 项，跳过 %@ 项", count: succeeded, succeeded, skipped)
+                : L10n.plural("已上传 %@ 项", count: succeeded, succeeded)
+        case .failed: L10n.plural("已上传 %@ 项，%@ 项失败", count: succeeded, succeeded, failed)
+        case .cancelled: L10n.plural("上传已取消（完成 %@ 项）", count: succeeded, succeeded)
+        case .skipped: L10n.text("本次上传已跳过")
         }
     }
 }

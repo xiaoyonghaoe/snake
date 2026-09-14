@@ -52,7 +52,7 @@ public final class TerminalRuntime: ObservableObject, Identifiable {
     @Published public private(set) var remoteTitle: String?
     @Published public private(set) var securityInfo: CoreConnectionSecurity?
     @Published public private(set) var currentRemoteDirectory: String?
-    @Published public private(set) var connectionStatusText = "正在建立 Rust SSH PTY 连接…"
+    @Published public private(set) var connectionStatusText = L10n.text("正在建立 Rust SSH PTY 连接…")
     private let ioQueue: DispatchQueue
     private var terminalView: TerminalView?
     private var terminalDelegate: RustTerminalViewBridge?
@@ -80,7 +80,7 @@ public final class TerminalRuntime: ObservableObject, Identifiable {
         pendingHostKey = nil
         securityInfo = nil
         currentRemoteDirectory = nil
-        connectionStatusText = "正在建立 Rust SSH PTY 连接…"
+        connectionStatusText = L10n.text("正在建立 Rust SSH PTY 连接…")
         if let terminalView {
             startIfNeeded(terminalView)
         }
@@ -95,14 +95,14 @@ public final class TerminalRuntime: ObservableObject, Identifiable {
         guard let prompt = pendingHostKey else { return }
         pendingHostKey = nil
         state = .connecting
-        connectionStatusText = "正在建立 Rust SSH PTY 连接…"
+        connectionStatusText = L10n.text("正在建立 Rust SSH PTY 连接…")
         connect(accepting: prompt.fingerprint)
     }
 
     public func rejectPendingHostKey() {
         pendingHostKey = nil
         state = .failed
-        errorMessage = "未信任主机密钥，终端连接已取消。"
+        errorMessage = L10n.text("未信任主机密钥，终端连接已取消。")
     }
 
     public func stop() {
@@ -194,12 +194,12 @@ public final class TerminalRuntime: ObservableObject, Identifiable {
         guard target == .confirmDirectory, window.attachedSheet == nil else { return }
         let attemptID = connectionAttemptID
         let alert = NSAlert()
-        alert.messageText = "选择上传目录"
-        alert.informativeText = "当前终端尚未报告目录，请确认这些文件的远程上传位置。"
-        alert.addButton(withTitle: "上传")
-        alert.addButton(withTitle: "取消")
+        alert.messageText = L10n.text("选择上传目录")
+        alert.informativeText = L10n.text("当前终端尚未报告目录，请确认这些文件的远程上传位置。")
+        alert.addButton(withTitle: L10n.text("上传"))
+        alert.addButton(withTitle: L10n.text("取消"))
         let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 380, height: 26))
-        field.placeholderString = "远程绝对路径，例如 /tmp"
+        field.placeholderString = L10n.text("远程绝对路径，例如 /tmp")
         alert.accessoryView = field
         alert.beginSheetModal(for: window) { [weak self] response in
             guard let self, response == .alertFirstButtonReturn,
@@ -228,10 +228,10 @@ public final class TerminalRuntime: ObservableObject, Identifiable {
         currentRemoteDirectory = nil
         if let message, !message.isEmpty {
             state = .failed
-            errorMessage = "终端连接中断：\(message)"
+            errorMessage = L10n.format("终端连接中断：%@", message)
         } else {
             state = .disconnected
-            errorMessage = exitStatus == 0 ? nil : "远程 shell 已退出（状态码 \(exitStatus)）。"
+            errorMessage = exitStatus == 0 ? nil : L10n.format("远程 shell 已退出（状态码 %@）。", exitStatus)
         }
     }
 
@@ -296,7 +296,7 @@ public final class TerminalRuntime: ObservableObject, Identifiable {
                     handle = newHandle
                     securityInfo = newHandle.securityInfo()
                     let shellName = newHandle.shellName()
-                    connectionStatusText = "正在建立 Rust SSH PTY 连接…"
+                    connectionStatusText = L10n.text("正在建立 Rust SSH PTY 连接…")
                     isStarting = false
                     state = .connected
                     installDirectoryHook(shellName: shellName)
@@ -304,7 +304,7 @@ public final class TerminalRuntime: ObservableObject, Identifiable {
                         if let command = TerminalShellColors.command(for: shellName) {
                             send(Data(command.utf8))
                         } else {
-                            terminalView?.feed(text: "\r\n[Snake] 当前 Shell 暂不支持自动彩色 ls／ll，保留原有配置。\r\n")
+                            terminalView?.feed(text: L10n.text("\r\n[Snake] 当前 Shell 暂不支持自动彩色 ls／ll，保留原有配置。\r\n"))
                         }
                     }
                     terminalView?.window?.makeFirstResponder(terminalView)
@@ -312,7 +312,7 @@ public final class TerminalRuntime: ObservableObject, Identifiable {
                 } catch let error as CoreError {
                     guard connectionAttemptID == attemptID, launchRequested, state == .connecting else { return }
                     if TerminalConnectionRetryPolicy.shouldRetry(error, retryIndex: retryIndex) {
-                        connectionStatusText = "首次连接未完成，正在自动重试…"
+                        connectionStatusText = L10n.text("首次连接未完成，正在自动重试…")
                         try? await Task.sleep(for: .milliseconds(400))
                         guard connectionAttemptID == attemptID, launchRequested, state == .connecting else { return }
                         continue
@@ -377,14 +377,14 @@ public final class TerminalRuntime: ObservableObject, Identifiable {
                 previousFingerprints: previousFingerprints
             )
             errorMessage = nil
-        case let .Connection(message):
-            errorMessage = "终端连接失败：\(message)"
-        case let .Authentication(message):
-            errorMessage = "终端认证失败：\(message)"
+        case let .Connection(message, stage):
+            errorMessage = CoreErrorText.text(message, stage: stage, fallback: "终端连接失败：%@")
+        case let .Authentication(message, stage):
+            errorMessage = CoreErrorText.text(message, stage: stage, fallback: "终端认证失败：%@")
         case let .InvalidInput(message):
-            errorMessage = "终端参数无效：\(message)"
+            errorMessage = L10n.format("终端参数无效：%@", message)
         case .TerminalClosed:
-            errorMessage = "终端连接已关闭。"
+            errorMessage = L10n.text("终端连接已关闭。")
         default:
             errorMessage = String(describing: error)
         }
@@ -395,7 +395,7 @@ public final class TerminalRuntime: ObservableObject, Identifiable {
         state = .failed
         securityInfo = nil
         currentRemoteDirectory = nil
-        errorMessage = "终端输入失败：\(error.localizedDescription)"
+        errorMessage = L10n.format("终端输入失败：%@", error.localizedDescription)
     }
 
     private func stopHandle() {
@@ -433,9 +433,9 @@ private enum TerminalRuntimeError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .missingPassword: "此会话尚未保存密码，请编辑会话后加密保存密码。"
-        case .missingPrivateKey: "此会话尚未选择私钥文件。"
-        case .stalePrivateKey: "私钥访问授权已失效，请重新选择私钥文件。"
+        case .missingPassword: L10n.text("此会话尚未保存密码，请编辑会话后加密保存密码。")
+        case .missingPrivateKey: L10n.text("此会话尚未选择私钥文件。")
+        case .stalePrivateKey: L10n.text("私钥访问授权已失效，请重新选择私钥文件。")
         }
     }
 }
@@ -548,7 +548,7 @@ public final class LocalUploadCoordinator: ObservableObject {
     ) {
         guard !urls.isEmpty else { return }
         guard let destinationRoot = Self.validRemoteDirectory(destinationRoot) else {
-            errorMessage = "上传目录无效，请输入绝对远程路径。"
+            errorMessage = L10n.text("上传目录无效，请输入绝对远程路径。")
             return
         }
         let profile = profile
@@ -580,7 +580,7 @@ public final class LocalUploadCoordinator: ObservableObject {
                                 try operationHandle.createDirectory(path: item.remotePath)
                             }
                             guard try operationHandle.fileMetadata(path: item.remotePath).kind == "directory" else {
-                                throw TransferIntegrity.error("上传目录目标不是普通目录：\(item.remotePath)")
+                                throw TransferIntegrity.error(L10n.format("上传目录目标不是普通目录：%@", item.remotePath))
                             }
                         }.value
                         outcome.succeeded += 1
@@ -810,7 +810,7 @@ public final class LocalUploadCoordinator: ObservableObject {
         onVerification: @escaping @Sendable (TransferVerification) async -> Void
     ) async throws -> TransferVerification {
         let initialVersion = try TransferIntegrity.LocalVersion(item.localURL)
-        guard initialVersion.size == item.size else { throw TransferIntegrity.error("本地源文件已变化，请重新上传") }
+        guard initialVersion.size == item.size else { throw TransferIntegrity.error(L10n.text("本地源文件已变化，请重新上传")) }
         let operation = try makeHandle()
         let capability = TransferIntegrity.bestEffortCapability { try operation.checksumCapability() }
         if capability.tool == "sftp-only" {
@@ -821,7 +821,7 @@ public final class LocalUploadCoordinator: ObservableObject {
         let localHash: String?
         if capability.algorithm.isEmpty { localHash = nil }
         else {
-            await onVerification(.checking("源文件 \(capability.algorithm)"))
+            await onVerification(.checking(L10n.format("源文件 %@", capability.algorithm)))
             localHash = try TransferIntegrity.optionalDigest {
                 try TransferIntegrity.localDigest(url: item.localURL, algorithm: capability.algorithm, control: control)
             }
@@ -868,7 +868,7 @@ public final class LocalUploadCoordinator: ObservableObject {
             try operation.assembleUpload(parts: partPaths, staging: stagingPath, control: control)
             guard try operation.fileMetadata(path: stagingPath).size == UInt64(totalBytes),
                   try TransferIntegrity.LocalVersion(item.localURL) == initialVersion else {
-                throw TransferIntegrity.error("上传长度或源文件已变化，暂存文件未发布")
+                throw TransferIntegrity.error(L10n.text("上传长度或源文件已变化，暂存文件未发布"))
             }
             let result: TransferVerification
             if let localHash {
@@ -876,9 +876,9 @@ public final class LocalUploadCoordinator: ObservableObject {
                 result = try TransferIntegrity.bestEffortVerification(algorithm: capability.algorithm, local: { localHash }, remote: {
                     try operation.remoteChecksum(path: stagingPath, capability: capability, control: control)
                 })
-            } else { result = .unavailable(capability.reason.isEmpty ? "源文件摘要无法计算，已跳过校验" : capability.reason) }
+            } else { result = .unavailable(capability.reason.isEmpty ? L10n.text("源文件摘要无法计算，已跳过校验") : capability.reason) }
             guard try TransferIntegrity.LocalVersion(item.localURL) == initialVersion else {
-                throw TransferIntegrity.error("校验期间本地源文件已变化")
+                throw TransferIntegrity.error(L10n.text("校验期间本地源文件已变化"))
             }
             try operation.publishUpload(staging: stagingPath, target: item.remotePath, parts: partPaths, overwrite: overwrite, control: control)
             return result
@@ -984,11 +984,11 @@ public final class LocalUploadCoordinator: ObservableObject {
 
     nonisolated private static func message(for error: Error) -> String {
         switch error {
-        case let CoreError.Connection(message): "SFTP 连接失败：\(message)"
-        case let CoreError.Authentication(message): "SFTP 认证失败：\(message)"
-        case let CoreError.InvalidInput(message): "SFTP 参数无效：\(message)"
-        case let CoreError.Conflict(path): "目标已存在：\(path)。请选择安全覆盖、跳过或重命名。"
-        case CoreError.TransferCancelled: "传输已取消。"
+        case let CoreError.Connection(message, stage): CoreErrorText.text(message, stage: stage, fallback: "SFTP 连接失败：%@")
+        case let CoreError.Authentication(message, stage): CoreErrorText.text(message, stage: stage, fallback: "SFTP 认证失败：%@")
+        case let CoreError.InvalidInput(message): L10n.format("SFTP 参数无效：%@", message)
+        case let CoreError.Conflict(path): L10n.format("目标已存在：%@。请选择安全覆盖、跳过或重命名。", path)
+        case CoreError.TransferCancelled: L10n.text("传输已取消。")
         default: String(describing: error)
         }
     }
@@ -1124,7 +1124,7 @@ public final class SFTPRuntime: ObservableObject, Identifiable {
     public func rejectPendingHostKey() {
         pendingHostKey = nil
         connectionState = .failed
-        errorMessage = "未信任主机密钥，SFTP 连接已取消。"
+        errorMessage = L10n.text("未信任主机密钥，SFTP 连接已取消。")
     }
 
     public func disconnect() {
@@ -1156,7 +1156,7 @@ public final class SFTPRuntime: ObservableObject, Identifiable {
     public func navigate(to address: String) {
         let cleaned = address.trimmingCharacters(in: .whitespacesAndNewlines)
         guard cleaned.hasPrefix("/") else {
-            errorMessage = "远程地址必须以 / 开头。"
+            errorMessage = L10n.text("远程地址必须以 / 开头。")
             return
         }
         let normalized = (cleaned as NSString).standardizingPath
@@ -1242,8 +1242,8 @@ public final class SFTPRuntime: ObservableObject, Identifiable {
     }
 
     var finderUploadTarget: FinderUploadTarget {
-        guard connectionState == .connected else { return .unavailable("请先完成 SFTP 连接") }
-        guard loadingPath == nil else { return .unavailable("请等待目录打开后再上传") }
+        guard connectionState == .connected else { return .unavailable(L10n.text("请先完成 SFTP 连接")) }
+        guard loadingPath == nil else { return .unavailable(L10n.text("请等待目录打开后再上传")) }
         return .directory(currentPath)
     }
 
@@ -1269,7 +1269,7 @@ public final class SFTPRuntime: ObservableObject, Identifiable {
 
     public func upload(urls: [URL], to destination: String? = nil, store: ApplicationStore) {
         guard handle != nil else {
-            errorMessage = "SFTP 尚未连接，无法上传。"
+            errorMessage = L10n.text("SFTP 尚未连接，无法上传。")
             connectIfNeeded()
             return
         }
@@ -1306,7 +1306,7 @@ public final class SFTPRuntime: ObservableObject, Identifiable {
 
     public func copy(file: RemoteFile, from source: SFTPRuntime, store: ApplicationStore) {
         guard let sourceHandle = source.handle, let destinationHandle = handle else {
-            errorMessage = "来源或目标 SFTP 尚未连接，无法开始远程互传。"
+            errorMessage = L10n.text("来源或目标 SFTP 尚未连接，无法开始远程互传。")
             return
         }
         let destinationPath = (currentPath as NSString).appendingPathComponent(file.name)
@@ -1358,7 +1358,7 @@ public final class SFTPRuntime: ObservableObject, Identifiable {
         guard let handle else { return }
         let cleaned = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleaned.isEmpty, !cleaned.contains("/") else {
-            errorMessage = "文件夹名称不能为空，也不能包含 /。"
+            errorMessage = L10n.text("文件夹名称不能为空，也不能包含 /。")
             return
         }
         let path = ((directory ?? currentPath) as NSString).appendingPathComponent(cleaned)
@@ -1378,7 +1378,7 @@ public final class SFTPRuntime: ObservableObject, Identifiable {
         guard let handle else { return }
         let cleaned = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleaned.isEmpty, !cleaned.contains("/") else {
-            errorMessage = "文件名称不能为空，也不能包含 /。"
+            errorMessage = L10n.text("文件名称不能为空，也不能包含 /。")
             return
         }
         let path = ((directory ?? currentPath) as NSString).appendingPathComponent(cleaned)
@@ -1398,7 +1398,7 @@ public final class SFTPRuntime: ObservableObject, Identifiable {
         guard let handle else { return }
         let cleaned = newName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleaned.isEmpty, !cleaned.contains("/") else {
-            errorMessage = "新名称不能为空，也不能包含 /。"
+            errorMessage = L10n.text("新名称不能为空，也不能包含 /。")
             return
         }
         let parent = (file.path as NSString).deletingLastPathComponent
@@ -1418,7 +1418,7 @@ public final class SFTPRuntime: ObservableObject, Identifiable {
     public func setPermissions(_ file: RemoteFile, mode: UInt32, recursively: Bool = false) {
         guard let handle else { return }
         guard mode <= 0o7777 else {
-            errorMessage = "权限必须是 0000 到 7777 之间的三位或四位八进制数字。"
+            errorMessage = L10n.text("权限必须是 0000 到 7777 之间的三位或四位八进制数字。")
             return
         }
         Task {
@@ -1460,7 +1460,7 @@ public final class SFTPRuntime: ObservableObject, Identifiable {
                             try handle.removeFile(path: file.path)
                         }
                     } catch {
-                        failures.append("\(file.name)：\(Self.message(for: error))")
+                        failures.append(L10n.format("%@：%@", file.name, Self.message(for: error)))
                     }
                 }
                 return failures
@@ -1469,7 +1469,7 @@ public final class SFTPRuntime: ObservableObject, Identifiable {
             directoryCache.removeValue(forKey: directory)
             if currentPath == directory { refresh() }
             if !failures.isEmpty {
-                deletionError = "已删除 \(targets.count - failures.count) 项，\(failures.count) 项失败。\n" + failures.joined(separator: "\n")
+                deletionError = L10n.plural("已删除 %@ 项，%@ 项失败。\n", count: targets.count - failures.count, targets.count - failures.count, failures.count) + failures.joined(separator: "\n")
             }
         }
     }
@@ -1554,7 +1554,7 @@ public final class SFTPRuntime: ObservableObject, Identifiable {
 
     private func downloadAndOpen(_ file: RemoteFile) {
         guard let handle else {
-            errorMessage = "SFTP 尚未连接，无法打开远程文件。"
+            errorMessage = L10n.text("SFTP 尚未连接，无法打开远程文件。")
             return
         }
         let cacheRoot = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
@@ -1580,11 +1580,11 @@ public final class SFTPRuntime: ObservableObject, Identifiable {
 
     nonisolated private static func message(for error: Error) -> String {
         switch error {
-        case let CoreError.Connection(message): "SFTP 连接失败：\(message)"
-        case let CoreError.Authentication(message): "SFTP 认证失败：\(message)"
-        case let CoreError.InvalidInput(message): "SFTP 参数无效：\(message)"
-        case let CoreError.Conflict(path): "目标已存在：\(path)。当前安全策略不会自动覆盖，请重命名后重试。"
-        case CoreError.TransferCancelled: "传输已取消。"
+        case let CoreError.Connection(message, stage): CoreErrorText.text(message, stage: stage, fallback: "SFTP 连接失败：%@")
+        case let CoreError.Authentication(message, stage): CoreErrorText.text(message, stage: stage, fallback: "SFTP 认证失败：%@")
+        case let CoreError.InvalidInput(message): L10n.format("SFTP 参数无效：%@", message)
+        case let CoreError.Conflict(path): L10n.format("目标已存在：%@。当前安全策略不会自动覆盖，请重命名后重试。", path)
+        case CoreError.TransferCancelled: L10n.text("传输已取消。")
         default: String(describing: error)
         }
     }
@@ -1665,14 +1665,16 @@ public struct SFTPHostKeyPrompt: Identifiable, Sendable {
     public let fingerprint: String
     public var previousFingerprints: [String]? = nil
 
-    var title: String { previousFingerprints == nil ? "确认主机密钥" : "主机密钥已变化" }
-    var acceptTitle: String { previousFingerprints == nil ? "信任并连接" : "信任新密钥并连接" }
+    var title: String { previousFingerprints == nil ? L10n.text("确认主机密钥") : L10n.text("主机密钥已变化") }
+    var acceptTitle: String { previousFingerprints == nil ? L10n.text("信任并连接") : L10n.text("信任新密钥并连接") }
     var message: String {
         if let previousFingerprints {
-            let previous = previousFingerprints.isEmpty ? "无法读取原指纹" : previousFingerprints.joined(separator: "\n")
-            return "\(host):\(port) 的主机密钥与已保存的记录不同。\n\n原指纹：\n\(previous)\n\n新指纹（\(algorithm)）：\n\(fingerprint)\n\n这可能是服务器重装或更换密钥，也可能是连接被冒充。请通过可信渠道核对新指纹。信任后将更新此地址的记录并重新连接；取消则保留原记录。"
+            let previous = previousFingerprints.isEmpty ? L10n.text("无法读取原指纹") : previousFingerprints.joined(separator: "\n")
+            return L10n.format("%@:%@ 的主机密钥与已保存的记录不同。\n\n原指纹：\n%@\n\n新指纹（%@）：\n%@\n\n这可能是服务器重装或更换密钥，也可能是连接被冒充。请通过可信渠道核对新指纹。信任后将更新此地址的记录并重新连接；取消则保留原记录。",
+                              host, String(port), previous, algorithm, fingerprint)
         }
-        return "首次连接 \(host):\(port)\n\(algorithm)\n\(fingerprint)\n\n请在可信渠道核对指纹后再信任。"
+        return L10n.format("首次连接 %@:%@\n%@\n%@\n\n请在可信渠道核对指纹后再信任。",
+                           host, String(port), algorithm, fingerprint)
     }
 }
 
@@ -1855,9 +1857,9 @@ private enum SFTPRuntimeError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .missingPassword: "此会话尚未保存密码，请编辑会话后加密保存密码。"
-        case .missingPrivateKey: "此会话尚未选择私钥文件。"
-        case .stalePrivateKey: "私钥访问授权已失效，请重新选择私钥文件。"
+        case .missingPassword: L10n.text("此会话尚未保存密码，请编辑会话后加密保存密码。")
+        case .missingPrivateKey: L10n.text("此会话尚未选择私钥文件。")
+        case .stalePrivateKey: L10n.text("私钥访问授权已失效，请重新选择私钥文件。")
         }
     }
 }
@@ -1916,20 +1918,20 @@ public final class WorkspaceTabRuntime: ObservableObject, Identifiable {
 
     public var title: String {
         switch kind {
-        case .sessions: "SSH 会话"
-        case .mounts: "磁盘映射"
-        case .terminal: "终端 · \(profile?.name ?? "")"
-        case .sftp: "SFTP · \(profile?.name ?? "")"
+        case .sessions: L10n.text("SSH 会话")
+        case .mounts: L10n.text("磁盘映射")
+        case .terminal: L10n.format("终端 · %@", profile?.name ?? "")
+        case .sftp: L10n.format("SFTP · %@", profile?.name ?? "")
         }
     }
 
     var finderUploadTarget: FinderUploadTarget {
         if let terminal {
-            guard terminal.state == .connected else { return .unavailable("请先完成 SSH 连接") }
+            guard terminal.state == .connected else { return .unavailable(L10n.text("请先完成 SSH 连接")) }
             return terminal.currentRemoteDirectory.map(FinderUploadTarget.directory) ?? .confirmDirectory
         }
         if let sftp { return sftp.finderUploadTarget }
-        return .unavailable("请先完成 SFTP 连接")
+        return .unavailable(L10n.text("请先完成 SFTP 连接"))
     }
 
     func uploadFromFinder(urls: [URL], target: FinderUploadTarget, window: NSWindow, store: ApplicationStore) {
@@ -2136,6 +2138,7 @@ public final class WorkspaceWindowCoordinator: NSObject {
     private var sftpSearchMenuItem: NSMenuItem?
     private var sftpDeleteMenuItem: NSMenuItem?
     private var sftpUploadMenuItem: NSMenuItem?
+    private var fileMenuItem: NSMenuItem?
     // Intercept only configured SFTP shortcuts before native/SwiftUI content
     // handles key equivalents. This is application-local, not a global hotkey.
     nonisolated(unsafe) private var sftpShortcutMonitor: Any?
@@ -2168,24 +2171,36 @@ public final class WorkspaceWindowCoordinator: NSObject {
             return
         }
 
+        // Locate the menu by action rather than by title so it survives a
+        // language change.
+        let workspaceActions: Set<Selector> = [
+            #selector(closeCurrentItem(_:)), #selector(searchSessions(_:)),
+            #selector(searchSFTP(_:)), #selector(deleteSFTPSelection(_:)), #selector(uploadSFTPFile(_:))
+        ]
         let fileMenu: NSMenu
-        if let existing = mainMenu.items.first(where: { $0.title == "文件" || $0.title == "File" })?.submenu {
+        if let existing = mainMenu.items.first(where: { item in
+            item.submenu?.items.contains { submenuItem in
+                guard let action = submenuItem.action else { return false }
+                return workspaceActions.contains(action)
+            } == true
+        })?.submenu {
             fileMenu = existing
         } else {
-            let rootItem = NSMenuItem(title: "文件", action: nil, keyEquivalent: "")
-            fileMenu = NSMenu(title: "文件")
+            let rootItem = NSMenuItem(title: L10n.text("文件"), action: nil, keyEquivalent: "")
+            fileMenu = NSMenu(title: L10n.text("文件"))
             rootItem.submenu = fileMenu
             mainMenu.insertItem(rootItem, at: min(1, mainMenu.items.count))
         }
+        fileMenuItem = mainMenu.items.first { $0.submenu === fileMenu }
 
         if fileMenu.items.contains(where: { $0.action == #selector(closeCurrentItem(_:)) }) == false {
-            let closeItem = NSMenuItem(title: "关闭标签", action: #selector(closeCurrentItem(_:)), keyEquivalent: "w")
+            let closeItem = NSMenuItem(title: L10n.text("关闭标签"), action: #selector(closeCurrentItem(_:)), keyEquivalent: "w")
             closeItem.keyEquivalentModifierMask = [.command]
             closeItem.target = self
             fileMenu.insertItem(closeItem, at: 0)
         }
         if fileMenu.items.contains(where: { $0.action == #selector(searchSessions(_:)) }) == false {
-            let searchItem = NSMenuItem(title: "搜索 SSH 会话", action: #selector(searchSessions(_:)), keyEquivalent: "k")
+            let searchItem = NSMenuItem(title: L10n.text("搜索 SSH 会话"), action: #selector(searchSessions(_:)), keyEquivalent: "k")
             searchItem.keyEquivalentModifierMask = [.command]
             searchItem.target = self
             fileMenu.addItem(searchItem)
@@ -2194,12 +2209,34 @@ public final class WorkspaceWindowCoordinator: NSObject {
         let hadSFTPCommands = fileMenu.items.contains { $0.action == #selector(searchSFTP(_:)) }
         if !hadSFTPCommands { fileMenu.addItem(.separator()) }
         sftpSearchMenuItem = menuItem(
-            in: fileMenu, title: "在 SFTP 中检索", action: #selector(searchSFTP(_:)), existing: sftpSearchMenuItem)
+            in: fileMenu, title: L10n.text("在 SFTP 中检索"), action: #selector(searchSFTP(_:)), existing: sftpSearchMenuItem)
         sftpDeleteMenuItem = menuItem(
-            in: fileMenu, title: "删除所选 SFTP 项目…", action: #selector(deleteSFTPSelection(_:)), existing: sftpDeleteMenuItem)
+            in: fileMenu, title: L10n.text("删除所选 SFTP 项目…"), action: #selector(deleteSFTPSelection(_:)), existing: sftpDeleteMenuItem)
         sftpUploadMenuItem = menuItem(
-            in: fileMenu, title: "上传文件到 SFTP…", action: #selector(uploadSFTPFile(_:)), existing: sftpUploadMenuItem)
+            in: fileMenu, title: L10n.text("上传文件到 SFTP…"), action: #selector(uploadSFTPFile(_:)), existing: sftpUploadMenuItem)
+        localizeMenuTitles(fileMenu)
         applyConfiguredShortcuts()
+    }
+
+    /// Re-applies the interface language to the application menu.
+    func applyLocalization() {
+        installApplicationCommands()
+    }
+
+    private func localizeMenuTitles(_ fileMenu: NSMenu) {
+        fileMenuItem?.title = L10n.text("文件")
+        fileMenu.title = L10n.text("文件")
+        for item in fileMenu.items {
+            guard let action = item.action else { continue }
+            switch action {
+            case #selector(closeCurrentItem(_:)): item.title = L10n.text("关闭标签")
+            case #selector(searchSessions(_:)): item.title = L10n.text("搜索 SSH 会话")
+            case #selector(searchSFTP(_:)): item.title = L10n.text("在 SFTP 中检索")
+            case #selector(deleteSFTPSelection(_:)): item.title = L10n.text("删除所选 SFTP 项目…")
+            case #selector(uploadSFTPFile(_:)): item.title = L10n.text("上传文件到 SFTP…")
+            default: break
+            }
+        }
     }
 
     private func menuItem(in menu: NSMenu, title: String, action: Selector, existing: NSMenuItem?) -> NSMenuItem {
@@ -2662,15 +2699,16 @@ public final class SnakeAppDelegate: NSObject, NSApplicationDelegate {
                 if !pending.isEmpty {
                     let alert = NSAlert()
                     alert.alertStyle = .warning
-                    alert.messageText = "还有 \(pending.count) 个目录尚未卸载"
-                    alert.informativeText = "退出前将安全卸载以下目录。正在进行的挂载操作会先完成；如果卸载失败，将保留应用运行。"
+                    alert.messageText = L10n.plural("还有 %@ 个目录尚未卸载", count: pending.count, pending.count)
+                    alert.informativeText = L10n.text("退出前将安全卸载以下目录。正在进行的挂载操作会先完成；如果卸载失败，将保留应用运行。")
                     let details = pending.map { mapping in
-                        let connection = store.profiles.first { $0.id == mapping.profileID }?.name ?? "未绑定连接"
-                        return "\(mapping.name) · \(connection)\n远程目录：\(mapping.remotePath)\n本地目录：\(mapping.userAccessPath)\n挂载点：\(mapping.managedMountPath)"
+                        let connection = store.profiles.first { $0.id == mapping.profileID }?.name ?? L10n.text("未绑定连接")
+                        return L10n.format("%@ · %@\n远程目录：%@\n本地目录：%@\n挂载点：%@",
+                                           mapping.name, connection, mapping.remotePath, mapping.userAccessPath, mapping.managedMountPath)
                     }.joined(separator: "\n\n")
                     alert.accessoryView = terminationDetailsView(details)
-                    alert.addButton(withTitle: "卸载并退出")
-                    alert.addButton(withTitle: "取消")
+                    alert.addButton(withTitle: L10n.text("卸载并退出"))
+                    alert.addButton(withTitle: L10n.text("取消"))
                     sender.activate(ignoringOtherApps: true)
                     guard alert.runModal() == .alertFirstButtonReturn else {
                         terminationPending = false
@@ -2682,9 +2720,9 @@ public final class SnakeAppDelegate: NSObject, NSApplicationDelegate {
                 terminationPending = false
                 sender.reply(toApplicationShouldTerminate: false)
                 let alert = NSAlert()
-                alert.messageText = "无法确认挂载状态，已取消退出"
+                alert.messageText = L10n.text("无法确认挂载状态，已取消退出")
                 alert.informativeText = error.localizedDescription
-                alert.addButton(withTitle: "返回应用")
+                alert.addButton(withTitle: L10n.text("返回应用"))
                 alert.runModal()
                 return
             }
@@ -2696,10 +2734,10 @@ public final class SnakeAppDelegate: NSObject, NSApplicationDelegate {
                 sender.reply(toApplicationShouldTerminate: false)
                 let alert = NSAlert()
                 alert.alertStyle = .warning
-                alert.messageText = "无法安全卸载，已取消退出"
-                alert.informativeText = "以下目录未能安全卸载。请关闭正在使用这些目录的文件或终端后，再次退出 Snake。"
+                alert.messageText = L10n.text("无法安全卸载，已取消退出")
+                alert.informativeText = L10n.text("以下目录未能安全卸载。请关闭正在使用这些目录的文件或终端后，再次退出 Snake。")
                 alert.accessoryView = terminationDetailsView(failures.joined(separator: "\n\n"))
-                alert.addButton(withTitle: "返回应用")
+                alert.addButton(withTitle: L10n.text("返回应用"))
                 sender.activate(ignoringOtherApps: true)
                 alert.runModal()
             }
@@ -2745,9 +2783,9 @@ public final class SnakeAppDelegate: NSObject, NSApplicationDelegate {
                 guard !store.isPreparingToQuit else { return }
                 let alert = NSAlert()
                 alert.alertStyle = .warning
-                alert.messageText = "凭据存储初始化未完成"
-                alert.informativeText = "\(error.localizedDescription)\n\n未覆盖原凭据文件；在问题解决前，无法正常读取或更新已保存的密码。"
-                alert.addButton(withTitle: "知道了")
+                alert.messageText = L10n.text("凭据存储初始化未完成")
+                alert.informativeText = error.localizedDescription + L10n.text("\n\n未覆盖原凭据文件；在问题解决前，无法正常读取或更新已保存的密码。")
+                alert.addButton(withTitle: L10n.text("知道了"))
                 if let window = NSApp.keyWindow, window.attachedSheet == nil {
                     alert.beginSheetModal(for: window) { _ in }
                 } else {

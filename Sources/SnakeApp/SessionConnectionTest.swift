@@ -52,7 +52,7 @@ final class SessionConnectionTestController: @preconcurrency ObservableObject {
         reset()
         let cleanHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanHost.isEmpty, let number = UInt16(port), number > 0 else {
-            state = .failure(nil, "请填写有效主机和 1 到 65535 之间的端口。")
+            state = .failure(nil, L10n.text("请填写有效主机和 1 到 65535 之间的端口。"))
             return
         }
         let target = SessionConnectionTarget(host: cleanHost, port: number)
@@ -66,7 +66,7 @@ final class SessionConnectionTestController: @preconcurrency ObservableObject {
                 self.publishLater()
             } catch {
                 guard let self, self.requestID == id, !Task.isCancelled else { return }
-                self.state = .failure(target, "无法完成 SSH 握手：\(error.localizedDescription)")
+                self.state = .failure(target, L10n.format("无法完成 SSH 握手：%@", error.localizedDescription))
                 self.publishLater()
             }
         }
@@ -118,7 +118,7 @@ struct SessionConnectionTestFeedback: View {
                     VStack(alignment: .leading, spacing: 6) {
                         if let target = state.target {
                             Text(target.host)
-                            Text("端口 · \(target.port)")
+                            Text(L10n.format("端口 · %@", target.port))
                         }
                         switch state {
                         case .success(_, let result):

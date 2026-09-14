@@ -1,3 +1,5 @@
+**简体中文** · [English](en/TOKYO_NIGHT_COLORS.md)
+
 # Tokyo Night 与终端颜色提示
 
 ## 外观与设置

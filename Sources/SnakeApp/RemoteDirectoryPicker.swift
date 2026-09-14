@@ -72,11 +72,11 @@ struct RemoteDirectoryPicker: View {
 
             Group {
                 if runtime.connectionState == .connecting || runtime.loadingPath != nil {
-                    ProgressView(runtime.connectionState == .connecting ? "正在连接远程服务器…" : "正在读取目录…")
+                    ProgressView(runtime.connectionState == .connecting ? L10n.text("正在连接远程服务器…") : L10n.text("正在读取目录…"))
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else if isReady {
                     if directories.isEmpty {
-                        ContentUnavailableView("没有子文件夹", systemImage: "folder", description: Text("可以直接选择当前目录。"))
+                        ContentUnavailableView(L10n.text("没有子文件夹"), systemImage: "folder", description: Text("可以直接选择当前目录。"))
                     } else {
                         ScrollView {
                             LazyVStack(spacing: 0) {
@@ -94,14 +94,14 @@ struct RemoteDirectoryPicker: View {
                                         .contentShape(Rectangle())
                                     }
                                     .buttonStyle(.plain)
-                                    .accessibilityLabel("打开文件夹 \(directory.name)")
+                                    .accessibilityLabel(L10n.format("打开文件夹 %@", directory.name))
                                     Divider().padding(.leading, 42)
                                 }
                             }
                         }
                     }
                 } else {
-                    ContentUnavailableView("尚未连接", systemImage: "network", description: Text("连接成功后即可浏览远程文件夹。"))
+                    ContentUnavailableView(L10n.text("尚未连接"), systemImage: "network", description: Text("连接成功后即可浏览远程文件夹。"))
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -133,12 +133,12 @@ struct RemoteDirectoryPicker: View {
             }
         }
         .onDisappear { runtime.disconnect() }
-        .alert(runtime.pendingHostKey?.title ?? "确认主机密钥", isPresented: Binding(
+        .alert(runtime.pendingHostKey?.title ?? L10n.text("确认主机密钥"), isPresented: Binding(
             get: { runtime.pendingHostKey != nil },
             set: { if !$0, runtime.pendingHostKey != nil { runtime.rejectPendingHostKey() } }
         )) {
             Button("取消", role: .cancel) { runtime.rejectPendingHostKey() }
-            Button(runtime.pendingHostKey?.acceptTitle ?? "信任并连接") { runtime.acceptPendingHostKey() }
+            Button(runtime.pendingHostKey?.acceptTitle ?? L10n.text("信任并连接")) { runtime.acceptPendingHostKey() }
         } message: {
             if let prompt = runtime.pendingHostKey {
                 Text(prompt.message)

@@ -13,23 +13,23 @@ enum MountOperations {
     static func mount(mapping: MountMapping, profile: SSHProfile) -> MountOperationResult {
         let manager = FileManager.default
         guard manager.fileExists(atPath: "/Library/Filesystems/macfuse.fs") else {
-            return .init(state: .unavailable, message: "未检测到 macFUSE，请安装后重新检测。")
+            return .init(state: .unavailable, message: L10n.text("未检测到 macFUSE，请安装后重新检测。"))
         }
         guard let sshfs = ["/opt/homebrew/bin/sshfs", "/usr/local/bin/sshfs"]
             .first(where: manager.isExecutableFile(atPath:)) else {
-            return .init(state: .unavailable, message: "未检测到 sshfs，请安装后重新检测。")
+            return .init(state: .unavailable, message: L10n.text("未检测到 sshfs，请安装后重新检测。"))
         }
         guard profile.authMethod == .privateKey, let bookmark = profile.privateKeyBookmark else {
             return .init(
                 state: .failed,
-                message: "密码型 SSHFS 需要受管 SSH_ASKPASS 通道；当前版本不会通过参数或环境变量传递密码。"
+                message: L10n.text("密码型 SSHFS 需要受管 SSH_ASKPASS 通道；当前版本不会通过参数或环境变量传递密码。")
             )
         }
 
         let mountURL = URL(fileURLWithPath: mapping.managedMountPath, isDirectory: true).standardizedFileURL
         let managedRoot = URL(fileURLWithPath: "/Users/Shared/.SnakeMounts", isDirectory: true).standardizedFileURL.path + "/"
         guard mountURL.path.hasPrefix(managedRoot) else {
-            return .init(state: .failed, message: "挂载点不在 Snake 受管目录中。")
+            return .init(state: .failed, message: L10n.text("挂载点不在 Snake 受管目录中。"))
         }
 
         var stale = false
@@ -39,7 +39,7 @@ enum MountOperations {
             relativeTo: nil,
             bookmarkDataIsStale: &stale
         ), !stale, keyURL.startAccessingSecurityScopedResource() else {
-            return .init(state: .failed, message: "私钥访问授权已失效，请编辑会话并重新选择私钥。")
+            return .init(state: .failed, message: L10n.text("私钥访问授权已失效，请编辑会话并重新选择私钥。"))
         }
         defer { keyURL.stopAccessingSecurityScopedResource() }
 
@@ -47,7 +47,7 @@ enum MountOperations {
             let mounted = try checkedMountedPaths()
             if mounted.contains(mountURL.path) {
                 guard processes.contains(mountURL.path) else {
-                    return .init(state: .failed, message: "目标目录已被其他挂载占用，请先安全卸载。")
+                    return .init(state: .failed, message: L10n.text("目标目录已被其他挂载占用，请先安全卸载。"))
                 }
                 try ensureUserLink(mapping.userAccessPath, pointsTo: mountURL.path)
                 return .init(state: .external, message: nil)
@@ -66,15 +66,15 @@ enum MountOperations {
             )
             let result = try runHelper(request)
             guard result.status == 0 else {
-                return .init(state: .failed, message: result.error.isEmpty ? "sshfs 挂载失败。" : result.error)
+                return .init(state: .failed, message: result.error.isEmpty ? L10n.text("sshfs 挂载失败。") : result.error)
             }
             do {
                 try ensureUserLink(mapping.userAccessPath, pointsTo: mountURL.path)
             } catch {
                 let cleanup = unmount(mapping: mapping)
                 return .init(state: cleanup.state == .idle ? .failed : .external,
-                             message: "Finder 入口创建失败：\(error.localizedDescription)" +
-                                (cleanup.state == .idle ? "；已撤销挂载。" : "；磁盘仍已挂载，请安全卸载后修改本地入口。"))
+                             message: L10n.format("Finder 入口创建失败：%@", error.localizedDescription) +
+                                (cleanup.state == .idle ? L10n.text("；已撤销挂载。") : L10n.text("；磁盘仍已挂载，请安全卸载后修改本地入口。")))
             }
             return .init(state: .mounted, message: nil)
         } catch {
@@ -116,7 +116,7 @@ enum MountOperations {
 
     static func unmount(mapping: MountMapping) -> MountOperationResult {
         guard isManagedMountPath(mapping.managedMountPath) else {
-            return .init(state: .failed, message: "挂载点不在 Snake 受管目录中。")
+            return .init(state: .failed, message: L10n.text("挂载点不在 Snake 受管目录中。"))
         }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/sbin/umount")
@@ -130,7 +130,7 @@ enum MountOperations {
             process.waitUntilExit()
             return process.terminationStatus == 0 && !mountedPaths().contains(mapping.managedMountPath)
                 ? .init(state: .idle, message: nil)
-                : .init(state: .failed, message: error.isEmpty ? "安全卸载失败，挂载点可能正被占用。" : error)
+                : .init(state: .failed, message: error.isEmpty ? L10n.text("安全卸载失败，挂载点可能正被占用。") : error)
         } catch {
             return .init(state: .failed, message: error.localizedDescription)
         }
@@ -158,14 +158,14 @@ enum MountOperations {
     static func removeMappingEntry(_ mapping: MountMapping) -> MountOperationResult {
         do {
             guard isManagedMountPath(mapping.managedMountPath) else {
-                return .init(state: .failed, message: "挂载点不在 Snake 受管目录中。")
+                return .init(state: .failed, message: L10n.text("挂载点不在 Snake 受管目录中。"))
             }
             if try checkedMountedPaths().contains(mapping.managedMountPath) {
                 let result = unmount(mapping: mapping)
                 guard result.state == .idle else { return result }
             }
             guard try !checkedMountedPaths().contains(mapping.managedMountPath) else {
-                return .init(state: .failed, message: "目录仍已挂载，未删除映射。")
+                return .init(state: .failed, message: L10n.text("目录仍已挂载，未删除映射。"))
             }
             let entry = URL(fileURLWithPath: (mapping.userAccessPath as NSString).expandingTildeInPath)
             if let destination = try? FileManager.default.destinationOfSymbolicLink(atPath: entry.path) {
@@ -252,8 +252,8 @@ enum MountOperations {
         if wasRunning { process.terminate() }
         let details = (try? String(contentsOf: logURL, encoding: .utf8))?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let summary = wasRunning ? "等待挂载超时，已停止挂载进程。" : "挂载进程已退出，系统未建立挂载。"
-        return (1, "\(summary)\(details.isEmpty ? "" : "\n" + details)\n日志：\(logURL.path)")
+        let summary = wasRunning ? L10n.text("等待挂载超时，已停止挂载进程。") : L10n.text("挂载进程已退出，系统未建立挂载。")
+        return (1, L10n.format("%@%@\n日志：%@", summary, details.isEmpty ? "" : "\n" + details, logURL.path))
     }
 
     static func waitForMount(process: Process, timeout: TimeInterval = 20, isMounted: () -> Bool) -> Bool {
@@ -321,9 +321,9 @@ private enum MountOperationError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .helperUnavailable: "未找到 SnakeMountHelper，请重新构建应用。"
-        case .userPathOccupied: "本地访问目录已存在且不是指向受管挂载点的软链接。"
-        case .notMounted: "目录尚未挂载，请先挂载后再打开。"
+        case .helperUnavailable: L10n.text("未找到 SnakeMountHelper，请重新构建应用。")
+        case .userPathOccupied: L10n.text("本地访问目录已存在且不是指向受管挂载点的软链接。")
+        case .notMounted: L10n.text("目录尚未挂载，请先挂载后再打开。")
         }
     }
 }

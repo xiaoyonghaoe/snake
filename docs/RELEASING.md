@@ -1,3 +1,5 @@
+**简体中文** · [English](en/RELEASING.md)
+
 # DMG 发布流程
 
 ## 构建

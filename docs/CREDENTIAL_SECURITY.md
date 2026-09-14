@@ -1,3 +1,5 @@
+**简体中文** · [English](en/CREDENTIAL_SECURITY.md)
+
 # 凭据加密与身份验证查看
 
 ## 存储与迁移

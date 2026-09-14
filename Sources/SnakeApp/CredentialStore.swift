@@ -11,15 +11,15 @@ public enum CredentialStoreError: LocalizedError {
     public var errorDescription: String? {
         switch self {
         case .invalidFile:
-            "凭据文件格式无效或版本不受支持，原文件未被覆盖。"
+            L10n.text("凭据文件格式无效或版本不受支持，原文件未被覆盖。")
         case .cannotCreateFile:
-            "无法安全保存加密凭据文件。"
+            L10n.text("无法安全保存加密凭据文件。")
         case .missingKey:
-            "找不到凭据加密密钥，无法解密。请恢复原钥匙串；原凭据文件不会被覆盖。"
+            L10n.text("找不到凭据加密密钥，无法解密。请恢复原钥匙串；原凭据文件不会被覆盖。")
         case .invalidKey:
-            "钥匙串中的凭据加密密钥格式无效。"
+            L10n.text("钥匙串中的凭据加密密钥格式无效。")
         case .authenticationFailed:
-            "凭据解密验证失败，文件可能损坏或密钥不匹配。原文件未被覆盖。"
+            L10n.text("凭据解密验证失败，文件可能损坏或密钥不匹配。原文件未被覆盖。")
         }
     }
 }

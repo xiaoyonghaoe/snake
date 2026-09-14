@@ -1,3 +1,5 @@
+**简体中文** · [English](en/SFTP_SELECTION.md)
+
 # SFTP 多选与删除键
 
 - 单击选择一项，Command 点击增减选中项，Shift 点击按当前显示顺序选取锚点到目标的连续区间；Command-Shift 将该区间加入已有选择。

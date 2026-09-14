@@ -1,3 +1,5 @@
+**简体中文** · [English](README.en.md)
+
 # Snake
 
 Snake 是面向 macOS 15+ 的原生 SSH 工作台：会话管理、终端、SFTP 文件传输和 SSHFS 磁盘映射共用一个多窗口工作区。
@@ -116,5 +118,12 @@ zsh scripts/package-release-dmg.sh 1.1.0
 - 每主机独立并发限制、远程打开缓存 LRU 清理仍待完善；现有并发设置不等同于全局按主机调度。
 - 密码型挂载 AskPass、Intel / Universal 2 安装包、Developer ID 签名与公证尚未交付。
 - 已知挂载测试 `MountOperationsTests.testQuitIsCancelledWhenMountIsBusyOrMountTableCannotBeRead` 存在 `invalidMapping` 失败，不能将整体测试宣称为全部通过。本次打包相关的快捷键/工作区 24 项测试及安装包完整性检查通过；页面和干净 Mac 安装验收仍需执行。
+
+## 多语言
+
+- 内置 **简体中文（源语言、默认与回退）** 与 **English** 两种界面语言，可在「设置 › 外观 › 语言」中切换；选择立即生效并会被记住。
+- 系统权限弹窗、Finder 与 macOS 提供的菜单文案跟随系统语言，不由应用内选择决定。
+- 新增一种语言：复制 `Resources/Localization/en.lproj` 为 `<语言>.lproj`，翻译 `Localizable.strings`（key 是简体中文原文，必须保留每个 `%@` 占位符及 `<key>#plural` 复数条目），把语言加入 `Resources/Info.plist` 的 `CFBundleLocalizations` 与 `AppLanguage.supportedIdentifiers`，再运行 `swift test --disable-sandbox --filter LocalizationTests` 校验完整性。
+- `swift run Snake` 不是打包后的 `.app`，`Bundle.main` 找不到 `.lproj`，界面会保持简体中文；验证其他语言请使用 `scripts/package-debug-app.sh` 生成的 `Snake.app`。
 
 完整第三方归属见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。

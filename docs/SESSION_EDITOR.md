@@ -1,3 +1,5 @@
+**简体中文** · [English](en/SESSION_EDITOR.md)
+
 # 紧凑会话编辑页
 
 ## 布局

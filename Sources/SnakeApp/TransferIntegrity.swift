@@ -8,11 +8,11 @@ enum TransferVerification: Equatable, Sendable {
 
     var label: String {
         switch self {
-        case .pending: "等待校验"
-        case .checking(let algorithm): "正在校验 · \(algorithm)"
-        case .passed(let algorithm): "校验通过 · \(algorithm)"
-        case .unavailable(let reason): "未校验：\(reason)"
-        case .failed(let reason): "校验失败：\(reason)"
+        case .pending: L10n.text("等待校验")
+        case .checking(let algorithm): L10n.format("正在校验 · %@", algorithm)
+        case .passed(let algorithm): L10n.format("校验通过 · %@", algorithm)
+        case .unavailable(let reason): L10n.format("未校验：%@", reason)
+        case .failed(let reason): L10n.format("校验失败：%@", reason)
         case .notApplicable(let reason): reason
         }
     }
@@ -26,7 +26,7 @@ enum TransferIntegrity {
         catch {
             // Unknown exec capability also selects the pure-SFTP upload path;
             // a broken login shell must not prevent an otherwise valid upload.
-            return CoreChecksumCapability(tool: "sftp-only", algorithm: "", reason: "校验能力探测失败，已跳过校验")
+            return CoreChecksumCapability(tool: "sftp-only", algorithm: "", reason: L10n.text("校验能力探测失败，已跳过校验"))
         }
     }
 
@@ -38,7 +38,7 @@ enum TransferIntegrity {
 
     static func bestEffortVerification(algorithm: String, local: () throws -> String, remote: () throws -> String) throws -> TransferVerification {
         guard let localHash = try optionalDigest(local), let remoteHash = try optionalDigest(remote) else {
-            return .unavailable("\(algorithm) 校验无法完成，已跳过")
+            return .unavailable(L10n.format("%@ 校验无法完成，已跳过", algorithm))
         }
         // A confirmed mismatch is not an unavailable tool. Never publish
         // data known to differ from its source, even in best-effort mode.
@@ -62,13 +62,13 @@ enum TransferIntegrity {
 
     static func localDigest(url: URL, algorithm: String, control: CoreTransferControl) throws -> String {
         let fd = Darwin.open(url.path, O_RDONLY | O_CLOEXEC)
-        guard fd >= 0 else { throw error("无法读取本地文件进行校验") }
+        guard fd >= 0 else { throw error(L10n.text("无法读取本地文件进行校验")) }
         defer { Darwin.close(fd) }
         return try localDigest(fd: fd, algorithm: algorithm, control: control)
     }
 
     static func localDigest(fd: Int32, algorithm: String, control: CoreTransferControl) throws -> String {
-        guard ["SHA-256", "MD5"].contains(algorithm) else { throw error("未知校验算法") }
+        guard ["SHA-256", "MD5"].contains(algorithm) else { throw error(L10n.text("未知校验算法")) }
         var sha = SHA256()
         var md5 = Insecure.MD5()
         var buffer = [UInt8](repeating: 0, count: 1024 * 1024)
@@ -76,7 +76,7 @@ enum TransferIntegrity {
         while true {
             try control.checkpoint()
             let count = pread(fd, &buffer, buffer.count, offset)
-            if count < 0 { if errno == EINTR { continue }; throw error("读取本地校验文件失败") }
+            if count < 0 { if errno == EINTR { continue }; throw error(L10n.text("读取本地校验文件失败")) }
             if count == 0 { break }
             let data = Data(buffer[0..<count])
             if algorithm == "SHA-256" { sha.update(data: data) } else { md5.update(data: data) }
@@ -86,7 +86,7 @@ enum TransferIntegrity {
     }
 
     static func compare(_ local: String, _ remote: String) throws {
-        guard local == remote else { throw error("文件摘要不一致，暂存文件未发布，请重新传输") }
+        guard local == remote else { throw error(L10n.text("文件摘要不一致，暂存文件未发布，请重新传输")) }
     }
 }
 
@@ -99,14 +99,14 @@ final class DownloadLocation: @unchecked Sendable {
     init(root: URL) throws {
         url = root.resolvingSymlinksInPath().standardizedFileURL
         fd = Darwin.open(url.path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
-        guard fd >= 0 else { throw TransferIntegrity.error("无法打开下载目录") }
+        guard fd >= 0 else { throw TransferIntegrity.error(L10n.text("无法打开下载目录")) }
     }
     private init(fd: Int32, url: URL) { self.fd = fd; self.url = url }
     deinit { Darwin.close(fd) }
 
     static func validate(_ name: String) throws {
         guard !name.isEmpty, name != ".", name != "..", !name.contains("/"), !name.contains("\0") else {
-            throw TransferIntegrity.error("远端文件名不安全")
+            throw TransferIntegrity.error(L10n.text("远端文件名不安全"))
         }
     }
 
@@ -115,10 +115,10 @@ final class DownloadLocation: @unchecked Sendable {
         for component in components {
             try Self.validate(component)
             if create, mkdirat(directory.fd, component, 0o755) != 0, errno != EEXIST {
-                throw TransferIntegrity.error("无法创建下载子目录：\(component)")
+                throw TransferIntegrity.error(L10n.format("无法创建下载子目录：%@", component))
             }
             let child = openat(directory.fd, component, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
-            guard child >= 0 else { throw TransferIntegrity.error("下载路径包含软链接或非目录：\(component)") }
+            guard child >= 0 else { throw TransferIntegrity.error(L10n.format("下载路径包含软链接或非目录：%@", component)) }
             directory = DownloadLocation(fd: child, url: directory.url.appendingPathComponent(component))
         }
         return directory
@@ -129,27 +129,27 @@ final class DownloadLocation: @unchecked Sendable {
         var value = stat()
         if fstatat(fd, name, &value, AT_SYMLINK_NOFOLLOW) == 0 { return true }
         if errno == ENOENT { return false }
-        throw TransferIntegrity.error("无法检查本地目标：\(name)")
+        throw TransferIntegrity.error(L10n.format("无法检查本地目标：%@", name))
     }
 
     func publish(staging: String, name: String, overwrite: Bool) throws {
         try Self.validate(staging); try Self.validate(name)
         let flags: UInt32 = overwrite ? 0 : UInt32(RENAME_EXCL)
         guard renameatx_np(fd, staging, fd, name, flags) == 0 else {
-            throw TransferIntegrity.error("发布下载文件失败，目标可能已存在或权限不足：\(name)")
+            throw TransferIntegrity.error(L10n.format("发布下载文件失败，目标可能已存在或权限不足：%@", name))
         }
     }
 
     func createLink(name: String, target: String, overwrite: Bool) throws {
         try Self.validate(name)
-        guard !target.contains("\0") else { throw TransferIntegrity.error("软链接目标无效") }
+        guard !target.contains("\0") else { throw TransferIntegrity.error(L10n.text("软链接目标无效")) }
         let temporary = ".snake-download-\(UUID().uuidString)"
-        guard symlinkat(target, fd, temporary) == 0 else { throw TransferIntegrity.error("无法创建软链接") }
+        guard symlinkat(target, fd, temporary) == 0 else { throw TransferIntegrity.error(L10n.text("无法创建软链接")) }
         defer { unlinkat(fd, temporary, 0) }
         var buffer = [CChar](repeating: 0, count: target.utf8.count + 1)
         let size = readlinkat(fd, temporary, &buffer, buffer.count)
         guard size == target.utf8.count, String(decoding: buffer.prefix(Int(size)).map { UInt8(bitPattern: $0) }, as: UTF8.self) == target else {
-            throw TransferIntegrity.error("软链接目标校验失败")
+            throw TransferIntegrity.error(L10n.text("软链接目标校验失败"))
         }
         try publish(staging: temporary, name: name, overwrite: overwrite)
     }
@@ -162,15 +162,15 @@ final class DownloadStaging: @unchecked Sendable {
     init(parent: DownloadLocation, size: UInt64) throws {
         self.parent = parent
         fd = openat(parent.fd, name, O_RDWR | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o600)
-        guard fd >= 0 else { throw TransferIntegrity.error("无法创建本地暂存文件") }
+        guard fd >= 0 else { throw TransferIntegrity.error(L10n.text("无法创建本地暂存文件")) }
         guard size <= UInt64(Int64.max), ftruncate(fd, off_t(size)) == 0 else {
             Darwin.close(fd); unlinkat(parent.fd, name, 0)
-            throw TransferIntegrity.error("无法分配本地暂存文件")
+            throw TransferIntegrity.error(L10n.text("无法分配本地暂存文件"))
         }
     }
     deinit { Darwin.close(fd); unlinkat(parent.fd, name, 0) }
     func publish(as finalName: String, overwrite: Bool) throws {
-        guard fsync(fd) == 0 else { throw TransferIntegrity.error("下载文件写入磁盘失败") }
+        guard fsync(fd) == 0 else { throw TransferIntegrity.error(L10n.text("下载文件写入磁盘失败")) }
         try parent.publish(staging: name, name: finalName, overwrite: overwrite)
     }
 }

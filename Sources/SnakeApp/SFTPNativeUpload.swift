@@ -26,7 +26,7 @@ extension LocalUploadCoordinator {
             }
             guard try operation.fileMetadata(path: staging).size == total,
                   try TransferIntegrity.LocalVersion(item.localURL) == initialVersion else {
-                throw TransferIntegrity.error("上传长度或源文件已变化，暂存文件未发布")
+                throw TransferIntegrity.error(L10n.text("上传长度或源文件已变化，暂存文件未发布"))
             }
             try operation.publishNativeUpload(staging: staging, target: item.remotePath, overwrite: overwrite, control: control)
             return .unavailable(capability.reason)

@@ -516,7 +516,13 @@ pub enum CoreError {
     #[error("storage lock is unavailable")]
     StorageLock,
     #[error("connection error: {message}")]
-    Connection { message: String },
+    Connection {
+        message: String,
+        /// Stable ASCII stage code (for example `ssh_handshake`) that the
+        /// Swift layer maps onto a localized stage name. `None` means the
+        /// message is already a complete technical detail.
+        stage: Option<String>,
+    },
     #[error("unknown host key for {host}:{port}: {fingerprint}")]
     HostKeyUnknown {
         host: String,
@@ -533,7 +539,10 @@ pub enum CoreError {
         previous_fingerprints: Vec<String>,
     },
     #[error("authentication failed: {message}")]
-    Authentication { message: String },
+    Authentication {
+        message: String,
+        stage: Option<String>,
+    },
     #[error("terminal is closed")]
     TerminalClosed,
     #[error("transfer cancelled")]
@@ -1430,6 +1439,7 @@ fn run_remote_command(session: &Session, command: &str, operation: &str) -> Resu
             } else {
                 format!("{operation} failed: {detail}")
             },
+            stage: None,
         });
     }
     Ok(())
@@ -1467,12 +1477,13 @@ pub fn open_terminal_password(
     let password =
         Zeroizing::new(
             String::from_utf8(password).map_err(|_| CoreError::Authentication {
-                message: "密码认证失败：密码编码无效".to_owned(),
+                message: String::new(),
+                stage: Some("auth_password_encoding_invalid".to_owned()),
             })?,
         );
     session
         .userauth_password(&username, password.as_str())
-        .map_err(|error| authentication_stage_error("密码认证失败", error))?;
+        .map_err(|error| authentication_stage_error("auth_password", error))?;
     let security = connection_security(&session, &key, kind);
     finish_terminal(session, stream, columns, rows, observer, security)
 }
@@ -1505,7 +1516,8 @@ pub fn open_terminal_private_key(
         .map(|bytes| String::from_utf8(bytes).map(Zeroizing::new))
         .transpose()
         .map_err(|_| CoreError::Authentication {
-            message: "私钥认证失败：私钥口令编码无效".to_owned(),
+            message: String::new(),
+            stage: Some("auth_private_key_passphrase_invalid".to_owned()),
         })?;
     session
         .userauth_pubkey_file(
@@ -1514,7 +1526,7 @@ pub fn open_terminal_private_key(
             Path::new(&private_key_path),
             passphrase.as_deref().map(String::as_str),
         )
-        .map_err(|error| authentication_stage_error("私钥认证失败", error))?;
+        .map_err(|error| authentication_stage_error("auth_private_key", error))?;
     let security = connection_security(&session, &key, kind);
     finish_terminal(session, stream, columns, rows, observer, security)
 }
@@ -1542,6 +1554,7 @@ pub fn open_sftp_password(
         Zeroizing::new(
             String::from_utf8(password).map_err(|_| CoreError::Authentication {
                 message: "password is not valid UTF-8".to_owned(),
+                stage: None,
             })?,
         );
     session
@@ -1575,6 +1588,7 @@ pub fn open_sftp_private_key(
         .transpose()
         .map_err(|_| CoreError::Authentication {
             message: "key passphrase is not valid UTF-8".to_owned(),
+            stage: None,
         })?;
     session
         .userauth_pubkey_file(
@@ -1598,7 +1612,7 @@ fn handshake(
     }
     let addresses = (host, port)
         .to_socket_addrs()
-        .map_err(|error| io_connection_stage_error("TCP 地址解析失败", error))?;
+        .map_err(|error| io_connection_stage_error("tcp_resolve", error))?;
     let mut last_error = None;
     let mut stream = None;
     for address in addresses {
@@ -1612,7 +1626,7 @@ fn handshake(
     }
     let stream = stream.ok_or_else(|| {
         io_connection_stage_error(
-            "TCP 连接失败",
+            "tcp_connect",
             last_error.unwrap_or_else(|| {
                 std::io::Error::new(
                     std::io::ErrorKind::NotFound,
@@ -1623,17 +1637,18 @@ fn handshake(
     })?;
     let session_stream = stream
         .try_clone()
-        .map_err(|error| io_connection_stage_error("准备 TCP 流失败", error))?;
+        .map_err(|error| io_connection_stage_error("tcp_stream", error))?;
     let mut session =
-        Session::new().map_err(|error| ssh_connection_stage_error("初始化 SSH 会话失败", error))?;
+        Session::new().map_err(|error| ssh_connection_stage_error("ssh_session_init", error))?;
     session.set_timeout(15_000);
     session.set_tcp_stream(stream);
     session
         .handshake()
-        .map_err(|error| ssh_connection_stage_error("SSH 握手失败", error))?;
+        .map_err(|error| ssh_connection_stage_error("ssh_handshake", error))?;
     let (key, kind) = {
         let (key, kind) = session.host_key().ok_or_else(|| CoreError::Connection {
-            message: "SSH 握手失败：服务器未提供主机密钥".to_owned(),
+            message: String::new(),
+            stage: Some("ssh_host_key_missing".to_owned()),
         })?;
         (key.to_vec(), kind)
     };
@@ -1680,6 +1695,7 @@ fn verify_host_key(
                     CheckResult::Match | CheckResult::Mismatch => {
                         let old_key = STANDARD.decode(entry.key()).map_err(|_| CoreError::Connection {
                             message: "invalid stored host key".to_owned(),
+                            stage: None,
                         })?;
                         previous_fingerprints.push(host_key_fingerprint(&old_key));
                     }
@@ -1688,6 +1704,7 @@ fn verify_host_key(
                     }
                     CheckResult::Failure => return Err(CoreError::Connection {
                         message: "unable to evaluate stored host key".to_owned(),
+                        stage: None,
                     }),
                 }
             }
@@ -1715,6 +1732,7 @@ fn verify_host_key(
         }
         CheckResult::Failure => Err(CoreError::Connection {
             message: "unable to evaluate known_hosts".to_owned(),
+            stage: None,
         }),
     }
 }
@@ -1747,6 +1765,7 @@ fn finish_sftp(session: Session) -> Result<Arc<CoreSftpHandle>, CoreError> {
     if !session.authenticated() {
         return Err(CoreError::Authentication {
             message: "server rejected the supplied credential".to_owned(),
+            stage: None,
         });
     }
     let sftp = session.sftp().map_err(connection_error)?;
@@ -1767,6 +1786,7 @@ fn finish_terminal(
     if !session.authenticated() {
         return Err(CoreError::Authentication {
             message: "server rejected the supplied credential".to_owned(),
+            stage: None,
         });
     }
     if columns == 0 || rows == 0 {
@@ -1779,19 +1799,19 @@ fn finish_terminal(
     session.set_keepalive(true, 30);
     let mut channel = session
         .channel_session()
-        .map_err(|error| ssh_connection_stage_error("创建终端通道失败", error))?;
+        .map_err(|error| ssh_connection_stage_error("ssh_channel", error))?;
     channel
         .request_pty("xterm-256color", None, Some((columns, rows, 0, 0)))
-        .map_err(|error| ssh_connection_stage_error("申请 PTY 失败", error))?;
+        .map_err(|error| ssh_connection_stage_error("ssh_pty", error))?;
     channel
         .handle_extended_data(ExtendedData::Merge)
-        .map_err(|error| ssh_connection_stage_error("配置终端输出失败", error))?;
+        .map_err(|error| ssh_connection_stage_error("ssh_output", error))?;
     channel
         .shell()
-        .map_err(|error| ssh_connection_stage_error("启动远程 shell 失败", error))?;
+        .map_err(|error| ssh_connection_stage_error("ssh_shell", error))?;
     stream
         .set_nonblocking(true)
-        .map_err(|error| io_connection_stage_error("配置终端网络流失败", error))?;
+        .map_err(|error| io_connection_stage_error("ssh_net_stream", error))?;
     session.set_blocking(false);
 
     let (command_sender, command_receiver) = mpsc::channel();
@@ -2240,36 +2260,42 @@ fn copy_exact_range_with_control(
 fn connection_error(error: ssh2::Error) -> CoreError {
     CoreError::Connection {
         message: error.message().to_owned(),
+        stage: None,
     }
 }
 
 fn ssh_connection_stage_error(stage: &str, error: ssh2::Error) -> CoreError {
     CoreError::Connection {
-        message: format!("{stage}：{}", error.message()),
+        message: error.message().to_owned(),
+        stage: Some(stage.to_owned()),
     }
 }
 
 fn io_connection_stage_error(stage: &str, error: std::io::Error) -> CoreError {
     CoreError::Connection {
-        message: format!("{stage}：{error}"),
+        message: error.to_string(),
+        stage: Some(stage.to_owned()),
     }
 }
 
 fn authentication_error(error: ssh2::Error) -> CoreError {
     CoreError::Authentication {
         message: error.message().to_owned(),
+        stage: None,
     }
 }
 
 fn authentication_stage_error(stage: &str, error: ssh2::Error) -> CoreError {
     CoreError::Authentication {
-        message: format!("{stage}：{}", error.message()),
+        message: error.message().to_owned(),
+        stage: Some(stage.to_owned()),
     }
 }
 
 fn io_error(error: std::io::Error) -> CoreError {
     CoreError::Connection {
         message: error.to_string(),
+        stage: None,
     }
 }
 
@@ -2567,23 +2593,24 @@ mod tests {
     #[test]
     fn terminal_connection_errors_keep_stage_context_without_credentials() {
         let io = io_connection_stage_error(
-            "TCP 连接失败",
+            "tcp_connect",
             std::io::Error::new(std::io::ErrorKind::ConnectionReset, "connection reset"),
         );
-        let CoreError::Connection { message } = io else {
+        let CoreError::Connection { message, stage } = io else {
             panic!("expected a connection error");
         };
-        assert!(message.starts_with("TCP 连接失败："));
+        assert_eq!(stage.as_deref(), Some("tcp_connect"));
+        assert!(message.contains("connection reset"));
         assert!(!message.contains("secret-password"));
 
         let ssh = ssh_connection_stage_error(
-            "申请 PTY 失败",
+            "ssh_pty",
             ssh2::Error::from_errno(ssh2::ErrorCode::Session(-1)),
         );
-        let CoreError::Connection { message } = ssh else {
+        let CoreError::Connection { message, stage } = ssh else {
             panic!("expected a connection error");
         };
-        assert!(message.starts_with("申请 PTY 失败："));
+        assert_eq!(stage.as_deref(), Some("ssh_pty"));
         assert!(!message.contains("/Users/example/.ssh/id_ed25519"));
     }
 

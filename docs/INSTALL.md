@@ -1,3 +1,5 @@
+**简体中文** · [English](en/INSTALL.md)
+
 # 安装 Snake
 
 1. 打开下载的 DMG，将 **Snake.app 拖到 Applications（应用程序）**。

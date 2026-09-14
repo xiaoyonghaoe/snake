@@ -31,16 +31,16 @@ enum ManagedMountPath {
 
     static func validateTarget(_ path: String, mounted: Set<String>) throws {
         guard MountOperations.isManagedMountPath(path), !mounted.contains(path) else {
-            throw ApplicationStoreError.mappingConflict("目标挂载目录已被占用，请先安全卸载。")
+            throw ApplicationStoreError.mappingConflict(L10n.text("目标挂载目录已被占用，请先安全卸载。"))
         }
         let manager = FileManager.default
         guard (try? manager.destinationOfSymbolicLink(atPath: path)) == nil else {
-            throw ApplicationStoreError.mappingConflict("目标挂载目录是软链接，无法使用。")
+            throw ApplicationStoreError.mappingConflict(L10n.text("目标挂载目录是软链接，无法使用。"))
         }
         var directory: ObjCBool = false
         if manager.fileExists(atPath: path, isDirectory: &directory) {
             guard directory.boolValue, try manager.contentsOfDirectory(atPath: path).isEmpty else {
-                throw ApplicationStoreError.mappingConflict("目标挂载目录包含文件，无法覆盖：\(path)")
+                throw ApplicationStoreError.mappingConflict(L10n.format("目标挂载目录包含文件，无法覆盖：%@", path))
             }
         }
     }
@@ -68,7 +68,7 @@ final class MappingLinkChange {
         if newURL != oldURL,
            manager.fileExists(atPath: newURL.path) ||
            (try? manager.destinationOfSymbolicLink(atPath: newURL.path)) != nil {
-            throw ApplicationStoreError.mappingConflict("新的本地目录已被占用。")
+            throw ApplicationStoreError.mappingConflict(L10n.text("新的本地目录已被占用。"))
         }
         do {
             try manager.createDirectory(at: newURL.deletingLastPathComponent(), withIntermediateDirectories: true)

@@ -334,9 +334,9 @@ final class WorkspaceDragCoordinator: NSObject, NSDraggingSource, NSDraggingDest
     private func title() -> String {
         guard let active else { return "" }
         if case .profile = active.source {
-            return NSEvent.modifierFlags.contains(.option) ? "新建 SFTP · 松开以打开" : "新建终端 · 按住 ⌥ 打开 SFTP"
+            return NSEvent.modifierFlags.contains(.option) ? L10n.text("新建 SFTP · 松开以打开") : L10n.text("新建终端 · 按住 ⌥ 打开 SFTP")
         }
-        return "移动标签 · 边缘分屏 / 拖出独立窗口"
+        return L10n.text("移动标签 · 边缘分屏 / 拖出独立窗口")
     }
 
     private func previewImage() -> NSImage {

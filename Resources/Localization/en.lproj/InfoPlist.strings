@@ -1,0 +1,4 @@
+/*
+  English Info.plist strings.
+*/
+"NSLocalNetworkUsageDescription" = "Snake needs access to SSH and SFTP servers on your local network to open terminal connections and transfer files.";

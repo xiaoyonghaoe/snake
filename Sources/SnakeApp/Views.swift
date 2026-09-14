@@ -80,9 +80,11 @@ public struct SnakeWorkspaceRootView: View {
             .background(NativeWorkspaceToolbar(content: AnyView(
                 SnakeToolbar(windowState: windowState)
                     .environmentObject(store)
+                    .environment(\.locale, store.appLanguage.locale)
                     .environment(\.colorScheme, store.isDarkAppearancePreferred ? .dark : .light)
             ), isDark: store.isDarkAppearancePreferred))
             .background(SnakeStyle.canvas)
+            .environment(\.locale, store.appLanguage.locale)
             .preferredColorScheme(store.isDarkAppearancePreferred ? .dark : .light)
     }
 }
@@ -181,9 +183,9 @@ private struct SessionCatalogView: View {
                     if filteredProfiles.isEmpty {
                         VStack(spacing: 12) {
                             Image(systemName: "server.rack").font(.system(size: 28))
-                            Text(store.profiles.isEmpty ? "暂无 SSH 会话" : "没有匹配的会话")
+                            Text(store.profiles.isEmpty ? L10n.text("暂无 SSH 会话") : L10n.text("没有匹配的会话"))
                                 .font(.headline)
-                            Text(store.profiles.isEmpty ? "新建会话，保存连接信息后即可打开终端或 SFTP。" : "试试其他名称、地址或标签。")
+                            Text(store.profiles.isEmpty ? L10n.text("新建会话，保存连接信息后即可打开终端或 SFTP。") : L10n.text("试试其他名称、地址或标签。"))
                                 .foregroundStyle(SnakeStyle.muted)
                             if store.profiles.isEmpty { newProfileButton }
                         }
@@ -256,7 +258,7 @@ private struct SessionCatalogView: View {
                 HStack(spacing: 7) {
                     Image(systemName: runtime.selectedTags.isEmpty ? "tag" : "tag.fill")
                         .foregroundStyle(runtime.selectedTags.isEmpty ? SnakeStyle.muted : SnakeStyle.action)
-                    Text(runtime.selectedTags.isEmpty ? "全部标签" : "已选 \(runtime.selectedTags.count) 个标签")
+                    Text(runtime.selectedTags.isEmpty ? L10n.text("全部标签") : L10n.plural("已选 %@ 个标签", count: runtime.selectedTags.count, runtime.selectedTags.count))
                         .lineLimit(1)
                     Spacer(minLength: 4)
                     Image(systemName: "chevron.up.chevron.down")
@@ -328,7 +330,7 @@ private struct SessionProfileCard: View {
                 Text(profile.connectionLabel)
                     .font(.system(size: 12, design: .monospaced))
                     .foregroundStyle(SnakeStyle.muted).lineLimit(1).truncationMode(.middle)
-                Text(profile.tags.isEmpty ? "未设置标签" : profile.tags.joined(separator: "  ·  "))
+                Text(profile.tags.isEmpty ? L10n.text("未设置标签") : profile.tags.joined(separator: "  ·  "))
                     .font(.system(size: 11)).foregroundStyle(SnakeStyle.muted).lineLimit(1)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -445,14 +447,16 @@ private struct WorkspaceTabContent: View {
                 SessionCatalogView(runtime: runtime, onEdit: { editingProfile = $0 }, onNewProfile: { creatingProfile = true }) { profile, asSFTP in
                     guard runtime.kind == .sessions else { return }
                     if !windowState.connectChooser(tabID: tabID, profileID: profile.id, asSFTP: asSFTP, store: store) {
-                        connectionError = "该会话已不可用，请刷新会话列表后重试。"
+                        connectionError = L10n.text("该会话已不可用，请刷新会话列表后重试。")
                     }
                 }
             case .mounts:
                 MountWorkspaceView(runtime: runtime, onNewMapping: { creatingMapping = true }, onEditMapping: { editingMapping = $0 })
             case .terminal, .sftp:
                 FinderUploadSurface(
-                    content: connectionContent.environmentObject(store),
+                    content: connectionContent
+                        .environmentObject(store)
+                        .environment(\.locale, store.appLanguage.locale),
                     isActive: {
                         windowState.tabs[tabID] === runtime && windowState.bonsplit.selectedTab(inPane: paneID)?.id == tabID
                     },
@@ -498,7 +502,7 @@ private struct ConnectionBelt: View {
                 .fill(stateColor)
                 .frame(width: 7, height: 7)
             if beltWidth >= 360 {
-                Text(state == .idle ? "待连接" : state.label)
+                Text(state == .idle ? L10n.text("待连接") : state.label)
                     .fontWeight(.semibold)
             }
             Rectangle().fill((dark ? Color.white : Color.primary).opacity(0.16)).frame(width: 1, height: 13)
@@ -508,7 +512,7 @@ private struct ConnectionBelt: View {
                 .minimumScaleFactor(0.82)
                 .truncationMode(.middle)
                 .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
-            UploadStatusEntry(uploader: uploader, contextName: "终端", showsLabel: false)
+            UploadStatusEntry(uploader: uploader, contextName: L10n.text("终端"), showsLabel: false)
                 .layoutPriority(2)
             if beltWidth >= 440, let currentPath {
                 Rectangle().fill((dark ? Color.white : Color.primary).opacity(0.16)).frame(width: 1, height: 13)
@@ -529,7 +533,7 @@ private struct ConnectionBelt: View {
             .buttonStyle(.plain)
             .foregroundStyle(securityInfo == nil ? SnakeStyle.muted : SnakeStyle.secure)
             .disabled(securityInfo == nil)
-            .help(securityInfo == nil ? "连接后可查看安全详情" : "查看连接安全详情")
+            .help(securityInfo == nil ? L10n.text("连接后可查看安全详情") : L10n.text("查看连接安全详情"))
             .popover(isPresented: $showingSecurityDetails, arrowEdge: .bottom) {
                 if let securityInfo {
                     ConnectionSecurityDetails(security: securityInfo)
@@ -579,7 +583,7 @@ private struct ConnectionSecurityDetails: View {
             }
             .padding(.bottom, 12)
 
-            securityRow("主机密钥", security.hostKeyAlgorithm)
+            securityRow(L10n.text("主机密钥"), security.hostKeyAlgorithm)
             VStack(alignment: .leading, spacing: 4) {
                 Text("SHA256 指纹")
                     .font(.system(size: 10, weight: .medium))
@@ -592,11 +596,11 @@ private struct ConnectionSecurityDetails: View {
             .padding(.vertical, 8)
 
             Divider()
-            securityRow("密钥交换", security.keyExchangeAlgorithm)
-            securityRow("发送加密", security.clientToServerCipher)
-            securityRow("接收加密", security.serverToClientCipher)
-            securityRow("发送完整性", integrityLabel(security.clientToServerMac, cipher: security.clientToServerCipher))
-            securityRow("接收完整性", integrityLabel(security.serverToClientMac, cipher: security.serverToClientCipher))
+            securityRow(L10n.text("密钥交换"), security.keyExchangeAlgorithm)
+            securityRow(L10n.text("发送加密"), security.clientToServerCipher)
+            securityRow(L10n.text("接收加密"), security.serverToClientCipher)
+            securityRow(L10n.text("发送完整性"), integrityLabel(security.clientToServerMac, cipher: security.clientToServerCipher))
+            securityRow(L10n.text("接收完整性"), integrityLabel(security.serverToClientMac, cipher: security.serverToClientCipher))
         }
         .padding(14)
         .frame(width: 380)
@@ -621,9 +625,9 @@ private struct ConnectionSecurityDetails: View {
         if let mac, !mac.isEmpty { return mac }
         let normalized = cipher.lowercased()
         if normalized.contains("gcm") || normalized.contains("poly1305") {
-            return "由加密算法内置"
+            return L10n.text("由加密算法内置")
         }
-        return "服务器未报告"
+        return L10n.text("服务器未报告")
     }
 }
 
@@ -699,16 +703,16 @@ private struct TerminalTabView: View {
                 Button("跳过") { runtime.uploader.resolveConflict(.skip) }
                 Button("安全覆盖", role: .destructive) { runtime.uploader.resolveConflict(.overwrite) }
             } message: {
-                Text("\(runtime.uploader.pendingConflict?.remotePath ?? "") 已存在。覆盖会在上传完整后替换原文件。")
+                Text(L10n.format("%@ 已存在。覆盖会在上传完整后替换原文件。", runtime.uploader.pendingConflict?.remotePath ?? ""))
             }
         }
 
-        .alert(runtime.pendingHostKey?.title ?? "确认主机密钥", isPresented: Binding(
+        .alert(runtime.pendingHostKey?.title ?? L10n.text("确认主机密钥"), isPresented: Binding(
             get: { runtime.pendingHostKey != nil },
             set: { if !$0, runtime.pendingHostKey != nil { runtime.rejectPendingHostKey() } }
         )) {
             Button("取消", role: .cancel) { runtime.rejectPendingHostKey() }
-            Button(runtime.pendingHostKey?.acceptTitle ?? "信任并连接") { runtime.acceptPendingHostKey() }
+            Button(runtime.pendingHostKey?.acceptTitle ?? L10n.text("信任并连接")) { runtime.acceptPendingHostKey() }
         } message: {
             if let key = runtime.pendingHostKey {
                 Text(key.message)
@@ -784,7 +788,7 @@ private struct SFTPBrowserView: View {
             } else if let loadingPath = runtime.loadingPath {
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
-                    Text("正在打开 \(loadingPath)")
+                    Text(L10n.format("正在打开 %@", loadingPath))
                         .font(.system(size: 12, weight: .medium, design: .monospaced))
                         .lineLimit(1)
                     Spacer()
@@ -809,7 +813,7 @@ private struct SFTPBrowserView: View {
                     Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
                     Text(error).lineLimit(2).help(error)
                     Spacer()
-                    Button(runtime.deletionError == nil ? "重试" : "知道了") {
+                    Button(runtime.deletionError == nil ? L10n.text("重试") : L10n.text("知道了")) {
                         if runtime.deletionError != nil { runtime.dismissDeletionError() }
                         else { runtime.retryLastOperation() }
                     }
@@ -855,11 +859,11 @@ private struct SFTPBrowserView: View {
             if state != .connected { endSearch() }
         }
         .onChange(of: runtime.searchCommandRequest) { _, _ in beginSearch() }
-        .alert(creationKind?.title ?? "新建远程项目", isPresented: Binding(
+        .alert(creationKind?.title ?? L10n.text("新建远程项目"), isPresented: Binding(
             get: { creationKind != nil },
             set: { if !$0 { creationKind = nil } }
         )) {
-            TextField(creationKind?.placeholder ?? "名称", text: $newItemName)
+            TextField(creationKind?.placeholder ?? L10n.text("名称"), text: $newItemName)
             Button("取消", role: .cancel) {
                 creationKind = nil
                 newItemName = ""
@@ -875,14 +879,14 @@ private struct SFTPBrowserView: View {
                 newItemName = ""
             }
         } message: {
-            Text("将在 \(creationDestination?.path ?? "") 中创建。")
+            Text(L10n.format("将在 %@ 中创建。", creationDestination?.path ?? ""))
         }
-        .alert(runtime.pendingHostKey?.title ?? "确认主机密钥", isPresented: Binding(
+        .alert(runtime.pendingHostKey?.title ?? L10n.text("确认主机密钥"), isPresented: Binding(
             get: { runtime.pendingHostKey != nil },
             set: { if !$0, runtime.pendingHostKey != nil { runtime.rejectPendingHostKey() } }
         )) {
             Button("取消", role: .cancel) { runtime.rejectPendingHostKey() }
-            Button(runtime.pendingHostKey?.acceptTitle ?? "信任并连接") { runtime.acceptPendingHostKey() }
+            Button(runtime.pendingHostKey?.acceptTitle ?? L10n.text("信任并连接")) { runtime.acceptPendingHostKey() }
         } message: {
             if let key = runtime.pendingHostKey { Text(key.message) }
         }
@@ -896,19 +900,19 @@ private struct SFTPBrowserView: View {
                     .help(runtime.connectionState.label)
                 Button { goBack() } label: { Image(systemName: "chevron.left") }
                     .buttonStyle(SFTPNavigationButtonStyle(isAvailable: runtime.canGoBack))
-                    .help(runtime.canGoBack ? "后退" : "没有可回退的目录")
+                    .help(runtime.canGoBack ? L10n.text("后退") : L10n.text("没有可回退的目录"))
                     .accessibilityLabel("后退")
-                    .accessibilityHint(runtime.canGoBack ? "返回上一个访问过的目录" : "没有可回退的目录")
+                    .accessibilityHint(runtime.canGoBack ? L10n.text("返回上一个访问过的目录") : L10n.text("没有可回退的目录"))
                 Button { goForward() } label: { Image(systemName: "chevron.right") }
                     .buttonStyle(SFTPNavigationButtonStyle(isAvailable: runtime.canGoForward))
-                    .help(runtime.canGoForward ? "前进" : "没有可前进的目录")
+                    .help(runtime.canGoForward ? L10n.text("前进") : L10n.text("没有可前进的目录"))
                     .accessibilityLabel("前进")
-                    .accessibilityHint(runtime.canGoForward ? "前往下一个访问过的目录" : "没有可前进的目录")
+                    .accessibilityHint(runtime.canGoForward ? L10n.text("前往下一个访问过的目录") : L10n.text("没有可前进的目录"))
                 Button { navigateUp() } label: { Image(systemName: "arrow.up") }
                     .buttonStyle(SFTPNavigationButtonStyle(isAvailable: runtime.currentPath != "/"))
-                    .help(runtime.currentPath == "/" ? "已经位于顶级目录" : "返回上一级")
+                    .help(runtime.currentPath == "/" ? L10n.text("已经位于顶级目录") : L10n.text("返回上一级"))
                     .accessibilityLabel("返回上一级")
-                    .accessibilityHint(runtime.currentPath == "/" ? "已经位于顶级目录" : "打开父目录")
+                    .accessibilityHint(runtime.currentPath == "/" ? L10n.text("已经位于顶级目录") : L10n.text("打开父目录"))
                 HStack(spacing: 6) {
                     Image(systemName: "folder")
                         .font(.system(size: 11, weight: .medium))
@@ -944,8 +948,8 @@ private struct SFTPBrowserView: View {
                 }
                     .buttonStyle(SnakeIconButtonStyle())
                     .foregroundStyle(searchQuery.isEmpty ? SnakeStyle.ink : SnakeStyle.action)
-                    .help(isSearchPresented ? "关闭检索" : "检索当前目录")
-                    .accessibilityLabel(isSearchPresented ? "关闭当前目录检索" : "检索当前目录")
+                    .help(isSearchPresented ? L10n.text("关闭检索") : L10n.text("检索当前目录"))
+                    .accessibilityLabel(isSearchPresented ? L10n.text("关闭当前目录检索") : L10n.text("检索当前目录"))
                     .disabled(runtime.connectionState != .connected || runtime.loadingPath != nil)
         }
         .padding(.horizontal, 12)
@@ -992,7 +996,7 @@ private struct SFTPBrowserView: View {
                 Button("安全覆盖", role: .destructive) { runtime.resolveUploadConflict(.overwrite) }
             } message: {
                 if let conflict = runtime.pendingUploadConflict {
-                    Text("\(conflict.remotePath) 已存在。安全覆盖会先完成隐藏暂存文件，再通过 mv 替换原文件；传输中断不会损坏现有文件。")
+                    Text(L10n.format("%@ 已存在。安全覆盖会先完成隐藏暂存文件，再通过 mv 替换原文件；传输中断不会损坏现有文件。", conflict.remotePath))
                 }
             }
     }
@@ -1020,7 +1024,7 @@ private struct SFTPBrowserView: View {
 
     private var searchResultLabel: String {
         guard !searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return "\(runtime.entries.count) 项"
+            return L10n.plural("%@ 项", count: runtime.entries.count, runtime.entries.count)
         }
         return "\(SFTPEntrySearch.results(in: runtime.entries, query: searchQuery).count) / \(runtime.entries.count)"
     }
@@ -1055,8 +1059,8 @@ private struct SFTPBrowserView: View {
         case file
         case directory
 
-        var title: String { self == .directory ? "新建远程文件夹" : "新建远程文件" }
-        var placeholder: String { self == .directory ? "文件夹名称" : "文件名称" }
+        var title: String { self == .directory ? L10n.text("新建远程文件夹") : L10n.text("新建远程文件") }
+        var placeholder: String { self == .directory ? L10n.text("文件夹名称") : L10n.text("文件名称") }
     }
 
 private struct SFTPFileTable: View {
@@ -1126,7 +1130,7 @@ private struct SFTPFileTable: View {
                                     }
                                 }
                                 .frame(minWidth: 140, maxWidth: .infinity, alignment: .leading)
-                                Text(file.isSymbolicLink ? "链接" : (file.isDirectory ? "—" : ByteCountFormatter.string(fromByteCount: file.size, countStyle: .file)))
+                                Text(file.isSymbolicLink ? L10n.text("链接") : (file.isDirectory ? "—" : L10n.byteCount(file.size)))
                                     .frame(width: 92, alignment: .leading)
                                 Text(file.modifiedAt, format: .dateTime.month().day().hour().minute())
                                     .frame(width: 125, alignment: .leading)
@@ -1145,7 +1149,7 @@ private struct SFTPFileTable: View {
                                     }
                                 }
                                 .frame(maxWidth: .infinity, alignment: .leading)
-                                Text(file.isSymbolicLink ? "链接" : (file.isDirectory ? "—" : ByteCountFormatter.string(fromByteCount: file.size, countStyle: .file)))
+                                Text(file.isSymbolicLink ? L10n.text("链接") : (file.isDirectory ? "—" : L10n.byteCount(file.size)))
                                     .frame(width: 70, alignment: .trailing)
                             }
                             }
@@ -1167,7 +1171,7 @@ private struct SFTPFileTable: View {
                             })
                             .onDrag { remoteFileProvider(for: file) }
                             .contextMenu {
-                                Button(file.isDirectory ? "打开文件夹" : "打开", systemImage: file.isDirectory ? "folder" : "arrow.up.forward.app") {
+                                Button(file.isDirectory ? L10n.text("打开文件夹") : L10n.text("打开"), systemImage: file.isDirectory ? "folder" : "arrow.up.forward.app") {
                                     onOpen(file)
                                 }
                                 Button("下载…", systemImage: "square.and.arrow.down") {
@@ -1242,7 +1246,7 @@ private struct SFTPFileTable: View {
                         .overlay {
                             VStack(spacing: 5) {
                                 Image(systemName: "arrow.left.arrow.right.circle.fill").font(.system(size: 25)).foregroundStyle(SnakeStyle.secure)
-                                Text("复制到 \(runtime.profile.name)：\(runtime.currentPath)")
+                                Text(L10n.format("复制到 %@：%@", runtime.profile.name, runtime.currentPath))
                                     .font(.system(size: 13, weight: .semibold))
                             }
                         }
@@ -1258,9 +1262,11 @@ private struct SFTPFileTable: View {
                 let total = visibleEntries.reduce(Int64(0)) { $0 + $1.size }
                 ViewThatFits(in: .horizontal) {
                     Text(isFiltering
-                         ? "显示 \(itemCount) / \(runtime.entries.count) 个项目 · \(ByteCountFormatter.string(fromByteCount: total, countStyle: .file))"
-                         : "\(itemCount) 个项目 · \(ByteCountFormatter.string(fromByteCount: total, countStyle: .file))")
-                    Text(isFiltering ? "\(itemCount) / \(runtime.entries.count) 个项目" : "\(itemCount) 个项目")
+                         ? L10n.plural("显示 %@ / %@ 个项目 · %@", count: runtime.entries.count, itemCount, runtime.entries.count, L10n.byteCount(total))
+                         : L10n.plural("%@ 个项目 · %@", count: itemCount, itemCount, L10n.byteCount(total)))
+                    Text(isFiltering
+                         ? L10n.plural("显示 %@ / %@ 个项目", count: runtime.entries.count, itemCount, runtime.entries.count)
+                         : L10n.plural("%@ 个项目", count: itemCount, itemCount))
                 }
                     .font(.system(size: 11))
                     .foregroundStyle(SnakeStyle.muted)
@@ -1316,7 +1322,7 @@ private struct SFTPFileTable: View {
             guard runtime.canUploadFileWithShortcut else { return }
             onUploadFiles()
         }
-        .alert("删除 \(deletingFiles.count) 个远程项目？", isPresented: Binding(
+        .alert(L10n.plural("删除 %@ 个远程项目？", count: deletingFiles.count, deletingFiles.count), isPresented: Binding(
             get: { !deletingFiles.isEmpty },
             set: { if !$0 { deletingFiles = [] } }
         ), presenting: deletingFiles) { confirmedFiles in
@@ -1340,8 +1346,8 @@ private struct SFTPFileTable: View {
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = false
         panel.canCreateDirectories = true
-        panel.prompt = "下载到此处"
-        panel.message = "选择本地保存目录，将下载 \(files.count) 个选中项目（包含文件夹内的内容）。"
+        panel.prompt = L10n.text("下载到此处")
+        panel.message = L10n.plural("选择本地保存目录，将下载 %@ 个选中项目（包含文件夹内的内容）。", count: files.count, files.count)
         panel.begin { response in
             guard response == .OK, let root = panel.url else { return }
             Task { @MainActor in runtime.uploader.download(files: files, to: root, store: store) }
@@ -1355,8 +1361,8 @@ private struct SFTPFileTable: View {
 
     private func deleteConfirmationMessage(for files: [RemoteFile]) -> String {
         let names = files.prefix(8).map(\.name).joined(separator: "\n")
-        let more = files.count > 8 ? "\n…另有 \(files.count - 8) 项" : ""
-        return names + more + "\n\n永久删除选中项目；文件夹通过 rm -rf 删除全部内容，软链接只删除链接本身。不会移入废纸篓，无法撤销。"
+        let more = files.count > 8 ? L10n.plural("\n…另有 %@ 项", count: files.count - 8, files.count - 8) : ""
+        return names + more + L10n.text("\n\n永久删除选中项目；文件夹通过 rm -rf 删除全部内容，软链接只删除链接本身。不会移入废纸篓，无法撤销。")
     }
 
     private func focusFileList() {
@@ -1434,7 +1440,7 @@ private struct SFTPFileTable: View {
     private func navigateUp() {
         isEditingPath = false
         guard runtime.currentPath != "/" else {
-            showNavigationNotice("已经位于顶级目录")
+            showNavigationNotice(L10n.text("已经位于顶级目录"))
             return
         }
         let parent = (runtime.currentPath as NSString).deletingLastPathComponent
@@ -1444,7 +1450,7 @@ private struct SFTPFileTable: View {
     private func goBack() {
         isEditingPath = false
         guard runtime.canGoBack else {
-            showNavigationNotice("没有可回退的目录")
+            showNavigationNotice(L10n.text("没有可回退的目录"))
             return
         }
         runtime.goBack()
@@ -1453,7 +1459,7 @@ private struct SFTPFileTable: View {
     private func goForward() {
         isEditingPath = false
         guard runtime.canGoForward else {
-            showNavigationNotice("没有可前进的目录")
+            showNavigationNotice(L10n.text("没有可前进的目录"))
             return
         }
         runtime.goForward()
@@ -1482,12 +1488,12 @@ private struct SFTPFileTable: View {
     private func chooseFiles(allowsDirectories: Bool) {
         guard let destination = runtime.directoryActionDestination else { return }
         let panel = NSOpenPanel()
-        panel.message = "上传到远程目录：\(destination.path)"
+        panel.message = L10n.format("上传到远程目录：%@", destination.path)
         panel.canChooseFiles = !allowsDirectories
         panel.canChooseDirectories = allowsDirectories
         panel.allowsMultipleSelection = true
         panel.canCreateDirectories = false
-        panel.prompt = "上传"
+        panel.prompt = L10n.text("上传")
         panel.begin { response in
             guard response == .OK else { return }
             Task { @MainActor in
@@ -1516,12 +1522,12 @@ private struct UploadStatusEntry: View {
                                      showsLabel: showsLabel, onOpen: { showsHistory = true })
                 }
                 .fixedSize(horizontal: true, vertical: false)
-                .accessibilityLabel("查看当前\(contextName)传输记录")
-                .help("查看当前\(contextName)传输记录 · \(uploader.transferSummary)")
+                .accessibilityLabel(L10n.format("查看当前%@传输记录", contextName))
+                .help(L10n.format("查看当前%@传输记录 · %@", contextName, uploader.transferSummary))
             }
         }
         .sheet(isPresented: $showsHistory) {
-            UploadHistoryView(uploader: uploader, contextDescription: "当前\(contextName)标签的文件传输记录")
+            UploadHistoryView(uploader: uploader, contextDescription: L10n.format("当前%@标签的文件传输记录", contextName))
                 .environmentObject(store)
         }
     }
@@ -1584,7 +1590,7 @@ private struct UploadMiniStatus: View {
                         .font(.system(size: 10, weight: .semibold, design: .monospaced))
                         .frame(width: 32, alignment: .trailing)
                 } else if isBusy {
-                    Text(uploader.pendingConflict == nil && uploader.pendingDownloadConflict == nil ? "准备传输…" : "等待确认")
+                    Text(uploader.pendingConflict == nil && uploader.pendingDownloadConflict == nil ? L10n.text("准备传输…") : L10n.text("等待确认"))
                         .font(.system(size: 11))
                 }
                 if success && showsLabel { Text("已完成").font(.system(size: 11, weight: .medium)) }
@@ -1636,9 +1642,9 @@ private struct UploadHistoryView: View {
 
             if uploader.records.isEmpty {
                 ContentUnavailableView(
-                    uploader.isPreparing ? "正在准备传输" : "没有文件级记录",
+                    uploader.isPreparing ? L10n.text("正在准备传输") : L10n.text("没有文件级记录"),
                     systemImage: "arrow.up.doc",
-                    description: Text(uploader.errorMessage ?? (uploader.isPreparing ? "正在扫描文件或等待确认。" : "本次结果见上方摘要。"))
+                    description: Text(uploader.errorMessage ?? (uploader.isPreparing ? L10n.text("正在扫描文件或等待确认。") : L10n.text("本次结果见上方摘要。")))
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
@@ -1715,13 +1721,13 @@ private struct UploadHistoryRow: View {
                 }
             }
             .frame(minWidth: 150, maxWidth: .infinity, alignment: .leading)
-            Text(ByteCountFormatter.string(fromByteCount: record.fileSize, countStyle: .file))
+            Text(L10n.byteCount(record.fileSize))
                 .frame(width: 82, alignment: .leading)
             Text(record.startedAt, format: .dateTime.month().day().hour().minute().second())
                 .frame(width: 126, alignment: .leading)
             Text(durationText)
                 .frame(width: 70, alignment: .leading)
-            Text(record.state == .running && record.verification.isChecking ? "正在校验" : record.state.label)
+            Text(record.state == .running && record.verification.isChecking ? L10n.text("正在校验") : record.state.label)
                 .foregroundStyle(stateColor)
                 .frame(width: 72, alignment: .leading)
                 .overlay(alignment: .bottomLeading) {
@@ -1743,15 +1749,15 @@ private struct UploadHistoryRow: View {
         HStack(spacing: 4) {
             switch record.state {
             case .running:
-                controlButton("pause.fill", "暂停") { uploader.pause(jobID: record.jobID, store: store) }
-                controlButton("xmark", "取消") { uploader.cancel(jobID: record.jobID, store: store) }
+                controlButton("pause.fill", L10n.text("暂停")) { uploader.pause(jobID: record.jobID, store: store) }
+                controlButton("xmark", L10n.text("取消")) { uploader.cancel(jobID: record.jobID, store: store) }
             case .paused:
-                controlButton("play.fill", "继续") { uploader.resume(jobID: record.jobID, store: store) }
-                controlButton("xmark", "取消") { uploader.cancel(jobID: record.jobID, store: store) }
+                controlButton("play.fill", L10n.text("继续")) { uploader.resume(jobID: record.jobID, store: store) }
+                controlButton("xmark", L10n.text("取消")) { uploader.cancel(jobID: record.jobID, store: store) }
             case .queued, .scanning:
-                controlButton("xmark", "取消") { uploader.cancel(jobID: record.jobID, store: store) }
+                controlButton("xmark", L10n.text("取消")) { uploader.cancel(jobID: record.jobID, store: store) }
             case .failed, .interrupted, .cancelled:
-                controlButton("arrow.clockwise", "重试") { uploader.retry(jobID: record.jobID, store: store) }
+                controlButton("arrow.clockwise", L10n.text("重试")) { uploader.retry(jobID: record.jobID, store: store) }
             case .succeeded:
                 EmptyView()
             }
@@ -1766,7 +1772,7 @@ private struct UploadHistoryRow: View {
 
     private var durationText: String {
         let seconds = Int(record.duration(at: date).rounded(.down))
-        if seconds < 60 { return "\(seconds) 秒" }
+        if seconds < 60 { return L10n.plural("%@ 秒", count: seconds, seconds) }
         return String(format: "%d:%02d", seconds / 60, seconds % 60)
     }
 
@@ -1858,11 +1864,11 @@ private struct RemotePermissionEditor: View {
             VStack(spacing: 0) {
                 permissionHeader
                 Divider()
-                permissionRow("用户", read: .ownerRead, write: .ownerWrite, execute: .ownerExecute)
+                permissionRow(L10n.text("用户"), read: .ownerRead, write: .ownerWrite, execute: .ownerExecute)
                 Divider()
-                permissionRow("用户组", read: .groupRead, write: .groupWrite, execute: .groupExecute)
+                permissionRow(L10n.text("用户组"), read: .groupRead, write: .groupWrite, execute: .groupExecute)
                 Divider()
-                permissionRow("其他", read: .otherRead, write: .otherWrite, execute: .otherExecute)
+                permissionRow(L10n.text("其他"), read: .otherRead, write: .otherWrite, execute: .otherExecute)
             }
             .background(SnakeStyle.raisedSurface, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
             .overlay {
@@ -1908,9 +1914,9 @@ private struct RemotePermissionEditor: View {
     }
 
     private var permissionScopeDescription: String {
-        if file.isSymbolicLink { return "权限会应用到软连接指向的目标。" }
-        if appliesRecursively { return "权限会递归应用，耗时取决于目录内容数量。" }
-        return "权限只会应用到当前远程项目。"
+        if file.isSymbolicLink { return L10n.text("权限会应用到软连接指向的目标。") }
+        if appliesRecursively { return L10n.text("权限会递归应用，耗时取决于目录内容数量。") }
+        return L10n.text("权限只会应用到当前远程项目。")
     }
 
     private var permissionHeader: some View {
@@ -1957,15 +1963,15 @@ private struct RemotePermissionEditor: View {
 
     private func accessibilityLabel(for bit: RemotePermissionBit) -> String {
         switch bit {
-        case .ownerRead: "用户可读"
-        case .ownerWrite: "用户可写"
-        case .ownerExecute: "用户可执行"
-        case .groupRead: "用户组可读"
-        case .groupWrite: "用户组可写"
-        case .groupExecute: "用户组可执行"
-        case .otherRead: "其他用户可读"
-        case .otherWrite: "其他用户可写"
-        case .otherExecute: "其他用户可执行"
+        case .ownerRead: L10n.text("用户可读")
+        case .ownerWrite: L10n.text("用户可写")
+        case .ownerExecute: L10n.text("用户可执行")
+        case .groupRead: L10n.text("用户组可读")
+        case .groupWrite: L10n.text("用户组可写")
+        case .groupExecute: L10n.text("用户组可执行")
+        case .otherRead: L10n.text("其他用户可读")
+        case .otherWrite: L10n.text("其他用户可写")
+        case .otherExecute: L10n.text("其他用户可执行")
         }
     }
 }
@@ -2026,9 +2032,9 @@ private struct MountWorkspaceView: View {
                 .font(.system(size: 21))
                 .foregroundStyle(dependencyStatus.isReady ? SnakeStyle.secure : .orange)
             VStack(alignment: .leading, spacing: 2) {
-                Text(dependencyStatus.isReady ? "挂载环境已就绪" : "挂载环境需要配置")
+                Text(dependencyStatus.isReady ? L10n.text("挂载环境已就绪") : L10n.text("挂载环境需要配置"))
                     .font(.system(size: 13, weight: .semibold))
-                Text(dependencyStatus.isReady ? "macFUSE 与 SSHFS 可用" : "请安装 macFUSE 与 SSHFS 后重新检测")
+                Text(dependencyStatus.isReady ? L10n.text("macFUSE 与 SSHFS 可用") : L10n.text("请安装 macFUSE 与 SSHFS 后重新检测"))
                     .font(.system(size: 12))
                     .foregroundStyle(SnakeStyle.muted)
             }
@@ -2132,7 +2138,7 @@ private struct MappingTableRow: View {
                 .toggleStyle(.switch)
                 .frame(width: 74, alignment: .leading)
             HStack(spacing: 6) {
-            Button(mapping.state == .mounted || mapping.state == .external ? "打开" : "挂载") {
+            Button(mapping.state == .mounted || mapping.state == .external ? L10n.text("打开") : L10n.text("挂载")) {
                 if mapping.state == .mounted || mapping.state == .external {
                     store.reveal(mappingID: mapping.id)
                 } else {
@@ -2158,15 +2164,17 @@ private struct MappingTableRow: View {
             Button("删除映射…", role: .destructive) { requestDeletion() }
                 .disabled(checkingDeletion)
         }
-        .alert(deletionRequiresUnmount ? "“\(mapping.name)”仍处于挂载状态" : "是否删除“\(mapping.name)”？", isPresented: $confirmingDeletion) {
+        .alert(deletionRequiresUnmount
+               ? L10n.format("“%@”仍处于挂载状态", mapping.name)
+               : L10n.format("是否删除“%@”？", mapping.name), isPresented: $confirmingDeletion) {
             Button("取消", role: .cancel) {}
-            Button(deletionRequiresUnmount ? "安全卸载并删除" : "删除映射", role: .destructive) {
+            Button(deletionRequiresUnmount ? L10n.text("安全卸载并删除") : L10n.text("删除映射"), role: .destructive) {
                 store.deleteMapping(mappingID: mapping.id)
             }
         } message: {
             if deletionRequiresUnmount {
-                Text("此目录正在使用挂载连接，删除前需要安全卸载。若目录被占用或卸载失败，会保留映射。"
-                     + "\n\n远程目录：\(mapping.remotePath)\n本地目录：\(mapping.userAccessPath)\n\n远程文件和本地文件夹会保留。")
+                Text(L10n.text("此目录正在使用挂载连接，删除前需要安全卸载。若目录被占用或卸载失败，会保留映射。")
+                     + L10n.format("\n\n远程目录：%@\n本地目录：%@\n\n远程文件和本地文件夹会保留。", mapping.remotePath, mapping.userAccessPath))
             }
         }
     }
@@ -2174,7 +2182,7 @@ private struct MappingTableRow: View {
     private func requestDeletion() {
         guard !checkingDeletion else { return }
         guard mapping.state != .mounting else {
-            store.mountActionError = "“\(mapping.name)”正在执行挂载或卸载操作，请等待操作完成后再删除。"
+            store.mountActionError = L10n.format("“%@”正在执行挂载或卸载操作，请等待操作完成后再删除。", mapping.name)
             return
         }
         checkingDeletion = true
@@ -2184,19 +2192,19 @@ private struct MappingTableRow: View {
                 let mounted = try await Task.detached(priority: .utility) { try MountOperations.checkedMountedPaths() }.value
                 guard let current = store.mountMappings.first(where: { $0.id == mapping.id }) else { return }
                 guard current.state != .mounting else {
-                    store.mountActionError = "“\(current.name)”正在执行挂载或卸载操作，请稍后再删除。"
+                    store.mountActionError = L10n.format("“%@”正在执行挂载或卸载操作，请稍后再删除。", current.name)
                     return
                 }
                 deletionRequiresUnmount = mounted.contains(current.managedMountPath)
                 confirmingDeletion = true
             } catch {
-                store.mountActionError = "无法确认目录的挂载状态，暂不能删除：\(error.localizedDescription)"
+                store.mountActionError = L10n.format("无法确认目录的挂载状态，暂不能删除：%@", error.localizedDescription)
             }
         }
     }
 
     private var profileName: String {
-        store.profiles.first(where: { $0.id == mapping.profileID })?.name ?? "未绑定 SSH 会话"
+        store.profiles.first(where: { $0.id == mapping.profileID })?.name ?? L10n.text("未绑定 SSH 会话")
     }
 
     private var stateColor: Color {
@@ -2229,13 +2237,13 @@ private struct MappingDetailCard: View {
                     .disabled(mapping.state != .mounted && mapping.state != .external)
             }
             HStack(spacing: 18) {
-                MappingRoute(label: "远程目录", value: "\(profileConnection):\(mapping.remotePath)")
+                MappingRoute(label: L10n.text("远程目录"), value: "\(profileConnection):\(mapping.remotePath)")
                 Image(systemName: "arrow.right").foregroundStyle(SnakeStyle.muted)
-                MappingRoute(label: "实际挂载点", value: mapping.managedMountPath)
+                MappingRoute(label: L10n.text("实际挂载点"), value: mapping.managedMountPath)
                 Image(systemName: "arrow.right").foregroundStyle(SnakeStyle.muted)
-                MappingRoute(label: "FINDER 入口 · 软链接", value: mapping.userAccessPath)
+                MappingRoute(label: L10n.text("FINDER 入口 · 软链接"), value: mapping.userAccessPath)
             }
-            Text("Finder 磁盘名称：\(MountOperations.volumeName(mappingName: mapping.name, connectionName: store.profiles.first(where: { $0.id == mapping.profileID })?.name ?? "未绑定"))")
+            Text(L10n.format("Finder 磁盘名称：%@", MountOperations.volumeName(mappingName: mapping.name, connectionName: store.profiles.first(where: { $0.id == mapping.profileID })?.name ?? L10n.text("未绑定"))))
                 .font(.system(size: 12)).foregroundStyle(SnakeStyle.muted)
             if let error = mapping.lastError, !error.isEmpty {
                 HStack(alignment: .top, spacing: 8) {
@@ -2256,7 +2264,7 @@ private struct MappingDetailCard: View {
     }
 
     private var profileConnection: String {
-        store.profiles.first(where: { $0.id == mapping.profileID })?.connectionLabel ?? "未绑定"
+        store.profiles.first(where: { $0.id == mapping.profileID })?.connectionLabel ?? L10n.text("未绑定")
     }
 }
 
@@ -2309,7 +2317,7 @@ private struct SessionEditorView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                Text(originalProfile == nil ? "新增会话" : "编辑会话")
+                Text(originalProfile == nil ? L10n.text("新增会话") : L10n.text("编辑会话"))
                     .font(.system(size: 20, weight: .bold))
                 Spacer()
                 Button { dismiss() } label: { Image(systemName: "xmark") }
@@ -2343,7 +2351,7 @@ private struct SessionEditorView: View {
 
             Divider()
             HStack {
-                Button(connectionTest.isTesting ? "正在测试…" : "测试连接") {
+                Button(connectionTest.isTesting ? L10n.text("正在测试…") : L10n.text("测试连接")) {
                     connectionTest.start(host: host, port: port)
                 }
                 .buttonStyle(SnakeOutlineButtonStyle())
@@ -2398,7 +2406,7 @@ private struct SessionEditorView: View {
                 }
             }
             Button { selectProfileImage() } label: {
-                Label(customIconData == nil ? "选择照片…" : "重新选择照片…", systemImage: "photo.badge.plus")
+                Label(customIconData == nil ? L10n.text("选择照片…") : L10n.text("重新选择照片…"), systemImage: "photo.badge.plus")
                     .lineLimit(1)
                     .fixedSize(horizontal: true, vertical: false)
             }
@@ -2415,16 +2423,16 @@ private struct SessionEditorView: View {
     private var editorFields: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .top, spacing: 12) {
-                compactField(label: "会话名称", text: $name)
-                compactField(label: "标签", text: $tags, placeholder: "空格分隔：生产 API")
+                compactField(label: L10n.text("会话名称"), text: $name)
+                compactField(label: L10n.text("标签"), text: $tags, placeholder: L10n.text("空格分隔：生产 API"))
             }
             HStack(alignment: .top, spacing: 12) {
-                compactField(label: "IP 或主机名", text: $host, monospaced: true)
-                compactField(label: "端口", text: $port, monospaced: true)
+                compactField(label: L10n.text("IP 或主机名"), text: $host, monospaced: true)
+                compactField(label: L10n.text("端口"), text: $port, monospaced: true)
                     .frame(width: 100)
             }
             HStack(alignment: .top, spacing: 12) {
-                compactField(label: "用户名", text: $username, monospaced: true)
+                compactField(label: L10n.text("用户名"), text: $username, monospaced: true)
                 VStack(alignment: .leading, spacing: 6) {
                     Text("认证方式").font(.system(size: 11, weight: .medium)).foregroundStyle(SnakeStyle.muted)
                     Picker("认证方式", selection: $authMethod) {
@@ -2440,7 +2448,7 @@ private struct SessionEditorView: View {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("私钥文件").font(.system(size: 11, weight: .medium)).foregroundStyle(SnakeStyle.muted)
                     HStack(spacing: 8) {
-                        Text(privateKeyBookmark == nil ? "选择本机私钥文件" : "已保存私钥访问授权")
+                        Text(privateKeyBookmark == nil ? L10n.text("选择本机私钥文件") : L10n.text("已保存私钥访问授权"))
                             .font(.system(size: 12, design: .monospaced))
                             .foregroundStyle(SnakeStyle.muted)
                             .lineLimit(1)
@@ -2456,8 +2464,8 @@ private struct SessionEditorView: View {
             HStack(alignment: .top, spacing: 6) {
                 Image(systemName: "lock.shield").foregroundStyle(SnakeStyle.secure)
                 Text(authMethod == .password
-                     ? "加密保存 · 查看需身份验证；隐藏后保留编辑草稿。"
-                     : "私钥仅保存访问书签；口令加密保存，查看需身份验证。")
+                     ? L10n.text("加密保存 · 查看需身份验证；隐藏后保留编辑草稿。")
+                     : L10n.text("私钥仅保存访问书签；口令加密保存，查看需身份验证。"))
                     .fixedSize(horizontal: false, vertical: true)
             }
             .font(.system(size: 11)).foregroundStyle(SnakeStyle.muted)
@@ -2512,7 +2520,7 @@ private struct SessionEditorView: View {
         panel.canChooseDirectories = false
         panel.allowsMultipleSelection = false
         panel.allowedContentTypes = [.image]
-        panel.prompt = "选择照片"
+        panel.prompt = L10n.text("选择照片")
         panel.begin { response in
             guard response == .OK,
                   let url = panel.url,
@@ -2528,21 +2536,21 @@ private struct SessionEditorView: View {
         panel.canChooseFiles = true
         panel.canChooseDirectories = false
         panel.allowsMultipleSelection = false
-        panel.prompt = "选择私钥"
+        panel.prompt = L10n.text("选择私钥")
         panel.begin { response in
             guard response == .OK, let url = panel.url else { return }
             do {
                 let bookmark = try url.bookmarkData(options: [.withSecurityScope], includingResourceValuesForKeys: nil, relativeTo: nil)
                 Task { @MainActor in privateKeyBookmark = bookmark }
             } catch {
-                Task { @MainActor in errorMessage = "无法保存私钥访问授权。" }
+                Task { @MainActor in errorMessage = L10n.text("无法保存私钥访问授权。") }
             }
         }
     }
 
     private func save() {
         guard let parsedPort = Int(port) else {
-            errorMessage = "端口必须是 1 到 65535 之间的数字。"
+            errorMessage = L10n.text("端口必须是 1 到 65535 之间的数字。")
             return
         }
         let profile = SSHProfile(
@@ -2562,7 +2570,7 @@ private struct SessionEditorView: View {
         do {
             if profile.usesCustomIcon {
                 guard let customIconData else {
-                    errorMessage = "请重新选择并裁剪头像照片。"
+                    errorMessage = L10n.text("请重新选择并裁剪头像照片。")
                     return
                 }
                 try ProfileIconStore.save(customIconData, for: profile.id)
@@ -2824,7 +2832,7 @@ private struct MappingEditorView: View {
             HStack {
                 VStack(alignment: .leading, spacing: 3) {
                     Text("磁盘映射").font(.system(size: 11, weight: .semibold)).foregroundStyle(SnakeStyle.muted)
-                    Text(original == nil ? "新增映射" : "编辑映射").font(.system(size: 21, weight: .bold))
+                    Text(original == nil ? L10n.text("新增映射") : L10n.text("编辑映射")).font(.system(size: 21, weight: .bold))
                 }
                 Spacer()
                 Button { dismiss() } label: { Image(systemName: "xmark") }.buttonStyle(SnakeIconButtonStyle())
@@ -2836,7 +2844,7 @@ private struct MappingEditorView: View {
             VStack(alignment: .leading, spacing: 18) {
                 Text("挂载设置").font(.system(size: 14, weight: .bold))
                 HStack(spacing: 12) {
-                    EditorField(label: "映射名称", text: $name, placeholder: "生产文件")
+                    EditorField(label: L10n.text("映射名称"), text: $name, placeholder: L10n.text("生产文件"))
                     VStack(alignment: .leading, spacing: 6) {
                         Text("SSH 会话").font(.system(size: 11, weight: .medium)).foregroundStyle(SnakeStyle.muted)
                         Picker("SSH 会话", selection: $profileID) {
@@ -2851,7 +2859,7 @@ private struct MappingEditorView: View {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("远程目录").font(.system(size: 11, weight: .medium)).foregroundStyle(SnakeStyle.muted)
                     HStack {
-                        Text(remotePath.isEmpty ? "选择 SSH 会话后浏览远程文件夹" : remotePath)
+                        Text(remotePath.isEmpty ? L10n.text("选择 SSH 会话后浏览远程文件夹") : remotePath)
                             .font(.system(size: 13, design: .monospaced))
                             .foregroundStyle(remotePath.isEmpty ? SnakeStyle.muted : SnakeStyle.ink)
                             .lineLimit(1)
@@ -2865,7 +2873,7 @@ private struct MappingEditorView: View {
                 }
                 VStack(alignment: .leading, spacing: 6) {
                     HStack(alignment: .bottom, spacing: 8) {
-                        EditorField(label: "本地访问目录", text: $userAccessPath, placeholder: "选择 Finder 入口的位置", monospaced: true)
+                        EditorField(label: L10n.text("本地访问目录"), text: $userAccessPath, placeholder: L10n.text("选择 Finder 入口的位置"), monospaced: true)
                         Button("选择位置…", systemImage: "folder") { chooseLocalPath() }
                             .buttonStyle(SnakeOutlineButtonStyle())
                     }
@@ -2884,11 +2892,11 @@ private struct MappingEditorView: View {
                 Divider()
                 Text("访问路径").font(.system(size: 13, weight: .bold))
                 HStack(spacing: 14) {
-                    MappingRoute(label: "远程目录", value: "\(profileConnection):\(remotePath)")
+                    MappingRoute(label: L10n.text("远程目录"), value: "\(profileConnection):\(remotePath)")
                     Image(systemName: "arrow.right").foregroundStyle(SnakeStyle.muted)
-                    MappingRoute(label: "实际挂载点", value: managedPath)
+                    MappingRoute(label: L10n.text("实际挂载点"), value: managedPath)
                     Image(systemName: "arrow.right").foregroundStyle(SnakeStyle.muted)
-                    MappingRoute(label: "FINDER 入口 · 软链接", value: userAccessPath)
+                    MappingRoute(label: L10n.text("FINDER 入口 · 软链接"), value: userAccessPath)
                 }
                 .padding(12)
                 .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
@@ -2929,10 +2937,10 @@ private struct MappingEditorView: View {
 
     private func chooseLocalPath() {
         let panel = NSSavePanel()
-        panel.title = "选择本地访问目录"
-        panel.message = "选择 Finder 入口的存放位置和名称。请使用尚不存在的名称。"
-        panel.prompt = "选择"
-        panel.nameFieldLabel = "入口名称："
+        panel.title = L10n.text("选择本地访问目录")
+        panel.message = L10n.text("选择 Finder 入口的存放位置和名称。请使用尚不存在的名称。")
+        panel.prompt = L10n.text("选择")
+        panel.nameFieldLabel = L10n.text("入口名称：")
         panel.canCreateDirectories = true
         panel.isExtensionHidden = false
         if !userAccessPath.isEmpty {
@@ -2942,14 +2950,14 @@ private struct MappingEditorView: View {
         } else {
             panel.directoryURL = FileManager.default.homeDirectoryForCurrentUser
             let suggestedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
-            panel.nameFieldStringValue = suggestedName.isEmpty ? "远程目录" : suggestedName.replacingOccurrences(of: "/", with: "-")
+            panel.nameFieldStringValue = suggestedName.isEmpty ? L10n.text("远程目录") : suggestedName.replacingOccurrences(of: "/", with: "-")
         }
         panel.begin { response in
             guard response == .OK, let url = panel.url else { return }
             // The panel selects a future symlink location; it does not create a file.
             if FileManager.default.fileExists(atPath: url.path)
                 || (try? FileManager.default.destinationOfSymbolicLink(atPath: url.path)) != nil {
-                errorMessage = "该本地位置已被占用，请选择其他入口名称。"
+                errorMessage = L10n.text("该本地位置已被占用，请选择其他入口名称。")
                 return
             }
             userAccessPath = url.path
@@ -2958,7 +2966,7 @@ private struct MappingEditorView: View {
     }
 
     private var profileConnection: String {
-        store.profiles.first(where: { $0.id == profileID })?.connectionLabel ?? "选择 SSH 会话"
+        store.profiles.first(where: { $0.id == profileID })?.connectionLabel ?? L10n.text("选择 SSH 会话")
     }
 
     private var managedPath: String {
@@ -2967,18 +2975,18 @@ private struct MappingEditorView: View {
         }
         guard let profile = selectedProfile,
               let path = try? ManagedMountPath.make(profile: profile, local: userAccessPath, remote: remotePath) else {
-            return "选择会话和目录后生成"
+            return L10n.text("选择会话和目录后生成")
         }
         return path
     }
 
     private func save() {
         guard let profileID else {
-            errorMessage = "请选择一个 SSH 会话。"
+            errorMessage = L10n.text("请选择一个 SSH 会话。")
             return
         }
         guard !remotePath.isEmpty else {
-            errorMessage = "请浏览并选择远程目录。"
+            errorMessage = L10n.text("请浏览并选择远程目录。")
             return
         }
         let mapping = MountMapping(
@@ -3037,7 +3045,7 @@ private struct MountManagerView: View {
                             Text("\(mapping.remotePath) → \(mapping.managedMountPath)")
                                 .font(.caption.monospaced())
                                 .foregroundStyle(.secondary)
-                            Text("Finder：\(mapping.userAccessPath)")
+                            Text(L10n.format("Finder：%@", mapping.userAccessPath))
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                             if let error = mapping.lastError {
@@ -3072,7 +3080,7 @@ private struct DependencyRow: View {
             HStack {
                 Text(name)
                 Spacer()
-                Text(available ? "已检测到" : "未检测到")
+                Text(available ? L10n.text("已检测到") : L10n.text("未检测到"))
                     .foregroundStyle(available ? Color.mint : .orange)
             }
         } icon: {
@@ -3098,6 +3106,46 @@ private struct MountDependencyStatus {
     }
 }
 
+/// Shared container for every settings tab.
+///
+/// A bare `Form` neither scrolls nor aligns to the top inside a fixed window,
+/// so each pane scrolls, keeps the same outer padding and starts at the top
+/// instead of being vertically centred with large empty margins.
+private struct SettingsPane<Content: View>: View {
+    private let content: Content
+
+    init(@ViewBuilder content: () -> Content) {
+        self.content = content()
+    }
+
+    var body: some View {
+        ScrollView {
+            Form {
+                content
+            }
+            .formStyle(.grouped)
+        }
+    }
+}
+
+/// Section footer text.
+///
+/// A grouped `Form` inside a `ScrollView` lays its footers out with trailing
+/// alignment; pinning the text to the leading edge matches the rest of macOS.
+private struct SettingsFooter: View {
+    private let key: LocalizedStringKey
+
+    init(_ key: LocalizedStringKey) {
+        self.key = key
+    }
+
+    var body: some View {
+        Text(key)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .multilineTextAlignment(.leading)
+    }
+}
+
 public struct SnakeSettingsView: View {
     @EnvironmentObject private var store: ApplicationStore
     @State private var shortcutError: String?
@@ -3106,113 +3154,151 @@ public struct SnakeSettingsView: View {
 
     public var body: some View {
         TabView {
-            Form {
-                Section("应用外观") {
-                    Picker("外观", selection: $store.isDarkAppearancePreferred) {
-                        Text("浅色").tag(false)
-                        Text("深色").tag(true)
-                    }
-                    .pickerStyle(.segmented)
-                    Text("立即应用到所有窗口与终端，并记住本次选择；不会重新连接或清空终端内容。")
-                        .font(.system(size: 11)).foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            .padding(20)
-            .tabItem { Label("外观", systemImage: "circle.lefthalf.filled") }
+            appearancePane
+                .tabItem { Label("外观", systemImage: "circle.lefthalf.filled") }
 
-            Form {
-                Section("SFTP 传输") {
-                    LabeledContent("并行传输阈值") {
-                        HStack(spacing: 6) {
-                            TextField("", value: $store.multipartThresholdMB, format: .number)
-                                .multilineTextAlignment(.trailing)
-                                .frame(width: 72)
-                            Text("MB").foregroundStyle(.secondary)
-                        }
-                    }
-                    LabeledContent("并行连接数") {
-                        Stepper(value: $store.multipartConcurrency, in: 1...8) {
-                            Text("\(store.multipartConcurrency) 个")
-                                .frame(width: 48, alignment: .trailing)
-                        }
-                    }
-                    Text("超过阈值的文件使用独立 SFTP 连接分片上传或下载；下载文件和分片共享并发上限。上传支持续传，下载重试重新传输。校验优先 SHA-256，其次 MD5，不可用时标记未校验，不读回文件。")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            .padding(20)
-            .tabItem { Label("传输", systemImage: "arrow.up.arrow.down") }
+            transferPane
+                .tabItem { Label("传输", systemImage: "arrow.up.arrow.down") }
 
-            Form {
-                Section("SFTP 快捷键") {
-                    shortcutRow(.search, detail: "打开并聚焦当前目录检索")
-                    shortcutRow(.delete, detail: "确认后删除当前选中的远程项目")
-                    shortcutRow(.uploadFile, detail: "打开访达文件选择器并上传到当前目录")
+            shortcutPane
+                .tabItem { Label("快捷键", systemImage: "command") }
+
+            terminalPane
+                // `textformat` has a script-dependent glyph and renders as
+                // 「格式」whenever the bundle resolves to Chinese; `terminal`
+                // is a pictogram and reads the same in every language.
+                .tabItem { Label("终端", systemImage: "terminal") }
+        }
+        .frame(minWidth: 560, idealWidth: 640, minHeight: 460, idealHeight: 560)
+        .environment(\.locale, store.appLanguage.locale)
+        .preferredColorScheme(store.isDarkAppearancePreferred ? .dark : .light)
+    }
+
+    // MARK: - Panes
+
+    private var appearancePane: some View {
+        SettingsPane {
+            Section {
+                Picker("外观", selection: $store.isDarkAppearancePreferred) {
+                    Text("浅色").tag(false)
+                    Text("深色").tag(true)
                 }
+                .pickerStyle(.segmented)
+            } header: {
+                Text("应用外观")
+            } footer: {
+                SettingsFooter("立即应用到所有窗口与终端，并记住本次选择；不会重新连接或清空终端内容。")
+            }
+            Section {
+                Picker("语言", selection: $store.appLanguage) {
+                    ForEach(AppLanguage.allCases) { language in
+                        Text(language.displayName).tag(language)
+                    }
+                }
+            } header: {
+                Text("语言")
+            } footer: {
+                SettingsFooter("界面语言立即生效并记住选择；系统权限弹窗、Finder 与 macOS 提供的菜单文案跟随系统语言。")
+            }
+        }
+    }
+
+    private var transferPane: some View {
+        SettingsPane {
+            Section {
+                LabeledContent("并行传输阈值") {
+                    HStack(spacing: 6) {
+                        TextField("", value: $store.multipartThresholdMB, format: .number)
+                            .labelsHidden()
+                            .multilineTextAlignment(.trailing)
+                            .frame(width: 72)
+                            .accessibilityLabel(L10n.text("并行传输阈值"))
+                        Text("MB").foregroundStyle(.secondary)
+                    }
+                }
+                LabeledContent("并行连接数") {
+                    Stepper(value: $store.multipartConcurrency, in: 1...8) {
+                        Text(L10n.format("%@ 个", store.multipartConcurrency))
+                            .frame(width: 48, alignment: .trailing)
+                    }
+                }
+            } header: {
+                Text("SFTP 传输")
+            } footer: {
+                SettingsFooter("超过阈值的文件使用独立 SFTP 连接分片上传或下载；下载文件和分片共享并发上限。上传支持续传，下载重试重新传输。校验优先 SHA-256，其次 MD5，不可用时标记未校验，不读回文件。")
+            }
+        }
+    }
+
+    private var shortcutPane: some View {
+        SettingsPane {
+            Section {
+                shortcutRow(.search, detail: L10n.text("打开并聚焦当前目录检索"))
+                shortcutRow(.delete, detail: L10n.text("确认后删除当前选中的远程项目"))
+                shortcutRow(.uploadFile, detail: L10n.text("打开访达文件选择器并上传到当前目录"))
                 if let shortcutError {
                     Label(shortcutError, systemImage: "exclamationmark.triangle.fill")
                         .font(.system(size: 11))
                         .foregroundStyle(.red)
-                }
-                Section {
-                    Button("恢复默认快捷键") {
-                        store.resetSFTPShortcuts()
-                        shortcutError = nil
-                    }
-                    Text("点击右侧键帽后按下新组合。为避免在地址栏中误操作，快捷键必须包含 Command、Control 或 Option；冲突组合不会保存。")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
+            } header: {
+                Text("SFTP 快捷键")
+            } footer: {
+                SettingsFooter("点击右侧键帽后按下新组合。为避免在地址栏中误操作，快捷键必须包含 Command、Control 或 Option；冲突组合不会保存。")
             }
-            .padding(20)
-            .tabItem { Label("快捷键", systemImage: "command") }
-
-            ScrollView {
-              Form {
-                Section("终端配色") {
-                    Picker("配色主题", selection: $store.terminalThemePreset) {
-                        ForEach(TerminalThemePreset.allCases, id: \.self) { preset in
-                            Text(preset.title).tag(preset)
-                        }
-                    }
-                    Toggle("日志关键词高亮", isOn: $store.terminalLogHighlightEnabled)
-                    Toggle("输出字段高亮", isOn: $store.terminalFieldHighlightEnabled)
-                    Text("区分权限、时间、地址、路径、大小和状态；保留远端颜色，Vim、top 等备用屏幕不启用。")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                    Toggle("自动启用 ls／ll 彩色输出", isOn: $store.terminalShellColorsEnabled)
-                    Text("下次连接生效。仅临时配置当前 Shell，不修改服务器配置文件；保留复杂函数及 NO_COLOR。")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
+            Section {
+                Button("恢复默认快捷键") {
+                    store.resetSFTPShortcuts()
+                    shortcutError = nil
                 }
-                Section("终端字体") {
-                    Picker("字体", selection: $store.terminalFontName) {
-                        ForEach(terminalFonts, id: \.self) { fontName in
-                            Text(fontName).tag(fontName)
-                        }
-                    }
-                    LabeledContent("字号") {
-                        Stepper(value: $store.terminalFontSize, in: 9...32, step: 1) {
-                            Text("\(Int(store.terminalFontSize)) pt")
-                                .frame(width: 52, alignment: .trailing)
-                        }
-                    }
-                }
-                terminalColorPreview
-                Text("配色、高亮与字体立即应用到所有终端，不会重连或清空屏幕缓冲。")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-              }
-              .padding(20)
             }
-            .tabItem { Label("终端", systemImage: "textformat") }
         }
-        .frame(width: 580, height: 520)
-        .preferredColorScheme(store.isDarkAppearancePreferred ? .dark : .light)
+    }
+
+    private var terminalPane: some View {
+        SettingsPane {
+            Section {
+                Picker("配色主题", selection: $store.terminalThemePreset) {
+                    ForEach(TerminalThemePreset.allCases, id: \.self) { preset in
+                        Text(preset.title).tag(preset)
+                    }
+                }
+                Toggle("日志关键词高亮", isOn: $store.terminalLogHighlightEnabled)
+                Toggle("输出字段高亮", isOn: $store.terminalFieldHighlightEnabled)
+            } header: {
+                Text("终端配色")
+            } footer: {
+                SettingsFooter("区分权限、时间、地址、路径、大小和状态；保留远端颜色，Vim、top 等备用屏幕不启用。")
+            }
+            Section {
+                Toggle("自动启用 ls／ll 彩色输出", isOn: $store.terminalShellColorsEnabled)
+            } header: {
+                Text("Shell 彩色输出")
+            } footer: {
+                SettingsFooter("下次连接生效。仅临时配置当前 Shell，不修改服务器配置文件；保留复杂函数及 NO_COLOR。")
+            }
+            Section {
+                Picker("字体", selection: $store.terminalFontName) {
+                    ForEach(terminalFonts, id: \.self) { fontName in
+                        Text(fontName).tag(fontName)
+                    }
+                }
+                LabeledContent("字号") {
+                    Stepper(value: $store.terminalFontSize, in: 9...32, step: 1) {
+                        Text("\(Int(store.terminalFontSize)) pt")
+                            .frame(width: 52, alignment: .trailing)
+                    }
+                }
+            } header: {
+                Text("终端字体")
+            }
+            Section {
+                terminalColorPreview
+            } footer: {
+                SettingsFooter("配色、高亮与字体立即应用到所有终端，不会重连或清空屏幕缓冲。")
+            }
+        }
     }
 
     private var previewTheme: TerminalTheme {
@@ -3221,20 +3307,25 @@ public struct SnakeSettingsView: View {
                       fieldHighlightEnabled: store.terminalFieldHighlightEnabled)
     }
 
+    /// A shortcut row keeps its recorder at a fixed width and lets the
+    /// explanation wrap under the title instead of widening the form's label
+    /// column (which used to squeeze the recorder in English).
     private func shortcutRow(_ action: SFTPShortcutAction, detail: String) -> some View {
-        LabeledContent {
-            SFTPShortcutRecorder(shortcut: shortcut(for: action)) { newShortcut in
-                shortcutError = store.updateSFTPShortcut(action, shortcut: newShortcut)
-            }
-            .frame(width: 150, height: 28)
-        } label: {
+        HStack(alignment: .firstTextBaseline, spacing: 16) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(action.title)
                 Text(detail)
                     .font(.system(size: 10))
                     .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
+            Spacer(minLength: 12)
+            SFTPShortcutRecorder(shortcut: shortcut(for: action)) { newShortcut in
+                shortcutError = store.updateSFTPShortcut(action, shortcut: newShortcut)
+            }
+            .frame(width: 150, height: 28)
         }
+        .padding(.vertical, 2)
     }
 
     private func shortcut(for action: SFTPShortcutAction) -> SFTPShortcut {
@@ -3254,15 +3345,18 @@ public struct SnakeSettingsView: View {
             Text("普通输出 · 连接保持正常")
             previewLog("drwxr-xr-x  4.0K  2026-09-13 09:30")
             previewLog("running  192.0.2.10:22  /var/log  80%")
-            previewLog("[ERROR] FATAL 连接超时")
-            previewLog("WARN / WARNING 正在重试")
-            previewLog("INFO 服务已启动")
-            previewLog("DEBUG / TRACE 请求完成")
+            previewLog(L10n.text("[ERROR] FATAL 连接超时"))
+            previewLog(L10n.text("WARN / WARNING 正在重试"))
+            previewLog(L10n.text("INFO 服务已启动"))
+            previewLog(L10n.text("DEBUG / TRACE 请求完成"))
         }
         .font(.custom(store.terminalFontName, size: store.terminalFontSize))
         .foregroundStyle(Color(nsColor: TerminalTheme.nsColor(previewTheme.foregroundHex)))
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
+        // Wrap sample lines instead of clipping them when the chosen font size
+        // makes them wider than the pane.
+        .fixedSize(horizontal: false, vertical: true)
         .background(Color(nsColor: TerminalTheme.nsColor(previewTheme.backgroundHex)),
                     in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         .accessibilityLabel("终端配色预览")

@@ -173,7 +173,7 @@ final class CorePersistence {
     func synchronize(mappings: [MountMapping], profiles: [SSHProfile]) throws {
         let expectedIDs = Set(mappings.map(\.id))
         for mapping in mappings {
-            let snapshot = profiles.first(where: { $0.id == mapping.profileID })?.name ?? "已删除会话"
+            let snapshot = profiles.first(where: { $0.id == mapping.profileID })?.name ?? L10n.text("已删除会话")
             try save(mapping, profileSnapshot: snapshot)
         }
         for mapping in try loadMountMappings() where !expectedIDs.contains(mapping.id) {

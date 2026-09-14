@@ -1,3 +1,5 @@
+**简体中文** · [English](en/FINDER_UPLOAD.md)
+
 # Finder 拖拽上传：重新实现与验收
 
 更新：2026-09-09。适用于当前 Swift/AppKit + Rust 实现。原生手势验收尚未通过，不能作为已修复发布说明。

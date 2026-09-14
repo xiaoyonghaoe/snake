@@ -36,9 +36,9 @@ final class ShortcutRecorderField: NSTextField {
         alignment = .center
         font = .monospacedSystemFont(ofSize: 12, weight: .medium)
         focusRingType = .exterior
-        toolTip = "点击后按下新的快捷键"
+        toolTip = L10n.text("点击后按下新的快捷键")
         setAccessibilityRole(.button)
-        setAccessibilityLabel("录制快捷键")
+        setAccessibilityLabel(L10n.text("录制快捷键"))
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
@@ -50,7 +50,7 @@ final class ShortcutRecorderField: NSTextField {
 
     override func becomeFirstResponder() -> Bool {
         guard super.becomeFirstResponder() else { return false }
-        stringValue = "按下快捷键…"
+        stringValue = L10n.text("按下快捷键…")
         textColor = .controlAccentColor
         return true
     }

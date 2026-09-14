@@ -55,5 +55,5 @@ enum ProfileIconStore {
 private enum ProfileIconStoreError: LocalizedError {
     case invalidImage
 
-    var errorDescription: String? { "选择的文件不是可用的图片。" }
+    var errorDescription: String? { L10n.text("选择的文件不是可用的图片。") }
 }

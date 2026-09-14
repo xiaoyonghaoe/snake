@@ -1,3 +1,5 @@
+**简体中文** · [English](en/WORKSPACE_MANAGER_TABS.md)
+
 # SSH 会话卡片与磁盘映射标签
 
 ## 行为

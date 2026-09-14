@@ -6,8 +6,8 @@ enum TerminalThemePreset: String, CaseIterable {
 
     var title: String {
         switch self {
-        case .classic: "经典"
-        case .vivid: "鲜明"
+        case .classic: L10n.text("经典")
+        case .vivid: L10n.text("鲜明")
         case .tokyoNight: "Tokyo Night"
         }
     }

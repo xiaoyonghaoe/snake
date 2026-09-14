@@ -27,7 +27,7 @@ enum DownloadManifest {
     static func scan(files: [RemoteFile], handle: CoreSftpHandle) throws -> [DownloadItem] {
         var result: [DownloadItem] = []
         func visit(_ path: String, _ components: [String]) throws {
-            guard components.count <= 256 else { throw TransferIntegrity.error("目录层级超过安全限制") }
+            guard components.count <= 256 else { throw TransferIntegrity.error(L10n.text("目录层级超过安全限制")) }
             for name in components { try DownloadLocation.validate(name) }
             let metadata = try handle.fileMetadata(path: path)
             result.append(DownloadItem(remotePath: path, components: components, metadata: metadata))
@@ -52,8 +52,9 @@ extension LocalUploadCoordinator {
         let passed = completed.filter { if case .passed = $0.verification { true } else { false } }.count
         let unchecked = completed.filter { $0.verification.isWarning }.count
         let failed = records.filter { $0.state == .failed }.count
-        let skipped = completed.filter { $0.verification == .notApplicable("已跳过") }.count
-        return "已完成 \(completed.count) 项 · 校验通过 \(passed) · 未校验 \(unchecked) · 失败 \(failed) · 跳过 \(skipped)"
+        let skipped = completed.filter { $0.verification == .notApplicable(L10n.text("已跳过")) }.count
+        return L10n.format("已完成 %@ 项 · 校验通过 %@ · 未校验 %@ · 失败 %@ · 跳过 %@",
+            completed.count, passed, unchecked, failed, skipped)
     }
 
     var hasUnverifiedTransfers: Bool { records.contains { $0.state == .succeeded && $0.verification.isWarning } }
@@ -112,13 +113,13 @@ extension LocalUploadCoordinator {
                     records.insert(record, at: 0)
                     if item.metadata.kind == "directory" {
                         _ = try location.directory(item.components)
-                        setVerification(id, .notApplicable("目录已创建"))
+                        setVerification(id, .notApplicable(L10n.text("目录已创建")))
                         update(jobID: id, state: .succeeded, finishedAt: .now)
                         store.markTransferSucceeded(id); outcome.succeeded += 1
                         continue
                     }
                     if item.metadata.kind == "special" {
-                        setVerification(id, .notApplicable("已跳过"))
+                        setVerification(id, .notApplicable(L10n.text("已跳过")))
                         update(jobID: id, state: .succeeded, finishedAt: .now)
                         store.markTransferSucceeded(id); outcome.skipped += 1
                         continue
@@ -136,7 +137,7 @@ extension LocalUploadCoordinator {
                             outcome.cancelled += tasks.count + 1
                             return
                         case .skip:
-                            setVerification(id, .notApplicable("已跳过")); update(jobID: id, state: .succeeded, finishedAt: .now)
+                            setVerification(id, .notApplicable(L10n.text("已跳过"))); update(jobID: id, state: .succeeded, finishedAt: .now)
                             store.markTransferSucceeded(id); outcome.skipped += 1
                             continue
                         case .overwrite: overwrite = true
@@ -222,15 +223,15 @@ extension LocalUploadCoordinator {
                 try control.checkpoint()
                 let handle = try makeHandle()
                 let current = try handle.fileMetadata(path: item.remotePath)
-                if !refreshMetadata, current != item.metadata { throw TransferIntegrity.error("下载源文件在扫描后已变化") }
-                guard current.kind == item.metadata.kind else { throw TransferIntegrity.error("下载源文件类型已变化") }
+                if !refreshMetadata, current != item.metadata { throw TransferIntegrity.error(L10n.text("下载源文件在扫描后已变化")) }
+                guard current.kind == item.metadata.kind else { throw TransferIntegrity.error(L10n.text("下载源文件类型已变化")) }
                 let parent = try location.directory(Array(item.components.dropLast()), create: false)
                 let name = item.components.last!
                 if current.kind == "link" {
-                    guard let target = current.linkTarget else { throw TransferIntegrity.error("无法读取软链接目标") }
+                    guard let target = current.linkTarget else { throw TransferIntegrity.error(L10n.text("无法读取软链接目标")) }
                     try control.checkpoint()
                     try parent.createLink(name: name, target: target, overwrite: overwrite)
-                    return TransferVerification.notApplicable("软链接目标已核对")
+                    return TransferVerification.notApplicable(L10n.text("软链接目标已核对"))
                 }
                 let staging = try DownloadStaging(parent: parent, size: current.size)
                 let progress = SFTPMultipartProgress(jobID: id, totalBytes: current.size, store: store)
@@ -258,7 +259,7 @@ extension LocalUploadCoordinator {
                         try handle.remoteChecksum(path: item.remotePath, capability: capability, control: control)
                     })
                 }
-                guard try handle.fileMetadata(path: item.remotePath) == current else { throw TransferIntegrity.error("传输或校验期间远端源文件已变化") }
+                guard try handle.fileMetadata(path: item.remotePath) == current else { throw TransferIntegrity.error(L10n.text("传输或校验期间远端源文件已变化")) }
                 try control.checkpoint()
                 try staging.publish(as: name, overwrite: overwrite)
                 return verification

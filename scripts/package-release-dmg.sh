@@ -40,6 +40,11 @@ cp "$BIN_DIR/Snake" "$BIN_DIR/SnakeMountHelper" "$MACOS/"
 cp Rust/snake_core/target/release/libsnake_core.dylib "$FRAMEWORKS/"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
 cp Resources/AppIcon.icns "$RESOURCES/"
+# Localized .lproj tables must land directly in Contents/Resources so
+# Bundle.main (used by SwiftUI's LocalizedStringKey and L10n) resolves them.
+for lproj in Resources/Localization/*.lproj; do
+    ditto "$lproj" "$RESOURCES/${lproj:t}"
+done
 ditto "$BIN_DIR/SwiftTerm_SwiftTerm.bundle" "$RESOURCES/SwiftTerm_SwiftTerm.bundle"
 python3 "$SCRIPT_DIR/collect-release-licenses.py" "$RESOURCES/Licenses" --target "$RUST_TARGET"
 plutil -replace CFBundleShortVersionString -string "$VERSION" "$APP/Contents/Info.plist"
@@ -78,6 +83,9 @@ codesign --verify --deep --strict --verbose=2 "$APP"
 plutil -lint "$APP/Contents/Info.plist"
 ln -s /Applications "$PAYLOAD/Applications"
 cp "$PROJECT_DIR/docs/INSTALL.md" "$PAYLOAD/安装说明.md"
+if [[ -f "$PROJECT_DIR/docs/en/INSTALL.md" ]]; then
+    cp "$PROJECT_DIR/docs/en/INSTALL.md" "$PAYLOAD/Installation Guide.md"
+fi
 hdiutil create -volname "Snake $VERSION" -srcfolder "$PAYLOAD" -fs HFS+ -format UDZO "$STAGING/$NAME.dmg"
 hdiutil verify "$STAGING/$NAME.dmg"
 if [[ "$IDENTITY" != '-' ]]; then
