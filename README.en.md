@@ -12,7 +12,7 @@ The current installer package is the **Apple Silicon (M-series) build**, require
 2. Drag **Snake.app into Applications** and wait for the copy to finish.
 3. Eject the disk image and launch Snake from Applications. Quit the old version before updating, and choose Replace when copying.
 
-A local installer package has been generated, but it has not been uploaded to GitHub Releases yet. Build artifacts are in `release/` and are not committed with the source; the release attachments are the DMG and a `.dmg.sha256` checksum file with the same name.
+A local installer package has been generated and uploaded to GitHub Releases. Build artifacts are in `release/` and are not committed with the source; the release attachments are the DMG and a `.dmg.sha256` checksum file with the same name.
 
 **The current package is only ad-hoc signed and has not been signed with a Developer ID or notarized by Apple, so the system may block it on first launch.** A passing signature integrity check does not mean Gatekeeper will allow it; see the [installation guide](docs/en/INSTALL.md) for installation and security notes. The installer contains no user sessions, passwords, or test configurations, and the macFUSE / sshfs required for disk mapping is not installed automatically.
 
