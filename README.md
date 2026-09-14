@@ -4,11 +4,11 @@
 
 Snake 是面向 macOS 15+ 的原生 SSH 工作台：会话管理、终端、SFTP 文件传输和 SSHFS 磁盘映射共用一个多窗口工作区。
 
-## 1.1.0 安装
+## 1.1.1 安装
 
 当前安装包为 **Apple Silicon（M 系列）版**，要求 **macOS 15 或更高版本**，不包含 Intel / Universal 2 版本。
 
-1. 打开 `Snake-1.1.0-macos-arm64.dmg`。
+1. 打开 `Snake-1.1.1-macos-arm64.dmg`。
 2. 将 **Snake.app 拖到 Applications（应用程序）**，等待复制完成。
 3. 推出磁盘映像，从“应用程序”启动 Snake。更新旧版前先退出应用，复制时选择替换。
 
@@ -19,10 +19,10 @@ Snake 是面向 macOS 15+ 的原生 SSH 工作台：会话管理、终端、SFTP
 将 DMG 与校验文件放在同一目录，在该目录执行：
 
 ```sh
-shasum -a 256 -c Snake-1.1.0-macos-arm64.dmg.sha256
+shasum -a 256 -c Snake-1.1.1-macos-arm64.dmg.sha256
 ```
 
-本次更新见 [1.1.0 版本说明](docs/RELEASE_NOTES_1.1.0.md)，构建、签名与公证步骤见 [发布流程](docs/RELEASING.md)。
+本次更新见 [1.1.1 版本说明](docs/RELEASE_NOTES_1.1.1.md)，构建、签名与公证步骤见 [发布流程](docs/RELEASING.md)。
 
 ## 界面预览
 
@@ -92,12 +92,12 @@ cargo run --example sftp_smoke -- <host> <port> <username> <known-hosts-path>
 ### 构建 DMG
 
 ```sh
-zsh scripts/package-release-dmg.sh 1.1.0
+zsh scripts/package-release-dmg.sh 1.1.1
 ```
 
 需要 Python 3；脚本使用 Release 优化构建，仅生成当前宿主架构的安装包。产物位于 `release/`，同名文件存在时拒绝覆盖。应用包含 Rust 动态库、Mount Helper、SwiftTerm Metal 资源及第三方许可证，不依赖工作区中的动态库或渲染资源。
 
-版本号和构建号保存在 `Resources/Info.plist`，当前为 `1.1.0` / `1100`。脚本默认临时签名；Developer ID 签名、公证和重新生成校验文件的步骤见 [发布流程](docs/RELEASING.md)。本地打包不会自动创建 Git 标签或发布 GitHub Release。
+版本号和构建号保存在 `Resources/Info.plist`，当前为 `1.1.1` / `1110`。脚本默认临时签名；Developer ID 签名、公证和重新生成校验文件的步骤见 [发布流程](docs/RELEASING.md)。本地打包不会自动创建 Git 标签或发布 GitHub Release。
 
 应用启动时自动将旧明文凭据迁移为加密文件；旧会话如果仍只有 Keychain 引用，会在首次成功读取后迁入加密存储。具体设计及手工验收见 [凭据加密与查看](docs/CREDENTIAL_SECURITY.md)。
 

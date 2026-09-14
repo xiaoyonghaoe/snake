@@ -13,7 +13,7 @@ The macFUSE / sshfs components for disk mapping are optional external dependenci
 
 ## Signing Limitations of the Current Distribution Package
 
-This 1.1.0 installer is only locally ad-hoc signed, without a Developer ID signature or Apple notarization, so it is not a formally notarized package free of security warnings.
+This 1.1.1 installer is only locally ad-hoc signed, without a Developer ID signature or Apple notarization, so it is not a formally notarized package free of security warnings.
 Only open it after confirming that the download source is trustworthy and the checksum matches. If the system warns that the developer cannot be verified, follow the
 [Apple official instructions](https://support.apple.com/zh-cn/102445): after attempting to open it, go to "System Settings → Privacy & Security → Open Anyway".
 Do not disable Gatekeeper. Once a formally notarized package is available, it should be preferred.
@@ -23,7 +23,7 @@ Do not disable Gatekeeper. Once a formally notarized package is available, it sh
 Put the `.dmg` and the `.dmg.sha256` file with the same name in the same directory, then run the following from that directory:
 
 ```sh
-shasum -a 256 -c Snake-1.1.0-macos-arm64.dmg.sha256
+shasum -a 256 -c Snake-1.1.1-macos-arm64.dmg.sha256
 ```
 
 An output of `OK` means the checksum matches the published value; a checksum does not replace a trustworthy source and a developer signature.
