@@ -27,8 +27,10 @@ for lproj in "$PROJECT_DIR"/Resources/Localization/*.lproj; do
     ditto "$lproj" "$RESOURCES_DIR/${lproj:t}"
 done
 mkdir -p "$RESOURCES_DIR/Licenses/TokyoNight"
+mkdir -p "$RESOURCES_DIR/Licenses/TerminalThemes"
 cp "$PROJECT_DIR/THIRD_PARTY_NOTICES.md" "$RESOURCES_DIR/Licenses/THIRD_PARTY_NOTICES.md"
 cp "$PROJECT_DIR/Vendor/TokyoNight/LICENSE" "$PROJECT_DIR/Vendor/TokyoNight/README.md" "$PROJECT_DIR/Vendor/TokyoNight/"*.conf "$RESOURCES_DIR/Licenses/TokyoNight/"
+cp "$PROJECT_DIR/Vendor/TerminalThemes/LICENSE" "$PROJECT_DIR/Vendor/TerminalThemes/README.md" "$RESOURCES_DIR/Licenses/TerminalThemes/"
 plutil -replace CFBundleVersion -string "$(date -u +%Y%m%d%H%M%S)" "$APP_DIR/Contents/Info.plist"
 CORE_LINK="$(otool -L "$MACOS_DIR/Snake" | awk '/libsnake_core.dylib/{print $1; exit}')"
 install_name_tool -change "$CORE_LINK" "@rpath/libsnake_core.dylib" "$MACOS_DIR/Snake"

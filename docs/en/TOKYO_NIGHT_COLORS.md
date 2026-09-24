@@ -2,6 +2,8 @@
 
 # Tokyo Night and Terminal Color Hints
 
+> Historical 1.1.0 implementation record. Remote `ls/ll` injection has since been removed; see the [current terminal color guide](../TERMINAL_COLOR_SCHEMES.md).
+
 ## Appearance and Settings
 
 Only the terminal surface and preview use Tokyo Night: the light Day background and the text inside the cursor are adjusted to pure white `#FFFFFF`, while the dark Night theme is unchanged; the title bar, SFTP and session cards are unchanged. The fixed color values, source commits and license live in `Vendor/TokyoNight`, and the upstream original files are left untouched. The original ANSI 16 colors are not changed; local semantic accent colors are adjusted against the background to at least 4.5:1 to guarantee readability on Day.

@@ -131,6 +131,7 @@ final class FinderDropRoutingTests: XCTestCase {
             ZStack {
                 FinderUploadSurface(
                     content: Text("first"),
+                    runtimeID: WorkspaceTabID(),
                     isActive: { firstSelected },
                     target: { .directory("/first") },
                     perform: { _, _, _ in },
@@ -141,6 +142,7 @@ final class FinderDropRoutingTests: XCTestCase {
 
                 FinderUploadSurface(
                     content: Text("second"),
+                    runtimeID: WorkspaceTabID(),
                     isActive: { !firstSelected },
                     target: { .directory("/second") },
                     perform: { _, _, _ in },

@@ -52,7 +52,7 @@ final class LocalizationTests: XCTestCase {
     ]
 
     /// Remote shell snippets are written into the user's shell, not the app UI.
-    private static let excludedFiles: Set<String> = ["TerminalShellColors.swift"]
+    private static let excludedFiles: Set<String> = []
 
     override func tearDown() {
         LocalizationStore.shared.setLanguage(.system)

@@ -2,6 +2,8 @@
 
 # Terminal Themes and Log Keyword Highlighting
 
+> Historical implementation record. Current behavior is documented in the [terminal color and import guide](../TERMINAL_COLOR_SCHEMES.md).
+
 > This document records the first implementation. On 2026-09-13 Tokyo Night, output fields and remote file-type colors were expanded; the current settings, defaults and boundaries are governed by [Tokyo Night and Terminal Color Hints](TOKYO_NIGHT_COLORS.md).
 
 ## Usage

@@ -34,7 +34,8 @@ final class TerminalHighlightTests: XCTestCase {
                 XCTAssertEqual(theme.ansiHex.count, 16)
                 for color in [theme.foregroundHex] + [.error, .warning, .info, .debug].map(theme.logColorHex)
                     + TerminalFieldRole.allCases.map(theme.fieldColorHex) {
-                    XCTAssertGreaterThanOrEqual(contrast(color, theme.backgroundHex), 4.5)
+                    XCTAssertGreaterThanOrEqual(contrast(color, theme.backgroundHex), 4.5,
+                                                "\(preset.rawValue) dark=\(dark) color=\(String(color, radix: 16))")
                 }
             }
         }

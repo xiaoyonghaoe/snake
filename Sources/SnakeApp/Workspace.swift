@@ -40,8 +40,6 @@ enum TerminalShellIntegration {
 
 @MainActor
 public final class TerminalRuntime: ObservableObject, Identifiable {
-    // Updated by the host; snapshotted at connection start, never applied to a busy shell.
-    var shellColorsEnabled = true
     public let id = WorkspaceTabID()
     public let profile: SSHProfile
     public let uploader: LocalUploadCoordinator
@@ -126,6 +124,13 @@ public final class TerminalRuntime: ObservableObject, Identifiable {
         terminalDelegate = delegate
         self.terminalView = terminalView
         return terminalView
+    }
+
+    var existingTerminalSurface: TerminalView? { terminalView }
+
+    func pasteFileNames(_ text: String) {
+        guard state == .connected else { return }
+        terminalView?.pasteText(text)
     }
 
     func applyTheme(_ theme: TerminalTheme) {
@@ -237,7 +242,6 @@ public final class TerminalRuntime: ObservableObject, Identifiable {
 
     private func connect(accepting fingerprint: String?, columns: UInt32? = nil, rows: UInt32? = nil) {
         guard !isStarting else { return }
-        let enableShellColors = shellColorsEnabled
         isStarting = true
         state = .connecting
         errorMessage = nil
@@ -300,13 +304,6 @@ public final class TerminalRuntime: ObservableObject, Identifiable {
                     isStarting = false
                     state = .connected
                     installDirectoryHook(shellName: shellName)
-                    if enableShellColors {
-                        if let command = TerminalShellColors.command(for: shellName) {
-                            send(Data(command.utf8))
-                        } else {
-                            terminalView?.feed(text: L10n.text("\r\n[Snake] 当前 Shell 暂不支持自动彩色 ls／ll，保留原有配置。\r\n"))
-                        }
-                    }
                     terminalView?.window?.makeFirstResponder(terminalView)
                     return
                 } catch let error as CoreError {
@@ -2048,6 +2045,18 @@ public final class WorkspaceWindowState: ObservableObject, Identifiable {
         return tabs[tab.id]
     }
 
+    /// Resolve the visible tab owning a focused native upload surface. The
+    /// last-focused pane alone can lag behind AppKit's current first responder.
+    func visibleRuntime(id: WorkspaceTabID) -> WorkspaceTabRuntime? {
+        for paneID in bonsplit.allPaneIds {
+            guard let tab = bonsplit.selectedTab(inPane: paneID),
+                  let runtime = tabs[tab.id], runtime.id == id else { continue }
+            activePaneID = paneID
+            return runtime
+        }
+        return nil
+    }
+
     @discardableResult
     func add(_ runtime: WorkspaceTabRuntime, to pane: PaneID? = nil, at index: Int? = nil) -> Bool {
         if let pane, !bonsplit.allPaneIds.contains(pane) { return false }
@@ -2580,6 +2589,109 @@ public final class WorkspaceWindowCoordinator: NSObject {
         return windows.values.first
     }
 
+    /// A Finder copy is intercepted before SwiftTerm's text-only paste and
+    /// before the menu sends `paste:` to whichever split had keyboard focus.
+    func handleFinderPasteShortcut(_ event: NSEvent, in window: NSWindow) -> Bool {
+        guard FinderClipboardPaste.isShortcut(event), NSApp.keyWindow === window,
+              NSApp.modalWindow == nil, window.attachedSheet == nil,
+              dragging.active == nil,
+              let record = windows.values.first(where: { $0.window === window }),
+              let responderView = window.firstResponder as? NSView,
+              let surface = pasteSurface(above: responderView),
+              let runtimeID = surface.pasteRuntimeID,
+              let runtime = record.state.visibleRuntime(id: runtimeID) else { return false }
+
+        // Path/search editors keep native text paste, even when Finder also
+        // supplies a file URL representation on the clipboard.
+        if let textView = responderView as? NSTextView, textView.isEditable || textView.isFieldEditor { return false }
+        if responderView is NSTextField { return false }
+        if let terminal = runtime.terminal {
+            guard let terminalView = terminal.existingTerminalSurface,
+                  responderView === terminalView || responderView.isDescendant(of: terminalView) else { return false }
+        } else if runtime.sftp == nil {
+            return false
+        }
+
+        let pasteboard = NSPasteboard.general
+        guard FinderUploadPasteboard.accepts(pasteboard) else { return false }
+        // Consume key repeats without opening more sheets or enqueuing twice.
+        if event.isARepeat { return true }
+        let urls: [URL]
+        do {
+            urls = try FinderUploadPasteboard.urls(from: pasteboard)
+        } catch {
+            showFinderPasteMessage(error.localizedDescription, in: window)
+            return true
+        }
+        let target = runtime.finderUploadTarget
+        guard target.canUpload else {
+            showFinderPasteMessage(target.title, in: window)
+            return true
+        }
+        if runtime.sftp != nil {
+            runtime.uploadFromFinder(urls: urls, target: target, window: window, store: store)
+            return true
+        }
+        presentTerminalFilePaste(urls: urls, target: target, runtime: runtime, in: window)
+        return true
+    }
+
+    private func pasteSurface(above view: NSView) -> (any FinderUploadPasteSurface)? {
+        var current: NSView? = view
+        while let node = current {
+            if let surface = node as? any FinderUploadPasteSurface { return surface }
+            current = node.superview
+        }
+        return nil
+    }
+
+    private func presentTerminalFilePaste(
+        urls: [URL], target: FinderUploadTarget, runtime: WorkspaceTabRuntime, in window: NSWindow
+    ) {
+        let alert = NSAlert()
+        alert.messageText = L10n.text("粘贴访达文件")
+        let destination: String
+        if case .directory(let path) = target {
+            destination = path
+        } else {
+            destination = L10n.text("待确认远程目录")
+        }
+        alert.informativeText = L10n.plural("已复制 %@ 个项目。目标目录：%@", count: urls.count, urls.count, destination)
+        alert.addButton(withTitle: L10n.text("上传文件"))
+        let namesButton = alert.addButton(withTitle: L10n.text("粘贴文件名"))
+        let names = FinderClipboardPaste.fileNamesText(for: urls)
+        namesButton.isEnabled = names != nil
+        alert.addButton(withTitle: L10n.text("取消"))
+        alert.beginSheetModal(for: window) { [weak self, weak runtime, weak window] response in
+            guard let self, let runtime, let window,
+                  self.windows.values.contains(where: { $0.state.tabs.values.contains { $0 === runtime } }) else { return }
+            switch response {
+            case .alertFirstButtonReturn:
+                // The directory-confirmation sheet, if needed, must begin only
+                // after this choice sheet has fully detached from the window.
+                DispatchQueue.main.async { [weak self, weak runtime, weak window] in
+                    guard let self, let runtime, let window else { return }
+                    let ownerWindow = self.windows.values.first(where: {
+                        $0.state.tabs.values.contains { $0 === runtime }
+                    })?.window ?? window
+                    runtime.uploadFromFinder(urls: urls, target: target, window: ownerWindow, store: self.store)
+                }
+            case .alertSecondButtonReturn:
+                if let names { runtime.terminal?.pasteFileNames(names) }
+            default:
+                break
+            }
+        }
+    }
+
+    private func showFinderPasteMessage(_ message: String, in window: NSWindow) {
+        let alert = NSAlert()
+        alert.messageText = L10n.text("无法上传文件")
+        alert.informativeText = message
+        alert.addButton(withTitle: L10n.text("确定"))
+        alert.beginSheetModal(for: window) { _ in }
+    }
+
     @objc private func closeCurrentItem(_ sender: Any?) {
         guard NSApp.modalWindow == nil, let record = keyWindowRecord,
               record.window?.attachedSheet == nil else { return }
@@ -2875,27 +2987,23 @@ public struct TerminalHost: NSViewRepresentable {
     let theme: TerminalTheme
     let fontName: String
     let fontSize: Double
-    let shellColorsEnabled: Bool
 
     init(
         runtime: TerminalRuntime,
         theme: TerminalTheme,
         fontName: String,
-        fontSize: Double,
-        shellColorsEnabled: Bool = true
+        fontSize: Double
     ) {
         self.runtime = runtime
         self.theme = theme
         self.fontName = fontName
         self.fontSize = fontSize
-        self.shellColorsEnabled = shellColorsEnabled
     }
 
     public func makeNSView(context: Context) -> TerminalView {
         let terminalView = runtime.terminalSurface()
         runtime.applyTheme(theme)
         runtime.applyFont(name: fontName, size: fontSize)
-        runtime.shellColorsEnabled = shellColorsEnabled
         runtime.startIfNeeded(terminalView)
         return terminalView
     }
@@ -2903,7 +3011,6 @@ public struct TerminalHost: NSViewRepresentable {
     public func updateNSView(_ nsView: TerminalView, context: Context) {
         runtime.applyTheme(theme)
         runtime.applyFont(name: fontName, size: fontSize)
-        runtime.shellColorsEnabled = shellColorsEnabled
         runtime.startIfNeeded(nsView)
     }
 }

@@ -29,7 +29,7 @@ def collect(destination: Path, target: str):
     destination.mkdir(parents=True, exist_ok=True)
     for name in ("LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.md"):
         shutil.copy2(root / name, destination / name)
-    for name in ("Bonsplit", "SwiftTerm", "TokyoNight"):
+    for name in ("Bonsplit", "SwiftTerm", "TokyoNight", "TerminalThemes"):
         out = destination / name
         out.mkdir()
         shutil.copy2(root / "Vendor" / name / "LICENSE", out / "LICENSE")
@@ -37,6 +37,7 @@ def collect(destination: Path, target: str):
         path = root / "Vendor/TokyoNight" / name
         if path.exists():
             shutil.copy2(path, destination / "TokyoNight" / name)
+    shutil.copy2(root / "Vendor/TerminalThemes/README.md", destination / "TerminalThemes" / "README.md")
     # Preserve original generated palette notices regardless of filename.
     for path in (root / "Vendor/TokyoNight").glob("*.conf"):
         shutil.copy2(path, destination / "TokyoNight" / path.name)

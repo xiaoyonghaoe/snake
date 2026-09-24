@@ -43,7 +43,6 @@
 "SSH 会话" = "SSH Sessions";
 "SSH 握手成功" = "SSH handshake succeeded";
 "SSH 握手未完成" = "SSH handshake incomplete";
-"Shell 彩色输出" = "Shell colors";
 "Snake 凭据加密密钥" = "Snake credential encryption key";
 "WARN / WARNING 正在重试" = "WARN / WARNING retrying";
 "[ERROR] FATAL 连接超时" = "[ERROR] FATAL connection timed out";
@@ -53,7 +52,6 @@
 "\n…另有 %@ 项" = "\n…%@ more item";
 "\n…另有 %@ 项#plural" = "\n…%@ more items";
 "\n文件夹将保留目录结构" = "\nFolder structure is preserved";
-"\r\n[Snake] 当前 Shell 暂不支持自动彩色 ls／ll，保留原有配置。\r\n" = "\r\n[Snake] The current shell does not support automatic colored ls/ll yet; the existing configuration is kept.\r\n";
 "macFUSE 与 SSHFS 可用" = "macFUSE and SSHFS available";
 "sshfs 挂载失败。" = "sshfs mount failed.";
 "“%@”仍处于挂载状态" = "\"%@\" is still mounted";
@@ -69,10 +67,14 @@
 "上传文件…" = "Upload File…";
 "上传文件到 SFTP…" = "Upload Files to SFTP…";
 "上传文件夹…" = "Upload Folder…";
+"已复制 %@ 个项目。目标目录：%@" = "Copied %@ item. Destination: %@";
+"已复制 %@ 个项目。目标目录：%@#plural" = "Copied %@ items. Destination: %@";
+"待确认远程目录" = "Remote directory to confirm";
+"粘贴访达文件" = "Paste Finder Files";
+"粘贴文件名" = "Paste File Names";
 "上传目录无效，请输入绝对远程路径。" = "Invalid upload directory. Enter an absolute remote path.";
 "上传目录目标不是普通目录：%@" = "Upload directory target is not a regular directory: %@";
 "上传长度或源文件已变化，暂存文件未发布" = "Upload length or source file changed; staging file was not published";
-"下次连接生效。仅临时配置当前 Shell，不修改服务器配置文件；保留复杂函数及 NO_COLOR。" = "Takes effect on the next connection. Only the current shell is configured temporarily; the server configuration file is not modified. Complex functions and NO_COLOR are preserved.";
 "下载…" = "Download…";
 "下载到此处" = "Download Here";
 "下载文件写入磁盘失败" = "Failed to write the downloaded file to disk";
@@ -132,7 +134,6 @@
 "前往下一个访问过的目录" = "Go to the next visited directory";
 "前进" = "Forward";
 "加密保存 · 查看需身份验证；隐藏后保留编辑草稿。" = "Save encrypted · Viewing requires authentication; hiding keeps the edit draft.";
-"区分权限、时间、地址、路径、大小和状态；保留远端颜色，Vim、top 等备用屏幕不启用。" = "Distinguishes permissions, time, address, path, size, and status; keeps remote colors, and alternate screens such as Vim and top are not enabled.";
 "卸载并退出" = "Unmount and Quit";
 "原 SSH 会话已删除，请重新绑定会话。" = "The original SSH session was deleted. Bind a session again.";
 "发布下载文件失败，目标可能已存在或权限不足：%@" = "Failed to publish the downloaded file; the destination may already exist or permissions may be insufficient: %@";
@@ -290,9 +291,10 @@
 "无法确认目录的挂载状态，暂不能删除：%@" = "Cannot determine the mount status of the directory; it cannot be deleted yet: %@";
 "无法确认系统挂载状态：%@" = "Cannot determine system mount status: %@";
 "无法访问系统钥匙串（状态码 %@）。" = "Unable to access the system keychain (status code %@).";
+"无法上传文件" = "Cannot upload files";
 "无法读取原指纹" = "Unable to read the original fingerprint";
 "无法读取已保存的凭据，请检查凭据文件和钥匙串权限。" = "Unable to read the saved credential. Check the credential file and keychain permissions.";
-"无法读取拖入的文件，请从访达重新选择文件或文件夹。" = "Unable to read the dropped file. Choose the file or folder again from Finder.";
+"无法读取访达文件，请重新复制或拖入文件或文件夹。" = "Unable to read the Finder files. Copy or drag the files or folders again.";
 "无法读取本地文件进行校验" = "Unable to read the local file for verification";
 "无法读取软链接目标" = "Unable to read the symbolic link target";
 "日志关键词高亮" = "Log keyword highlighting";
@@ -462,7 +464,6 @@
 "编辑映射" = "Edit mount";
 "缺少依赖" = "Missing dependency";
 "耗时" = "Duration";
-"自动启用 ls／ll 彩色输出" = "Automatically enable colored ls/ll output";
 "自动挂载" = "Mount automatically";
 "自动清理" = "Clean up";
 "裁剪会话头像" = "Crop session avatar";
@@ -558,5 +559,17 @@
 "验证身份以查看 Snake 中已保存的密码或私钥口令" = "Authenticate to view passwords or private key passphrases saved in Snake";
 "验证身份后在原输入框显示并编辑；30 秒后恢复隐藏，保留草稿" = "After authentication, the value is shown and can be edited in the original field; it is hidden again after 30 seconds, and the draft is kept";
 "鲜明" = "Vivid";
+"内置" = "Built-in";
+"已导入" = "Imported";
+"导入 .itermcolors…" = "Import .itermcolors…";
+"删除已选主题" = "Delete selected theme";
+"终端配色示例 · 文件颜色仅用于预览" = "Terminal color sample · file colors are illustrative only";
+"内置浅色主题使用 Snake 白底适配；导入主题保留原背景。只改变终端显示，不修改远端 ls／ll。" = "Built-in light themes use a Snake white background; imports retain their original background. Display only—remote ls/ll is unchanged.";
+"已导入主题不可用，已恢复 Tokyo Night。" = "Imported theme unavailable; restored Tokyo Night.";
+"已删除导入主题，已恢复 Tokyo Night。" = "Imported theme deleted; restored Tokyo Night.";
+"主题文件超过 1 MB 限制。" = "Theme file exceeds the 1 MB limit.";
+"不是有效的 .itermcolors 属性列表。" = "Not a valid .itermcolors property list.";
+"缺少前景、背景或完整的 ANSI 16 色。" = "Foreground, background, or the complete ANSI 16-color palette is missing.";
+"颜色“%@”的 RGB 值无效。" = "Color “%@” has invalid RGB values.";
 "；已撤销挂载。" = "; mount revoked.";
 "；磁盘仍已挂载，请安全卸载后修改本地入口。" = "; the disk is still mounted, so unmount it safely before changing the local entry.";

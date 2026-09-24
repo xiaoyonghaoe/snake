@@ -2,6 +2,11 @@
 
 上游与 MIT 许可见 `README.md`、`LICENSE` 及项目根目录 `THIRD_PARTY_NOTICES.md`。
 
+## 2026-09-23：显式文本粘贴入口
+
+- macOS `TerminalView.pasteText(_:)` 允许应用将已确认的文件名文本通过原生粘贴路径发送，不替换系统剪贴板；保留 bracketed paste 与 Kitty 键盘处理。
+- 现有 `paste(_:)` 复用该入口，普通剪贴板文本粘贴行为不变。
+
 ## 2026-09-13：独立应用资源
 
 - Metal 资源加载优先查找应用 `Contents/Resources/SwiftTerm_SwiftTerm.bundle`，避免分发后触发 SwiftPM 生成访问器的构建目录依赖；命令行 SwiftPM 构建继续使用 `Bundle.module`。

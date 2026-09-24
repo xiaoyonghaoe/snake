@@ -2,6 +2,8 @@
 
 # Tokyo Night 与终端颜色提示
 
+> 本文是 1.1.0 历史实现记录，其中远端 `ls/ll` 注入现已移除；当前行为请见 [终端配色与导入](TERMINAL_COLOR_SCHEMES.md)。
+
 ## 外观与设置
 
 仅终端表面和预览采用 Tokyo Night：浅色 Day 的背景及光标内文字调整为纯白 `#FFFFFF`，深色 Night 不变；标题栏、SFTP、会话卡片不变。固定色值、来源提交和许可证位于 `Vendor/TokyoNight`，上游原始文件保留不动。原始 ANSI 16 色不改；本地语义强调色按背景调整至至少 4.5:1，保证 Day 上的可读性。

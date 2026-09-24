@@ -1887,7 +1887,13 @@ open class TerminalView: NSView, NSTextInputClient, NSUserInterfaceValidations, 
     {
         let clipboard = NSPasteboard.general
         let text = clipboard.string(forType: .string)
-        insertText(text ?? "", replacementRange: NSRange(location: 0, length: 0), isPaste: true)
+        pasteText(text ?? "")
+    }
+
+    /// Paste an explicit string without replacing the system pasteboard. The
+    /// same path as native paste preserves bracketed-paste and Kitty handling.
+    open func pasteText(_ text: String) {
+        insertText(text as NSString, replacementRange: NSRange(location: 0, length: 0), isPaste: true)
     }
     
     @objc

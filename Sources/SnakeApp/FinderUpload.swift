@@ -72,9 +72,35 @@ enum FinderUploadPasteboard {
     }
 }
 
+/// Finder file copies are file URLs, while ordinary terminal text remains a
+/// normal paste. Keep this policy separate from drag-and-drop routing.
+enum FinderClipboardPaste {
+    static func isShortcut(_ event: NSEvent) -> Bool {
+        event.type == .keyDown
+            && event.modifierFlags.intersection([.command, .control, .option, .shift]) == [.command]
+            && event.charactersIgnoringModifiers?.lowercased() == "v"
+    }
+
+    /// Insert names, never local paths. Quoting keeps a copied name from being
+    /// interpreted as multiple shell arguments or a command substitution.
+    static func fileNamesText(for urls: [URL]) -> String? {
+        guard !urls.isEmpty else { return nil }
+        let names = urls.map(\.lastPathComponent)
+        guard names.allSatisfy({ !$0.isEmpty && !$0.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains) }) else {
+            return nil
+        }
+        return names.map { name in
+            if name.unicodeScalars.allSatisfy({ CharacterSet.alphanumerics.contains($0) || "._-+".unicodeScalars.contains($0) }) {
+                return name
+            }
+            return "'" + name.replacingOccurrences(of: "'", with: "'\\''") + "'"
+        }.joined(separator: " ")
+    }
+}
+
 enum FinderUploadError: LocalizedError {
     case invalidFiles
-    var errorDescription: String? { L10n.text("无法读取拖入的文件，请从访达重新选择文件或文件夹。") }
+    var errorDescription: String? { L10n.text("无法读取访达文件，请重新复制或拖入文件或文件夹。") }
 }
 
 enum FinderUploadTarget: Equatable {
@@ -121,6 +147,7 @@ enum FinderDropVisibility {
 /// the tab and converts current window coordinates rather than caching frames.
 struct FinderUploadSurface<Content: View>: NSViewRepresentable {
     let content: Content
+    let runtimeID: WorkspaceTabID
     let isActive: () -> Bool
     let target: () -> FinderUploadTarget
     let perform: ([URL], FinderUploadTarget, NSWindow) -> Void
@@ -140,6 +167,7 @@ struct FinderUploadSurface<Content: View>: NSViewRepresentable {
 
     private func configure(_ view: FinderUploadHostingView<Content>) {
         let active = isActive()
+        view.pasteRuntimeID = runtimeID
         view.requiresUploadArea = true
         view.isActiveTarget = isActive
         view.uploadTarget = target
@@ -156,6 +184,11 @@ struct FinderUploadSurface<Content: View>: NSViewRepresentable {
 }
 
 @MainActor
+protocol FinderUploadPasteSurface: AnyObject {
+    var pasteRuntimeID: WorkspaceTabID? { get }
+}
+
+@MainActor
 protocol FinderUploadDestination: AnyObject {
     var destinationView: NSView { get }
     var isAvailableTarget: Bool { get }
@@ -167,7 +200,8 @@ protocol FinderUploadDestination: AnyObject {
     func concludeDragOperation(_ sender: (any NSDraggingInfo)?)
 }
 
-final class FinderUploadHostingView<Content: View>: NSHostingView<Content>, FinderUploadDestination {
+final class FinderUploadHostingView<Content: View>: NSHostingView<Content>, FinderUploadDestination, FinderUploadPasteSurface {
+    var pasteRuntimeID: WorkspaceTabID?
     var requiresUploadArea = false
     var isActiveTarget: () -> Bool = { false }
     var uploadTarget: () -> FinderUploadTarget = { .unavailable(L10n.text("请先连接")) }

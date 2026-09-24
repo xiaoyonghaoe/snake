@@ -37,9 +37,9 @@ shasum -a 256 -c Snake-1.1.2-macos-arm64.dmg.sha256
 ### SSH 终端与配色
 
 - Rust/libssh2 `TerminalHandle` 提供真实 SSH PTY，SwiftTerm 负责渲染与输入。支持密码/私钥认证、主机密钥校验、真实协商算法详情、UTF-8 输入输出、PTY resize、远端退出和 30 秒 Keepalive；瞬时连接错误自动重试一次，并显示具体失败阶段。
-- 设置支持终端字体、字号及“经典”“鲜明”“Tokyo Night”主题。默认 Tokyo Night，浅色终端背景为纯白；主题切换保留连接与输出缓冲。
+- 设置支持终端字体、字号及“经典”“鲜明”“Tokyo Night”“Catppuccin”“Gruvbox”“Solarized”内置主题，也可导入、删除 `.itermcolors`。默认 Tokyo Night，内置浅色主题使用纯白背景，导入主题保留原背景；主题切换保留连接与输出缓冲。
 - 日志关键词和权限、时间、路径、地址等输出字段可本地高亮，不改写终端数据；尊重远端 ANSI / True Color，备用屏幕停用本地高亮。
-- 可在 bash/zsh/fish 当前会话中启用彩色 `ls/ll`，不修改远端 Shell 配置文件。开关下次连接生效，保留用户复杂别名及非空 `NO_COLOR`。详见 [终端配色说明](docs/TOKYO_NIGHT_COLORS.md)。
+- Snake 不再自动改写远端 `ls/ll`、`LS_COLORS` 或 `CLICOLOR`；若服务器自身输出 ANSI 色，终端照常显示。详见 [当前终端配色说明](docs/TERMINAL_COLOR_SCHEMES.md)。
 
 ### SFTP 与文件传输
 

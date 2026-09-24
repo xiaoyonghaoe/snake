@@ -73,7 +73,7 @@ final class TerminalOutputColorTests: XCTestCase {
         }
     }
 
-    func testThemeMigrationRunsOnlyOnceAndNewSwitchesPersist() throws {
+    func testThemeMigrationRunsOnlyOnceAndHighlightSwitchPersists() throws {
         let suite = "snake-tokyo-migration-\(UUID())"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(suite)
@@ -81,16 +81,13 @@ final class TerminalOutputColorTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: suite); try? FileManager.default.removeItem(at: root) }
         defaults.set("classic", forKey: "com.snake.terminal.theme")
         let first = ApplicationStore(databaseURL: root.appendingPathComponent("test.sqlite3"), userDefaults: defaults)
-        XCTAssertEqual(first.terminalThemePreset, .tokyoNight)
+        XCTAssertEqual(first.terminalThemePreset, .classic)
         XCTAssertTrue(first.terminalFieldHighlightEnabled)
-        XCTAssertTrue(first.terminalShellColorsEnabled)
         first.terminalThemePreset = .classic
         first.terminalFieldHighlightEnabled = false
-        first.terminalShellColorsEnabled = false
         let second = ApplicationStore(databaseURL: root.appendingPathComponent("test.sqlite3"), userDefaults: defaults)
         XCTAssertEqual(second.terminalThemePreset, .classic)
         XCTAssertFalse(second.terminalFieldHighlightEnabled)
-        XCTAssertFalse(second.terminalShellColorsEnabled)
     }
 
     func testLongWrappedFieldAndCapInSharedRenderer() {

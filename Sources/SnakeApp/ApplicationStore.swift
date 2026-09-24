@@ -63,17 +63,20 @@ public final class ApplicationStore: ObservableObject {
     @Published public var terminalFontName: String {
         didSet { defaults.set(terminalFontName, forKey: terminalFontNameKey) }
     }
-    @Published var terminalThemePreset: TerminalThemePreset {
-        didSet { defaults.set(terminalThemePreset.rawValue, forKey: terminalThemeKey) }
+    @Published var selectedTerminalThemeID: String {
+        didSet { defaults.set(selectedTerminalThemeID, forKey: terminalThemeKey) }
+    }
+    @Published private(set) var importedTerminalThemes: [ImportedTerminalTheme]
+    @Published var terminalThemeNotice: String?
+    var terminalThemePreset: TerminalThemePreset {
+        get { TerminalThemePreset(rawValue: selectedTerminalThemeID) ?? .tokyoNight }
+        set { selectedTerminalThemeID = newValue.rawValue }
     }
     @Published var terminalLogHighlightEnabled: Bool {
         didSet { defaults.set(terminalLogHighlightEnabled, forKey: terminalHighlightKey) }
     }
     @Published var terminalFieldHighlightEnabled: Bool {
         didSet { defaults.set(terminalFieldHighlightEnabled, forKey: terminalFieldHighlightKey) }
-    }
-    @Published var terminalShellColorsEnabled: Bool {
-        didSet { defaults.set(terminalShellColorsEnabled, forKey: terminalShellColorsKey) }
     }
     @Published public var terminalFontSize: Double {
         didSet {
@@ -110,7 +113,7 @@ public final class ApplicationStore: ObservableObject {
     private let terminalThemeKey = "com.snake.terminal.theme"
     private let terminalHighlightKey = "com.snake.terminal.log-highlight"
     private let terminalFieldHighlightKey = "com.snake.terminal.field-highlight"
-    private let terminalShellColorsKey = "com.snake.terminal.shell-colors"
+    private let terminalThemeLibrary: TerminalThemeLibrary
     private let tokyoMigrationKey = "com.snake.terminal.tokyo-migration-v1"
     private let appearanceKey = "com.snake.appearance.dark"
     private let appLanguageKey = "com.snake.appearance.language"
@@ -123,23 +126,35 @@ public final class ApplicationStore: ObservableObject {
     private var mountOperations: [UUID: Task<Void, Never>] = [:]
     private(set) var isPreparingToQuit = false
 
-    public init(databaseURL: URL? = nil, userDefaults: UserDefaults = .standard) {
+    public init(databaseURL: URL? = nil, userDefaults: UserDefaults = .standard,
+                terminalThemeDirectoryURL: URL? = nil) {
         defaults = userDefaults
+        let themeLibrary = TerminalThemeLibrary(directoryURL: terminalThemeDirectoryURL)
+        terminalThemeLibrary = themeLibrary
+        let loadedThemes = themeLibrary.load()
+        importedTerminalThemes = loadedThemes
         self.isDarkAppearancePreferred = defaults.bool(forKey: appearanceKey)
         let initialLanguage = AppLanguage(rawValue: defaults.string(forKey: appLanguageKey) ?? "") ?? .system
         self.appLanguage = initialLanguage
         LocalizationStore.shared.setLanguage(initialLanguage)
         if !defaults.bool(forKey: tokyoMigrationKey) {
-            defaults.set(TerminalThemePreset.tokyoNight.rawValue, forKey: terminalThemeKey)
+            if defaults.string(forKey: terminalThemeKey) == nil {
+                defaults.set(TerminalThemePreset.tokyoNight.rawValue, forKey: terminalThemeKey)
+            }
             defaults.set(true, forKey: tokyoMigrationKey)
         }
-        self.terminalThemePreset = TerminalThemePreset(rawValue: defaults.string(forKey: terminalThemeKey) ?? "") ?? .tokyoNight
+        let savedThemeID = defaults.string(forKey: terminalThemeKey) ?? TerminalThemePreset.tokyoNight.rawValue
+        if TerminalThemePreset(rawValue: savedThemeID) != nil || loadedThemes.contains(where: { $0.selectionID == savedThemeID }) {
+            self.selectedTerminalThemeID = savedThemeID
+        } else {
+            self.selectedTerminalThemeID = TerminalThemePreset.tokyoNight.rawValue
+            self.terminalThemeNotice = L10n.text("已导入主题不可用，已恢复 Tokyo Night。")
+            defaults.set(TerminalThemePreset.tokyoNight.rawValue, forKey: terminalThemeKey)
+        }
         self.terminalLogHighlightEnabled = defaults.object(forKey: terminalHighlightKey) == nil
             ? true : defaults.bool(forKey: terminalHighlightKey)
         self.terminalFieldHighlightEnabled = defaults.object(forKey: terminalFieldHighlightKey) == nil
             ? true : defaults.bool(forKey: terminalFieldHighlightKey)
-        self.terminalShellColorsEnabled = defaults.object(forKey: terminalShellColorsKey) == nil
-            ? true : defaults.bool(forKey: terminalShellColorsKey)
         let savedThreshold = defaults.integer(forKey: multipartThresholdKey)
         let savedConcurrency = defaults.integer(forKey: multipartConcurrencyKey)
         self.multipartThresholdMB = savedThreshold == 0 ? 50 : min(max(savedThreshold, 1), 10_240)
@@ -865,6 +880,43 @@ public final class ApplicationStore: ObservableObject {
     private func persistConfiguration() {
         try? corePersistence?.synchronize(groups: groups, profiles: profiles)
         try? corePersistence?.synchronize(mappings: mountMappings, profiles: profiles)
+    }
+
+    func terminalTheme(isDark: Bool) -> TerminalTheme {
+        let imported = importedTerminalThemes.first { $0.selectionID == selectedTerminalThemeID }
+        return TerminalTheme(preset: terminalThemePreset, isDark: isDark,
+                             logHighlightEnabled: terminalLogHighlightEnabled,
+                             fieldHighlightEnabled: terminalFieldHighlightEnabled,
+                             importedPalette: imported?.palette(isDark: isDark))
+    }
+
+    func importTerminalTheme(from url: URL) {
+        let access = url.startAccessingSecurityScopedResource()
+        defer { if access { url.stopAccessingSecurityScopedResource() } }
+        do {
+            guard url.pathExtension.lowercased() == "itermcolors" else { throw TerminalThemeImportError.invalidPlist }
+            let values = try url.resourceValues(forKeys: [.fileSizeKey])
+            guard (values.fileSize ?? 0) <= 1_048_576 else { throw TerminalThemeImportError.oversized }
+            let data = try Data(contentsOf: url)
+            let theme = try terminalThemeLibrary.add(data: data, name: url.deletingPathExtension().lastPathComponent)
+            importedTerminalThemes = terminalThemeLibrary.load()
+            selectedTerminalThemeID = theme.selectionID
+            terminalThemeNotice = nil
+        } catch {
+            terminalThemeNotice = error.localizedDescription
+        }
+    }
+
+    func deleteSelectedImportedTerminalTheme() {
+        guard let theme = importedTerminalThemes.first(where: { $0.selectionID == selectedTerminalThemeID }) else { return }
+        do {
+            try terminalThemeLibrary.remove(theme)
+            importedTerminalThemes.removeAll { $0.id == theme.id }
+            selectedTerminalThemeID = TerminalThemePreset.tokyoNight.rawValue
+            terminalThemeNotice = L10n.text("已删除导入主题，已恢复 Tokyo Night。")
+        } catch {
+            terminalThemeNotice = error.localizedDescription
+        }
     }
 
     private static func decode<T: Decodable>(_ type: T.Type, data: Data?) -> T {

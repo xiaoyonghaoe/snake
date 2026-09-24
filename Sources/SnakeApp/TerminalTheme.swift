@@ -2,13 +2,16 @@ import AppKit
 import SwiftTerm
 
 enum TerminalThemePreset: String, CaseIterable {
-    case classic, vivid, tokyoNight
+    case classic, vivid, tokyoNight, catppuccin, gruvbox, solarized
 
     var title: String {
         switch self {
         case .classic: L10n.text("经典")
         case .vivid: L10n.text("鲜明")
         case .tokyoNight: "Tokyo Night"
+        case .catppuccin: "Catppuccin Latte / Mocha"
+        case .gruvbox: "Gruvbox Light / Dark"
+        case .solarized: "Solarized Light / Dark"
         }
     }
 }
@@ -18,34 +21,66 @@ struct TerminalTheme: Equatable {
     let isDark: Bool
     var logHighlightEnabled = true
     var fieldHighlightEnabled = false
+    var importedPalette: TerminalPalette? = nil
+
+    private var builtinPalette: TerminalPalette? {
+        switch preset {
+        case .catppuccin:
+            return isDark
+                ? TerminalPalette(foreground: 0xCDD6F4, background: 0x1E1E2E, cursor: 0xF5E0DC, cursorText: 0x1E1E2E, selection: 0x585B70,
+                                  ansi: [0x45475A,0xF38BA8,0xA6E3A1,0xF9E2AF,0x89B4FA,0xF5C2E7,0x94E2D5,0xA6ADC8,0x585B70,0xF37799,0x89D88B,0xEBD391,0x74A8FC,0xF2AEDE,0x6BD7CA,0xBAC2DE])
+                : TerminalPalette(foreground: 0x4C4F69, background: 0xFFFFFF, cursor: 0xDC8A78, cursorText: 0xFFFFFF, selection: 0xACB0BE,
+                                  ansi: [0x5C5F77,0xD20F39,0x40A02B,0xDF8E1D,0x1E66F5,0xEA76CB,0x179299,0xACB0BE,0x6C6F85,0xDE293E,0x49AF3D,0xEEA02D,0x456EFF,0xFE85D8,0x2D9FA8,0xBCC0CC])
+        case .gruvbox:
+            return isDark
+                ? TerminalPalette(foreground: 0xE6D4A3, background: 0x1E1E1E, cursor: 0xE6D4A3, cursorText: 0x1E1E1E, selection: 0x7F7061,
+                                  ansi: [0x1E1E1E,0xBE0F17,0x868715,0xCC881A,0x377375,0xA04B73,0x578E57,0x978771,0x7F7061,0xF73028,0xAAB01E,0xF7B125,0x719586,0xC77089,0x7DB669,0xE6D4A3])
+                : TerminalPalette(foreground: 0x2E2A29, background: 0xFFFFFF, cursor: 0x2E2A29, cursorText: 0xFFFFFF, selection: 0xE5D5A0,
+                                  ansi: [0xFAEFBB,0xBE0F17,0x868715,0xCC881A,0x377375,0xA04B73,0x578E57,0x685C51,0x7F7061,0x890009,0x66620D,0xA56311,0x0E5365,0x7B2B5E,0x356A46,0x2E2A29])
+        case .solarized:
+            let ansi: [UInt32] = [0x002831,0xD11C24,0x738A05,0xA57706,0x2176C7,0xC61C6F,0x259286,0xEAE3CB,0x001E27,0xBD3613,0x475B62,0x536870,0x708284,0x5956BA,0x819090,0xFCF4DC]
+            return isDark
+                ? TerminalPalette(foreground: 0x839496, background: 0x001E27, cursor: 0x839496, cursorText: 0x002831, selection: 0x475B62, ansi: ansi)
+                : TerminalPalette(foreground: 0x536870, background: 0xFFFFFF, cursor: 0x536870, cursorText: 0xFFFFFF, selection: 0xEAE3CB, ansi: ansi)
+        default: return nil
+        }
+    }
+
+    private var palette: TerminalPalette? { importedPalette ?? builtinPalette }
 
     // Keep the original palettes available to existing callers.
     static let light = TerminalTheme(preset: .classic, isDark: false)
     static let dark = TerminalTheme(preset: .classic, isDark: true)
 
     var backgroundHex: UInt32 {
+        if let palette { return palette.background }
         if preset == .tokyoNight { return isDark ? 0x1A1B26 : 0xFFFFFF }
         return isDark ? (preset == .vivid ? 0x0F151E : 0x111418) : 0xFFFFFF
     }
 
     var foregroundHex: UInt32 {
+        if let palette { return palette.foreground }
         if preset == .tokyoNight { return isDark ? 0xC0CAF5 : 0x3760BF }
         return isDark ? (preset == .vivid ? 0xD8E2EF : 0xCBD2D9) : 0x1F2328
     }
 
     var cursorHex: UInt32 {
-        preset == .tokyoNight ? foregroundHex : (preset == .vivid && isDark ? 0x64B5FF : 0x0A84FF)
+        if let palette { return palette.cursor }
+        return preset == .tokyoNight ? foregroundHex : (preset == .vivid && isDark ? 0x64B5FF : 0x0A84FF)
     }
 
     var cursorTextHex: UInt32 {
-        preset == .tokyoNight ? backgroundHex : (isDark ? 0x07111C : 0xFFFFFF)
+        if let palette { return palette.cursorText }
+        return preset == .tokyoNight ? backgroundHex : (isDark ? 0x07111C : 0xFFFFFF)
     }
 
     var selectionHex: UInt32 {
-        preset == .tokyoNight ? (isDark ? 0x283457 : 0xB7C1E3) : (isDark ? 0x244B76 : 0xCFE4FF)
+        if let palette { return palette.selection }
+        return preset == .tokyoNight ? (isDark ? 0x283457 : 0xB7C1E3) : (isDark ? 0x244B76 : 0xCFE4FF)
     }
 
     var ansiHex: [UInt32] {
+        if let palette { return palette.ansi }
         // Folke Lemaitre's Tokyo Night, pinned provenance and license: Vendor/TokyoNight.
         if preset == .tokyoNight {
             return isDark ? [
@@ -91,7 +126,7 @@ struct TerminalTheme: Equatable {
     }
 
     func logColorHex(_ level: TerminalLogLevel) -> UInt32 {
-        if preset == .tokyoNight {
+        if preset == .tokyoNight && importedPalette == nil {
             let value: UInt32 = switch level {
             case .error: ansiHex[1]
             case .warning: isDark ? 0xFF9E64 : 0xB15C00
@@ -100,12 +135,13 @@ struct TerminalTheme: Equatable {
             }
             return readableAccent(value)
         }
-        switch level {
-        case .error: return ansiHex[1]
-        case .warning: return isDark ? 0xFFB86B : 0xA64B00
-        case .info: return ansiHex[4]
-        case .debug: return isDark ? 0xBF9BFF : 0x753EC8
+        let value: UInt32 = switch level {
+        case .error: ansiHex[1]
+        case .warning: isDark ? 0xFFB86B : 0xA64B00
+        case .info: ansiHex[4]
+        case .debug: isDark ? 0xBF9BFF : 0x753EC8
         }
+        return readableAccent(value)
     }
 
     func fieldColorHex(_ role: TerminalFieldRole) -> UInt32 {

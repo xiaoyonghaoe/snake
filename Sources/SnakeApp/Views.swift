@@ -496,6 +496,7 @@ private struct WorkspaceTabContent: View {
                     content: connectionContent
                         .environmentObject(store)
                         .environment(\.locale, store.appLanguage.locale),
+                    runtimeID: runtime.id,
                     isActive: {
                         windowState.tabs[tabID] === runtime && windowState.bonsplit.selectedTab(inPane: paneID)?.id == tabID
                     },
@@ -733,8 +734,7 @@ private struct TerminalTabView: View {
                     runtime: runtime,
                     theme: terminalTheme,
                     fontName: store.terminalFontName,
-                    fontSize: store.terminalFontSize,
-                    shellColorsEnabled: store.terminalShellColorsEnabled
+                    fontSize: store.terminalFontSize
                 )
                     .background(terminalBackground)
                     .background(FinderUploadArea())
@@ -769,9 +769,7 @@ private struct TerminalTabView: View {
     }
 
     private var terminalTheme: TerminalTheme {
-        TerminalTheme(preset: store.terminalThemePreset, isDark: colorScheme == .dark,
-                      logHighlightEnabled: store.terminalLogHighlightEnabled,
-                      fieldHighlightEnabled: store.terminalFieldHighlightEnabled)
+        store.terminalTheme(isDark: colorScheme == .dark)
     }
     private var terminalForeground: Color { Color(nsColor: TerminalTheme.nsColor(terminalTheme.foregroundHex)) }
     private var terminalBackground: Color { Color(nsColor: TerminalTheme.nsColor(terminalTheme.backgroundHex)) }
@@ -3419,24 +3417,43 @@ public struct SnakeSettingsView: View {
     private var terminalPane: some View {
         SettingsPane {
             Section {
-                Picker("配色主题", selection: $store.terminalThemePreset) {
-                    ForEach(TerminalThemePreset.allCases, id: \.self) { preset in
-                        Text(preset.title).tag(preset)
+                Picker("配色主题", selection: $store.selectedTerminalThemeID) {
+                    Section("内置") {
+                        ForEach(TerminalThemePreset.allCases, id: \.self) { preset in
+                            Text(preset.title).tag(preset.rawValue)
+                        }
                     }
+                    if !store.importedTerminalThemes.isEmpty {
+                        Section("已导入") {
+                            ForEach(store.importedTerminalThemes) { theme in
+                                Text(theme.name).tag(theme.selectionID)
+                            }
+                        }
+                    }
+                }
+                HStack {
+                    Button("导入 .itermcolors…") {
+                        let panel = NSOpenPanel()
+                        panel.allowedContentTypes = [UTType(filenameExtension: "itermcolors")
+                            ?? UTType(importedAs: "com.snake.itermcolors")]
+                        panel.allowsMultipleSelection = false
+                        if panel.runModal() == .OK, let url = panel.url { store.importTerminalTheme(from: url) }
+                    }
+                    if store.selectedTerminalThemeID.hasPrefix("imported:") {
+                        Button("删除已选主题", role: .destructive) { store.deleteSelectedImportedTerminalTheme() }
+                    }
+                }
+                if let notice = store.terminalThemeNotice {
+                    Label(notice, systemImage: "info.circle")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
                 }
                 Toggle("日志关键词高亮", isOn: $store.terminalLogHighlightEnabled)
                 Toggle("输出字段高亮", isOn: $store.terminalFieldHighlightEnabled)
             } header: {
                 Text("终端配色")
             } footer: {
-                SettingsFooter("区分权限、时间、地址、路径、大小和状态；保留远端颜色，Vim、top 等备用屏幕不启用。")
-            }
-            Section {
-                Toggle("自动启用 ls／ll 彩色输出", isOn: $store.terminalShellColorsEnabled)
-            } header: {
-                Text("Shell 彩色输出")
-            } footer: {
-                SettingsFooter("下次连接生效。仅临时配置当前 Shell，不修改服务器配置文件；保留复杂函数及 NO_COLOR。")
+                SettingsFooter("内置浅色主题使用 Snake 白底适配；导入主题保留原背景。只改变终端显示，不修改远端 ls／ll。")
             }
             Section {
                 Picker("字体", selection: $store.terminalFontName) {
@@ -3454,6 +3471,9 @@ public struct SnakeSettingsView: View {
                 Text("终端字体")
             }
             Section {
+                Text("终端配色示例 · 文件颜色仅用于预览")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.secondary)
                 terminalColorPreview
             } footer: {
                 SettingsFooter("配色、高亮与字体立即应用到所有终端，不会重连或清空屏幕缓冲。")
@@ -3462,9 +3482,7 @@ public struct SnakeSettingsView: View {
     }
 
     private var previewTheme: TerminalTheme {
-        TerminalTheme(preset: store.terminalThemePreset, isDark: store.isDarkAppearancePreferred,
-                      logHighlightEnabled: store.terminalLogHighlightEnabled,
-                      fieldHighlightEnabled: store.terminalFieldHighlightEnabled)
+        store.terminalTheme(isDark: store.isDarkAppearancePreferred)
     }
 
     /// A shortcut row keeps its recorder at a fixed width and lets the

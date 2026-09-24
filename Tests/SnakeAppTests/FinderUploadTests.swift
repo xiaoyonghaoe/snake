@@ -5,6 +5,40 @@ import XCTest
 
 @MainActor
 final class FinderUploadTests: XCTestCase {
+    func testFinderClipboardPasteShortcutAndShellSafeFileNames() throws {
+        func key(_ text: String, modifiers: NSEvent.ModifierFlags) -> NSEvent {
+            NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: modifiers,
+                             timestamp: 0, windowNumber: 0, context: nil,
+                             characters: text, charactersIgnoringModifiers: text,
+                             isARepeat: false, keyCode: 9)!
+        }
+        XCTAssertTrue(FinderClipboardPaste.isShortcut(key("v", modifiers: [.command])))
+        XCTAssertFalse(FinderClipboardPaste.isShortcut(key("v", modifiers: [.command, .shift])))
+        XCTAssertFalse(FinderClipboardPaste.isShortcut(key("c", modifiers: [.command])))
+
+        let urls = ["simple.txt", "有 空格.txt", "a'b;$(touch bad).txt"].map {
+            URL(fileURLWithPath: "/tmp/\($0)")
+        }
+        XCTAssertEqual(FinderClipboardPaste.fileNamesText(for: urls),
+                       "simple.txt '有 空格.txt' 'a'\\''b;$(touch bad).txt'")
+        XCTAssertNil(FinderClipboardPaste.fileNamesText(for: []))
+        XCTAssertNil(FinderClipboardPaste.fileNamesText(for: [URL(fileURLWithPath: "/tmp/bad\nname")]))
+    }
+
+    func testPasteSurfaceResolvesOnlyVisibleTabRuntime() {
+        let state = WorkspaceWindowState()
+        let profile = SSHProfile(name: "test", host: "localhost", username: "test")
+        let first = WorkspaceTabRuntime(terminal: profile)
+        let second = WorkspaceTabRuntime(sftp: profile)
+        XCTAssertTrue(state.add(first))
+        XCTAssertTrue(state.add(second))
+        XCTAssertNil(state.visibleRuntime(id: first.id), "Hidden tab must not receive a paste")
+        XCTAssertTrue(state.visibleRuntime(id: second.id) === second)
+        let surface = FinderUploadHostingView(rootView: Color.clear)
+        surface.pasteRuntimeID = second.id
+        XCTAssertEqual(surface.pasteRuntimeID, second.id)
+    }
+
     func testSFTPProviderURLsShareNativeValidationAndRejectMixedPayloads() async throws {
         let file = URL(fileURLWithPath: "/tmp/文件 100%.txt")
         let folder = URL(fileURLWithPath: "/tmp/中文 文件夹", isDirectory: true)
