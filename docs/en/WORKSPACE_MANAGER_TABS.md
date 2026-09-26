@@ -7,7 +7,7 @@
 - Starting a new workspace opens one SSH session tab. Double-clicking the empty tail of the tab bar adds a session page in that pane; the disk-mapping entry at the top right adds a mapping tab.
 - The top bar keeps only the Snake logo and disk mapping; new configurations are created on the SSH card page, and standalone windows use the tab context menu or drag-and-drop.
 - The "Appearance" page in Settings offers light and dark choices, defaults to light, stores the choice in UserDefaults and syncs it across all windows.
-- Search and multi-selected tabs belong to the current session tab; Command-K focuses search and creates a session page first if necessary.
+- Search and multi-selected tags belong to the current session tab; Command-T adds a new session page to the current split by default and can be changed in Settings. A newly opened session page focuses search automatically; switching back to an existing tab does not steal focus.
 - A card's button, double-click and context-menu connect actions convert the current tab in place. The Bonsplit TabID, WorkspaceTabID, tab order and pane stay unchanged, and repeated clicks do not create a second connection.
 - Dragging a card still creates a new connection: a normal drag gives a terminal and Option gives SFTP. Management tabs also support splitting and moving to another window; queries and selection follow the runtime.
 - Mapping state and configuration are shared globally, and closing a management tab does not unmount the disk. The management page does not register a Finder upload surface.

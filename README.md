@@ -4,11 +4,11 @@
 
 Snake 是面向 macOS 15+ 的原生 SSH 工作台：会话管理、终端、SFTP 文件传输和 SSHFS 磁盘映射共用一个多窗口工作区。
 
-## 1.1.2 安装
+## 1.1.3 安装
 
 当前安装包为 **Apple Silicon（M 系列）版**，要求 **macOS 15 或更高版本**，不包含 Intel / Universal 2 版本。
 
-1. 打开 `Snake-1.1.2-macos-arm64.dmg`。
+1. 打开 `Snake-1.1.3-macos-arm64.dmg`。
 2. 将 **Snake.app 拖到 Applications（应用程序）**，等待复制完成。
 3. 推出磁盘映像，从“应用程序”启动 Snake。更新旧版前先退出应用，复制时选择替换。
 
@@ -19,17 +19,17 @@ Snake 是面向 macOS 15+ 的原生 SSH 工作台：会话管理、终端、SFTP
 将 DMG 与校验文件放在同一目录，在该目录执行：
 
 ```sh
-shasum -a 256 -c Snake-1.1.2-macos-arm64.dmg.sha256
+shasum -a 256 -c Snake-1.1.3-macos-arm64.dmg.sha256
 ```
 
-本次更新见 [1.1.2 版本说明](docs/RELEASE_NOTES_1.1.2.md)，构建、签名与公证步骤见 [发布流程](docs/RELEASING.md)。
+本次更新见 [1.1.3 版本说明](docs/RELEASE_NOTES_1.1.3.md)，构建、签名与公证步骤见 [发布流程](docs/RELEASING.md)。
 
 ## 当前功能
 
 ### 会话与多窗口工作区
 
 - 原生 AppKit/SwiftUI 界面、统一顶部栏和浅色/深色外观；SSH 会话采用卡片标签页，不再使用侧栏或分组。磁盘映射从右上角入口打开独立标签。
-- 启动默认打开 SSH 会话页，不注入示例服务器、示例映射或伪终端输出。双击标签栏尾部空白可在该分栏新增会话页；`Command-K` 聚焦会话搜索，必要时先新建会话页。
+- 启动默认打开 SSH 会话页，不注入示例服务器、示例映射或伪终端输出。双击标签栏尾部空白，或按可在设置中修改的 `Command-T`（默认值），可在当前分栏新增会话页，并自动聚焦检索框。
 - 支持会话编辑、空格分隔标签、多选标签筛选和自定义照片图标裁剪。卡片按钮、双击及右键连接操作将当前管理标签原位转换为终端或 SFTP，不追加标签。
 - Bonsplit 支持标签排序、左右/上下分屏、拖出独立窗口及跨窗口合并。会话卡片拖入工作区会新建连接，按住 Option 创建 SFTP；移动已有连接标签不重连。
 - 主工作窗口中 `Command-W` 只关闭当前标签或多余空分栏，最后一个空分栏保持窗口打开。红色按钮只关闭窗口，Dock 重新打开恢复当前进程中的工作区；不恢复跨应用重启的标签布局。
@@ -64,6 +64,7 @@ shasum -a 256 -c Snake-1.1.2-macos-arm64.dmg.sha256
 - 连接自动解密；编辑页查看已保存的明文须通过 Touch ID 或 Mac 登录密码等系统身份验证，30 秒后或窗口失焦时隐藏。临时签名更新仍可能触发独立的钥匙串访问授权，不保证开发包无提示。
 - SQLite 仍只保存 credential reference，不保存密码；后续接入密码工具时只替换 `CredentialStore` 后端。
 - 私钥通过 security-scoped bookmark 引用，不复制文件。
+- 设置中的密码管理加密保存常用账号和密码，填入 SSH 后各会话保有独立副本；条目变更可多选关联会话同步，会话单独改账号或密码会解除关联。私钥编辑页展示书签解析出的本机路径。
 - SSH 终端、SFTP 和远程目录选择器在主机密钥变化时显示原、新指纹，只有明确确认后才更新对应地址和端口的信任记录并重连；取消保留原记录，重连时再次校验实际指纹。
 - `SnakeMountHelper` 只接受受管挂载目录与允许列表中的 sshfs 可执行路径。
 - 终端凭据以字节通过 UniFFI 传给 Rust/libssh2，认证材料在使用后清零；不会启动系统 `ssh`，也不会把密码传递给 argv、环境变量或拖放载荷。
@@ -80,7 +81,7 @@ shasum -a 256 -c Snake-1.1.2-macos-arm64.dmg.sha256
 
 - 不恢复跨应用重启的工作区或自动继续中断传输；下载失败重试从新的源版本重新下载，不承诺下载断点续传。
 - 密码型挂载 AskPass、Intel / Universal 2 安装包、Developer ID 签名与公证尚未交付。
-- 已知挂载测试 `MountOperationsTests.testQuitIsCancelledWhenMountIsBusyOrMountTableCannotBeRead` 存在 `invalidMapping` 失败，不能将整体测试宣称为全部通过。本次打包相关的快捷键/工作区 24 项测试及安装包完整性检查通过；页面和干净 Mac 安装验收仍需执行。
+- 已知挂载测试 `MountOperationsTests.testQuitIsCancelledWhenMountIsBusyOrMountTableCannotBeRead` 存在 `invalidMapping` 失败，不能将整体测试宣称为全部通过。本次 Swift 197 项测试中 5 项跳过、1 项既有失败；快捷键/工作区 25 项及 Rust 22 项通过。页面和干净 Mac 安装验收仍需执行。
 
 ## 界面预览
 
@@ -115,12 +116,12 @@ cargo run --example sftp_smoke -- <host> <port> <username> <known-hosts-path>
 ### 构建 DMG
 
 ```sh
-zsh scripts/package-release-dmg.sh 1.1.2
+zsh scripts/package-release-dmg.sh 1.1.3
 ```
 
 需要 Python 3；脚本使用 Release 优化构建，仅生成当前宿主架构的安装包。产物位于 `release/`，同名文件存在时拒绝覆盖。应用包含 Rust 动态库、Mount Helper、SwiftTerm Metal 资源及第三方许可证，不依赖工作区中的动态库或渲染资源。
 
-版本号和构建号保存在 `Resources/Info.plist`，当前为 `1.1.2` / `1120`。脚本默认临时签名；Developer ID 签名、公证和重新生成校验文件的步骤见 [发布流程](docs/RELEASING.md)。本地打包不会自动创建 Git 标签或发布 GitHub Release。
+版本号和构建号保存在 `Resources/Info.plist`，当前为 `1.1.3` / `1130`。脚本默认临时签名；Developer ID 签名、公证和重新生成校验文件的步骤见 [发布流程](docs/RELEASING.md)。本地打包不会自动创建 Git 标签或发布 GitHub Release。
 
 应用启动时自动将旧明文凭据迁移为加密文件；旧会话如果仍只有 Keychain 引用，会在首次成功读取后迁入加密存储。具体设计及手工验收见 [凭据加密与查看](docs/CREDENTIAL_SECURITY.md)。
 

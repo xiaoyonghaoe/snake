@@ -13,7 +13,7 @@ macOS 15 或更高版本。`macos-arm64` 安装包只适用于 Apple Silicon（M
 
 ## 当前分发包的签名限制
 
-本次 1.1.2 安装包仅有本地 ad-hoc 签名，没有 Developer ID 签名和 Apple 公证，不属于免安全警告的正式公证包。
+本次 1.1.3 安装包仅有本地 ad-hoc 签名，没有 Developer ID 签名和 Apple 公证，不属于免安全警告的正式公证包。
 只有确认下载来源可信且校验值一致后才打开。如果系统提示无法验证开发者，可按
 [Apple 官方说明](https://support.apple.com/zh-cn/102445)，在尝试打开后进入“系统设置 → 隐私与安全性 → 仍要打开”。
 不要关闭系统 Gatekeeper。正式公证包发布后应优先使用公证包。
@@ -23,7 +23,7 @@ macOS 15 或更高版本。`macos-arm64` 安装包只适用于 Apple Silicon（M
 将 `.dmg` 和同名 `.dmg.sha256` 放在同一个目录，进入该目录执行：
 
 ```sh
-shasum -a 256 -c Snake-1.1.2-macos-arm64.dmg.sha256
+shasum -a 256 -c Snake-1.1.3-macos-arm64.dmg.sha256
 ```
 
 输出 `OK` 表示与发布的校验值一致；校验和不替代可信来源和开发者签名。

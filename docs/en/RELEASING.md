@@ -8,7 +8,7 @@ Requires macOS, Xcode command-line tools, Swift 6, Rust and Python 3; prepare th
 The script builds only the current host architecture and does not misrepresent arm64 as Universal 2.
 
 ```sh
-zsh scripts/package-release-dmg.sh 1.1.2
+zsh scripts/package-release-dmg.sh 1.1.3
 ```
 
 The output goes to `release/` (Git-ignored): the DMG and its SHA-256 file. It refuses to overwrite an artifact that already exists under the same name.
@@ -21,7 +21,7 @@ The version is governed by `Resources/Info.plist`, and the script argument can o
 The build number is read from the plist by default and can be overridden with `SNAKE_BUILD_NUMBER`.
 The Cargo license manifest is generated from the lockfile and the target architecture and includes normal/build dependencies but not dev dependencies.
 
-## Current 1.1.2
+## Current 1.1.3
 
 - Apple Silicon / macOS 15+; locally ad-hoc signed, not an Apple-notarized package.
 - No Intel or Universal 2 artifacts.
@@ -36,9 +36,9 @@ Notarization must also be completed with your own notarytool Keychain profile; n
 Changing the signing identity may affect the Keychain access approval of the previously tested build, so connections using saved credentials must be regression-tested before release.
 
 ```sh
-xcrun notarytool submit release/Snake-1.1.2-macos-arm64.dmg --keychain-profile <your-notary-profile-name> --wait
-xcrun stapler staple release/Snake-1.1.2-macos-arm64.dmg
-xcrun stapler validate release/Snake-1.1.2-macos-arm64.dmg
+xcrun notarytool submit release/Snake-1.1.3-macos-arm64.dmg --keychain-profile <your-notary-profile-name> --wait
+xcrun stapler staple release/Snake-1.1.3-macos-arm64.dmg
+xcrun stapler validate release/Snake-1.1.3-macos-arm64.dmg
 ```
 
 Only staple the ticket after the notarization result is Accepted. Stapling changes the file, so the SHA-256 must be regenerated and the old value cannot be reused.
@@ -50,7 +50,16 @@ For Apple's security mechanisms see the [official instructions](https://support.
 Upload the DMG, the same-named SHA-256 and the release notes; state the architecture, the minimum system version and whether the package is notarized on the release page.
 Before publishing a version, commit the corresponding source and confirm that the build matches the source, then have a maintainer create the tag and Release.
 
-## Build Verification Record for This Release (1.1.2 / 1120)
+## Build Verification Record for This Release (1.1.3 / 1130)
+
+- Release build succeeded; app, helper and Rust dylib are arm64, version `1.1.3` / `1130`.
+- DMG: 8,693,334 bytes; SHA-256: `a0f317358c222df7dbbbe903ee485cd8c006e927c59a17309458810a76c44a51`.
+- `hdiutil verify`, SHA-256 validation and `codesign --verify --deep --strict` on the read-only mounted app passed; Applications points to `/Applications`.
+- The mounted app resolved all resources, compiled 7 Metal shader functions and included 601 English strings plus the Chinese source language; the app was not launched.
+- Swift: 197 tests, 5 skipped external fixtures and 1 pre-existing mount `invalidMapping` failure; 25 shortcut/workspace tests passed. Rust: 22 passed.
+- GUI, real system authentication and clean-Mac installation/upgrade remain user acceptance tasks. No Developer ID signature or notarization.
+
+## Historical Build Verification Record (1.1.2 / 1120)
 
 - The Release build succeeded; the app, helper and Rust dylib are all arm64.
 - `hdiutil verify` passed and `shasum -a 256 -c` passed. The DMG is 8,461,084 bytes with

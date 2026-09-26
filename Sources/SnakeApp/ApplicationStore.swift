@@ -9,6 +9,7 @@ public final class ApplicationStore: ObservableObject {
 
     @Published public private(set) var groups: [SessionGroup]
     @Published public private(set) var profiles: [SSHProfile]
+    @Published public private(set) var savedPasswords: [SavedPassword]
     @Published public private(set) var transferJobs: [TransferJob]
     @Published public private(set) var mountMappings: [MountMapping]
     @Published var mountActionError: String?
@@ -94,6 +95,9 @@ public final class ApplicationStore: ObservableObject {
     @Published private(set) var sftpUploadShortcut: SFTPShortcut {
         didSet { persist(shortcut: sftpUploadShortcut, key: sftpUploadShortcutKey) }
     }
+    @Published private(set) var newSessionTabShortcut: SFTPShortcut {
+        didSet { persist(shortcut: newSessionTabShortcut, key: newSessionTabShortcutKey) }
+    }
 
     weak var workspaceCoordinator: WorkspaceWindowCoordinator?
 
@@ -120,6 +124,7 @@ public final class ApplicationStore: ObservableObject {
     private let sftpSearchShortcutKey = "com.snake.shortcuts.sftp-search"
     private let sftpDeleteShortcutKey = "com.snake.shortcuts.sftp-delete"
     private let sftpUploadShortcutKey = "com.snake.shortcuts.sftp-upload"
+    private let newSessionTabShortcutKey = "com.snake.shortcuts.new-session-tab"
     private var transferControls: [UUID: CoreTransferControl] = [:]
     private var ephemeralTransferJobIDs: Set<UUID> = []
     private var mountStateMonitor: AnyCancellable?
@@ -180,9 +185,18 @@ public final class ApplicationStore: ObservableObject {
             ?? NSFont.monospacedSystemFont(ofSize: 13, weight: .regular).fontName
         let savedFontSize = defaults.double(forKey: terminalFontSizeKey)
         self.terminalFontSize = savedFontSize == 0 ? 13 : min(max(savedFontSize, 9), 32)
+        let defaultSFTPShortcuts = Dictionary(uniqueKeysWithValues:
+            SFTPShortcutAction.allCases.map { ($0, $0.defaultShortcut) })
+        let savedNewTab = Self.loadShortcut(from: defaults, key: newSessionTabShortcutKey,
+            fallback: WorkspaceShortcutPolicy.defaultNewTab)
+        let newTabShortcut = WorkspaceShortcutPolicy.validationError(
+            savedNewTab, sftpShortcuts: defaultSFTPShortcuts) == nil
+            ? savedNewTab : WorkspaceShortcutPolicy.defaultNewTab
+        self.newSessionTabShortcut = newTabShortcut
         let loadedShortcuts = Self.loadSFTPShortcuts(
             from: defaults,
-            keys: [.search: sftpSearchShortcutKey, .delete: sftpDeleteShortcutKey, .uploadFile: sftpUploadShortcutKey]
+            keys: [.search: sftpSearchShortcutKey, .delete: sftpDeleteShortcutKey, .uploadFile: sftpUploadShortcutKey],
+            workspaceShortcut: newTabShortcut
         )
         self.sftpSearchShortcut = loadedShortcuts[.search]!
         self.sftpDeleteShortcut = loadedShortcuts[.delete]!
@@ -191,6 +205,7 @@ public final class ApplicationStore: ObservableObject {
         self.corePersistence = persistence
         let sqliteGroups = (try? persistence?.loadGroups()) ?? []
         let sqliteProfiles = (try? persistence?.loadProfiles()) ?? []
+        let sqliteSavedPasswords = (try? persistence?.loadSavedPasswords()) ?? []
         let legacyGroups = Self.decode([SessionGroup].self, data: defaults.data(forKey: groupsKey))
         let legacyProfiles = Self.decode([SSHProfile].self, data: defaults.data(forKey: profilesKey))
         let restoredGroups = sqliteGroups.isEmpty ? legacyGroups : sqliteGroups
@@ -204,6 +219,7 @@ public final class ApplicationStore: ObservableObject {
 
         self.groups = restoredGroups
         self.profiles = restoredProfiles
+        self.savedPasswords = sqliteSavedPasswords
         self.mountMappings = restoredMounts
         self.selectedProfileID = restoredProfiles.first?.id
         mountStateMonitor = Timer.publish(every: 3, on: .main, in: .common).autoconnect().sink { [weak self] _ in
@@ -239,7 +255,8 @@ public final class ApplicationStore: ObservableObject {
 
     @discardableResult
     func updateSFTPShortcut(_ action: SFTPShortcutAction, shortcut: SFTPShortcut) -> String? {
-        if let error = SFTPShortcutPolicy.validationError(action: action, shortcut: shortcut, configured: sftpShortcuts) {
+        if let error = SFTPShortcutPolicy.validationError(action: action, shortcut: shortcut,
+            configured: sftpShortcuts, workspaceShortcut: newSessionTabShortcut) {
             return error
         }
         switch action {
@@ -249,6 +266,21 @@ public final class ApplicationStore: ObservableObject {
         }
         workspaceCoordinator?.refreshApplicationCommands()
         return nil
+    }
+
+    @discardableResult
+    func updateNewSessionTabShortcut(_ shortcut: SFTPShortcut) -> String? {
+        if let error = WorkspaceShortcutPolicy.validationError(shortcut, sftpShortcuts: sftpShortcuts) {
+            return error
+        }
+        newSessionTabShortcut = shortcut
+        workspaceCoordinator?.refreshApplicationCommands()
+        return nil
+    }
+
+    func resetAllShortcuts() {
+        newSessionTabShortcut = WorkspaceShortcutPolicy.defaultNewTab
+        resetSFTPShortcuts()
     }
 
     func resetSFTPShortcuts() {
@@ -270,12 +302,14 @@ public final class ApplicationStore: ObservableObject {
 
     private static func loadSFTPShortcuts(
         from defaults: UserDefaults,
-        keys: [SFTPShortcutAction: String]
+        keys: [SFTPShortcutAction: String],
+        workspaceShortcut: SFTPShortcut
     ) -> [SFTPShortcutAction: SFTPShortcut] {
         var result = Dictionary(uniqueKeysWithValues: SFTPShortcutAction.allCases.map { ($0, $0.defaultShortcut) })
         for action in SFTPShortcutAction.allCases {
             let candidate = loadShortcut(from: defaults, key: keys[action]!, fallback: action.defaultShortcut)
-            if SFTPShortcutPolicy.validationError(action: action, shortcut: candidate, configured: result) == nil {
+            if SFTPShortcutPolicy.validationError(action: action, shortcut: candidate,
+                configured: result, workspaceShortcut: workspaceShortcut) == nil {
                 result[action] = candidate
             }
         }
@@ -312,7 +346,7 @@ public final class ApplicationStore: ObservableObject {
         persistConfiguration()
     }
 
-    public func save(profile: SSHProfile, credential: String? = nil) throws {
+    public func save(profile: SSHProfile, credential: String? = nil, fromSavedPassword sourceID: UUID? = nil) throws {
         guard !profile.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               !profile.host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               !profile.username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
@@ -322,10 +356,27 @@ public final class ApplicationStore: ObservableObject {
 
         guard !isPreparingToQuit else { throw ApplicationStoreError.invalidProfile }
         var stored = profile
-        if let credential, !credential.isEmpty {
+        var credentialToSave = credential
+        if let sourceID {
+            guard profile.authMethod == .password,
+                  let source = savedPasswords.first(where: { $0.id == sourceID }),
+                  let data = try CredentialStore.readData(account: source.credentialAccount),
+                  let secret = String(data: data, encoding: .utf8) else {
+                throw ApplicationStoreError.savedPasswordUnavailable
+            }
+            stored.username = source.username
+            stored.savedPasswordID = sourceID
+            credentialToSave = secret
+        } else if let previous = profiles.first(where: { $0.id == profile.id }),
+                  previous.savedPasswordID != nil,
+                  (profile.username != previous.username || credential?.isEmpty == false || profile.authMethod != .password) {
+            stored.savedPasswordID = nil
+        }
+        var credentialChanges: [CredentialChange] = []
+        if let credential = credentialToSave, !credential.isEmpty {
             let account = profile.authMethod == .password ? profile.keychainPasswordAccount : profile.keychainPassphraseAccount
-            try CredentialStore.save(credential, account: account)
             stored.keychainAccount = account
+            credentialChanges.append(CredentialChange(account: account, secret: credential))
         }
 
         var proposedProfiles = profiles
@@ -337,8 +388,10 @@ public final class ApplicationStore: ObservableObject {
         let updatedMappings = try preparedMappings(mountMappings, profiles: proposedProfiles)
         let linkChanges = try changeMappingLinks(to: updatedMappings)
         do {
-            try corePersistence?.save(stored)
-            try corePersistence?.synchronize(mappings: updatedMappings, profiles: proposedProfiles)
+            try CredentialStore.withChanges(credentialChanges) {
+                try corePersistence?.save(stored)
+                try corePersistence?.synchronize(mappings: updatedMappings, profiles: proposedProfiles)
+            }
         } catch {
             linkChanges.reversed().forEach { $0.rollback() }
             throw error
@@ -348,6 +401,54 @@ public final class ApplicationStore: ObservableObject {
         mountMappings = updatedMappings
         selectedProfileID = stored.id
         persistConfiguration()
+    }
+
+    func linkedProfiles(for savedPasswordID: UUID) -> [SSHProfile] {
+        profiles.filter { $0.authMethod == .password && $0.savedPasswordID == savedPasswordID }
+    }
+
+    /// Returns IDs skipped because the profile was deleted, changed authentication,
+    /// or unlinked before the save was committed.
+    @discardableResult
+    func saveSavedPassword(_ record: SavedPassword, password: String?, selectedProfileIDs: Set<UUID>) throws -> [UUID] {
+        guard !record.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              !record.username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              let persistence = corePersistence else { throw ApplicationStoreError.invalidSavedPassword }
+        let old = savedPasswords.first(where: { $0.id == record.id })
+        if old == nil && (password?.isEmpty ?? true) { throw ApplicationStoreError.invalidSavedPassword }
+        let usernameChanged = old?.username != record.username
+        let passwordChanged = password != nil && !(password?.isEmpty ?? true)
+        let eligible = linkedProfiles(for: record.id).filter { selectedProfileIDs.contains($0.id) }
+        let skipped = selectedProfileIDs.subtracting(Set(eligible.map(\.id)))
+        var changes: [CredentialChange] = []
+        if passwordChanged, let password {
+            changes.append(CredentialChange(account: record.credentialAccount, secret: password))
+            changes += eligible.map { CredentialChange(account: $0.keychainPasswordAccount, secret: password) }
+        }
+        let updated = try CredentialStore.withChanges(changes) {
+            let updated = try persistence.save(record, selectedProfileIDs: eligible.map(\.id), syncUsername: usernameChanged)
+            guard Set(updated) == Set(eligible.map(\.id)) else { throw ApplicationStoreError.savedPasswordSyncChanged }
+            return updated
+        }
+        if let index = savedPasswords.firstIndex(where: { $0.id == record.id }) { savedPasswords[index] = record }
+        else { savedPasswords.append(record) }
+        if usernameChanged {
+            for id in updated {
+                if let index = profiles.firstIndex(where: { $0.id == id }) { profiles[index].username = record.username }
+            }
+        }
+        return Array(skipped)
+    }
+
+    func deleteSavedPassword(_ record: SavedPassword) throws {
+        guard let persistence = corePersistence else { throw ApplicationStoreError.invalidSavedPassword }
+        try CredentialStore.withChanges([CredentialChange(account: record.credentialAccount, secret: nil)]) {
+            try persistence.deleteSavedPassword(id: record.id)
+        }
+        savedPasswords.removeAll { $0.id == record.id }
+        for index in profiles.indices where profiles[index].savedPasswordID == record.id {
+            profiles[index].savedPasswordID = nil
+        }
     }
 
     public func delete(profile: SSHProfile) {
@@ -932,12 +1033,18 @@ public enum ApplicationStoreError: LocalizedError {
     case invalidProfile
     case invalidMapping
     case mappingConflict(String)
+    case invalidSavedPassword
+    case savedPasswordUnavailable
+    case savedPasswordSyncChanged
 
     public var errorDescription: String? {
         switch self {
         case .invalidProfile: L10n.text("请填写名称、主机、端口和用户名。")
         case .invalidMapping: L10n.text("请填写映射名称、远程目录和本地访问目录。")
         case .mappingConflict(let message): message
+        case .invalidSavedPassword: L10n.text("请填写密码条目的名称、用户名和密码。")
+        case .savedPasswordUnavailable: L10n.text("无法读取密码管理中的凭据，请重新保存该条目。")
+        case .savedPasswordSyncChanged: L10n.text("关联会话已变化，本次同步未完成。请刷新后重试。")
         }
     }
 }

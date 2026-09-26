@@ -47,7 +47,8 @@ final class CorePersistence {
                 privateKeyBookmark: profile.privateKeyBookmark,
                 tags: profile.tags,
                 symbolName: profile.symbolName,
-                sortOrder: Int(profile.sortOrder)
+                sortOrder: Int(profile.sortOrder),
+                savedPasswordID: profile.savedPasswordId.flatMap(UUID.init(uuidString:))
             )
         }
     }
@@ -73,8 +74,28 @@ final class CorePersistence {
             privateKeyBookmark: profile.privateKeyBookmark,
             tags: profile.tags,
             symbolName: profile.symbolName,
-            sortOrder: Int64(profile.sortOrder)
+            sortOrder: Int64(profile.sortOrder),
+            savedPasswordId: profile.savedPasswordID?.uuidString
         ))
+    }
+
+    func loadSavedPasswords() throws -> [SavedPassword] {
+        try database.savedPasswords().compactMap { record in
+            guard let id = UUID(uuidString: record.id) else { return nil }
+            return SavedPassword(id: id, name: record.name, username: record.username)
+        }
+    }
+
+    func save(_ record: SavedPassword, selectedProfileIDs: [UUID], syncUsername: Bool) throws -> [UUID] {
+        try database.saveSavedPasswordAndSync(
+            record: CoreSavedPassword(id: record.id.uuidString, name: record.name, username: record.username),
+            selectedProfileIds: selectedProfileIDs.map(\.uuidString),
+            syncUsername: syncUsername
+        ).compactMap(UUID.init(uuidString:))
+    }
+
+    func deleteSavedPassword(id: UUID) throws {
+        try database.deleteSavedPassword(id: id.uuidString)
     }
 
     func deleteProfile(id: UUID) throws {

@@ -76,6 +76,9 @@ final class WorkspaceDraggingTests: XCTestCase {
         XCTAssertEqual(state.bonsplit.tabs(inPane: left).count, 1)
         XCTAssertEqual(state.bonsplit.tabs(inPane: right).count, 1)
         XCTAssertEqual(state.selectedRuntime?.kind, .sessions)
+        XCTAssertEqual(state.selectedRuntime?.searchFocusRequest, 1)
+        XCTAssertTrue(state.selectedRuntime?.takeSearchFocusRequest() == true)
+        XCTAssertFalse(state.selectedRuntime?.takeSearchFocusRequest() == true)
         XCTAssertEqual(state.activePaneID, right)
         state.bonsplit.onTabBarTrailingDoubleClick?(right)
         XCTAssertEqual(state.tabs.count, 3)
@@ -93,6 +96,7 @@ final class WorkspaceDraggingTests: XCTestCase {
         state.bonsplit.onTabBarTrailingDoubleClick?(pane)
         XCTAssertEqual(state.tabs.count, 1)
         XCTAssertEqual(state.selectedRuntime?.kind, .sessions)
+        XCTAssertEqual(state.selectedRuntime?.searchFocusRequest, 1)
     }
 
     func testAppearanceDefaultsToLightAndRestoresLastChoice() throws {
@@ -187,6 +191,7 @@ final class WorkspaceDraggingTests: XCTestCase {
         state.openManager(.sessions)
         XCTAssertEqual(state.selectedRuntime?.searchQuery, "")
         XCTAssertEqual(state.selectedRuntime?.selectedTags, [])
+        XCTAssertEqual(state.selectedRuntime?.searchFocusRequest, 1)
         while state.canCloseCurrentItem { XCTAssertTrue(state.closeCurrentItem()) }
         XCTAssertTrue(state.tabs.isEmpty)
         XCTAssertEqual(state.bonsplit.allPaneIds.count, 1)

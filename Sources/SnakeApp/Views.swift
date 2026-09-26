@@ -201,6 +201,7 @@ private struct SessionCatalogView: View {
     let onEdit: (SSHProfile) -> Void
     let onNewProfile: () -> Void
     let onConnect: (SSHProfile, Bool) -> Void
+    let isOnScreen: () -> Bool
     @FocusState private var searchFocused: Bool
 
     var body: some View {
@@ -247,8 +248,15 @@ private struct SessionCatalogView: View {
             }
         }
         .background(SnakeStyle.canvas)
-        .onChange(of: runtime.searchFocusRequest) { _, _ in searchFocused = true }
-        .onAppear { if runtime.searchFocusRequest > 0 { searchFocused = true } }
+        .task(id: runtime.searchFocusRequest) {
+            guard runtime.searchFocusRequest > 0 else { return }
+            // Bonsplit keeps hidden tab content alive. Give the selected tab a
+            // layout turn before asking AppKit to make its field first responder.
+            await Task.yield()
+            if !Task.isCancelled && isOnScreen() && runtime.takeSearchFocusRequest() {
+                searchFocused = true
+            }
+        }
     }
 
     private var heading: some View {
@@ -456,7 +464,7 @@ private struct WorkspaceView: View {
                 Image(systemName: "square.grid.2x2").font(.system(size: 28))
                 Text("打开会话开始工作").font(.headline)
                 Button("打开 SSH 会话") {
-                    _ = windowState.add(WorkspaceTabRuntime(manager: .sessions), to: paneID)
+                    windowState.openManager(.sessions, to: paneID)
                 }
                 .buttonStyle(SnakeOutlineButtonStyle(emphasized: true))
             }
@@ -483,12 +491,14 @@ private struct WorkspaceTabContent: View {
         Group {
             switch runtime.kind {
             case .sessions:
-                SessionCatalogView(runtime: runtime, onEdit: { editingProfile = $0 }, onNewProfile: { creatingProfile = true }) { profile, asSFTP in
+                SessionCatalogView(runtime: runtime, onEdit: { editingProfile = $0 }, onNewProfile: { creatingProfile = true }, onConnect: { profile, asSFTP in
                     guard runtime.kind == .sessions else { return }
                     if !windowState.connectChooser(tabID: tabID, profileID: profile.id, asSFTP: asSFTP, store: store) {
                         connectionError = L10n.text("该会话已不可用，请刷新会话列表后重试。")
                     }
-                }
+                }, isOnScreen: {
+                    windowState.tabs[tabID] === runtime && windowState.bonsplit.selectedTab(inPane: paneID)?.id == tabID
+                })
             case .mounts:
                 MountWorkspaceView(runtime: runtime, onNewMapping: { creatingMapping = true }, onEditMapping: { editingMapping = $0 })
             case .terminal, .sftp:
@@ -857,6 +867,16 @@ private struct SFTPBrowserView: View {
                 .frame(height: 34)
                 .background(SnakeStyle.action.opacity(0.07))
                 .transition(.opacity.combined(with: .move(edge: .top)))
+            } else if let notice = runtime.shortcutNotice {
+                HStack(spacing: 8) {
+                    Image(systemName: "info.circle").foregroundStyle(SnakeStyle.action)
+                    Text(notice)
+                    Spacer()
+                }
+                .font(.system(size: 11))
+                .padding(.horizontal, 14)
+                .frame(height: 34)
+                .background(SnakeStyle.action.opacity(0.07))
             } else if let error = runtime.deletionError ?? runtime.errorMessage ?? runtime.uploader.errorMessage {
                 HStack(spacing: 8) {
                     Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
@@ -2346,6 +2366,10 @@ private struct SessionEditorView: View {
     @State private var customIconData: Data?
     @State private var cropSource: ProfileIconCropSource?
     @State private var privateKeyBookmark: Data?
+    @State private var privateKeyPath: String?
+    @State private var privateKeyUnavailable = false
+    @State private var selectedSavedPasswordID: UUID?
+    @State private var selectedFromLibraryThisEdit = false
     @State private var errorMessage: String?
     @StateObject private var connectionTest = SessionConnectionTestController()
 
@@ -2361,6 +2385,7 @@ private struct SessionEditorView: View {
         _symbolName = State(initialValue: profile?.symbolName ?? "server.rack")
         _customIconData = State(initialValue: profile?.usesCustomIcon == true ? ProfileIconStore.data(for: profile?.id ?? UUID()) : nil)
         _privateKeyBookmark = State(initialValue: profile?.privateKeyBookmark)
+        _selectedSavedPasswordID = State(initialValue: profile?.savedPasswordID)
     }
 
     var body: some View {
@@ -2415,7 +2440,21 @@ private struct SessionEditorView: View {
             .background(SnakeStyle.canvas)
         }
         .frame(width: 840, height: 600)
-        .onChange(of: authMethod) { _, _ in credential.reset() }
+        .onChange(of: authMethod) { _, _ in
+            credential.reset()
+            selectedSavedPasswordID = nil
+            selectedFromLibraryThisEdit = false
+        }
+        .onChange(of: username) { _, value in
+            if let id = selectedSavedPasswordID,
+               let linked = store.savedPasswords.first(where: { $0.id == id }),
+               value != linked.username {
+                selectedSavedPasswordID = nil
+                selectedFromLibraryThisEdit = false
+            }
+        }
+        .onChange(of: privateKeyBookmark) { _, _ in resolvePrivateKeyPath() }
+        .onAppear { resolvePrivateKeyPath() }
         .onChange(of: host) { _, _ in connectionTest.reset() }
         .onChange(of: port) { _, _ in connectionTest.reset() }
         .onDisappear {
@@ -2497,16 +2536,43 @@ private struct SessionEditorView: View {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("私钥文件").font(.system(size: 11, weight: .medium)).foregroundStyle(SnakeStyle.muted)
                     HStack(spacing: 8) {
-                        Text(privateKeyBookmark == nil ? L10n.text("选择本机私钥文件") : L10n.text("已保存私钥访问授权"))
-                            .font(.system(size: 12, design: .monospaced))
-                            .foregroundStyle(SnakeStyle.muted)
-                            .lineLimit(1)
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                        ScrollView(.horizontal) {
+                            Text(privateKeyPath ?? L10n.text("选择本机私钥文件"))
+                                .font(.system(size: 12, design: .monospaced))
+                                .textSelection(.enabled)
+                                .lineLimit(1)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
                         Button("选择…") { selectPrivateKey() }.buttonStyle(SnakeOutlineButtonStyle())
                     }
                     .padding(.leading, 10)
                     .frame(height: 32)
                     .overlay { RoundedRectangle(cornerRadius: 6).stroke(SnakeStyle.hairline) }
+                    if privateKeyUnavailable {
+                        Text("私钥文件不可用，请重新选择。")
+                            .font(.system(size: 11)).foregroundStyle(.orange)
+                    }
+                }
+            } else {
+                HStack(spacing: 8) {
+                    Menu {
+                        ForEach(store.savedPasswords) { item in
+                            Button("\(item.name) · \(item.username)") {
+                                credential.reset()
+                                username = item.username
+                                selectedSavedPasswordID = item.id
+                                selectedFromLibraryThisEdit = true
+                            }
+                        }
+                    } label: {
+                        Label("从密码管理填入", systemImage: "key.horizontal")
+                    }
+                    .disabled(store.savedPasswords.isEmpty)
+                    if let id = selectedSavedPasswordID,
+                       let item = store.savedPasswords.first(where: { $0.id == id }) {
+                        Text(L10n.format("已关联：%@", item.name))
+                            .font(.system(size: 11)).foregroundStyle(SnakeStyle.muted)
+                    }
                 }
             }
             CredentialInputView(account: savedCredentialAccount, isPassphrase: authMethod == .privateKey, reveal: credential)
@@ -2559,8 +2625,28 @@ private struct SessionEditorView: View {
     }
 
     private var savedCredentialAccount: String? {
+        if selectedFromLibraryThisEdit,
+           let id = selectedSavedPasswordID,
+           let item = store.savedPasswords.first(where: { $0.id == id }) { return item.credentialAccount }
         guard let originalProfile, originalProfile.authMethod == authMethod else { return nil }
         return originalProfile.keychainAccount
+    }
+
+    private func resolvePrivateKeyPath() {
+        guard let bookmark = privateKeyBookmark else {
+            privateKeyPath = nil
+            privateKeyUnavailable = false
+            return
+        }
+        do {
+            var stale = false
+            let url = try URL(resolvingBookmarkData: bookmark, options: [.withSecurityScope], relativeTo: nil, bookmarkDataIsStale: &stale)
+            privateKeyPath = url.path
+            privateKeyUnavailable = stale || !FileManager.default.fileExists(atPath: url.path)
+        } catch {
+            privateKeyPath = nil
+            privateKeyUnavailable = true
+        }
     }
 
     private func selectProfileImage() {
@@ -2602,6 +2688,9 @@ private struct SessionEditorView: View {
             errorMessage = L10n.text("端口必须是 1 到 65535 之间的数字。")
             return
         }
+        let availableSavedPasswordID = selectedSavedPasswordID.flatMap { id in
+            store.savedPasswords.contains(where: { $0.id == id }) ? id : nil
+        }
         let profile = SSHProfile(
             id: profileID,
             groupID: nil,
@@ -2614,7 +2703,8 @@ private struct SessionEditorView: View {
             privateKeyBookmark: privateKeyBookmark,
             tags: SessionTags.parse(tags),
             symbolName: symbolName.isEmpty ? "server.rack" : symbolName,
-            sortOrder: originalProfile?.sortOrder ?? store.profiles.count
+            sortOrder: originalProfile?.sortOrder ?? store.profiles.count,
+            savedPasswordID: authMethod == .password && !credential.hasUserEdits ? availableSavedPasswordID : nil
         )
         do {
             if profile.usesCustomIcon {
@@ -2624,7 +2714,8 @@ private struct SessionEditorView: View {
                 }
                 try ProfileIconStore.save(customIconData, for: profile.id)
             }
-            try store.save(profile: profile, credential: credential.valueToSave)
+            try store.save(profile: profile, credential: credential.valueToSave,
+                           fromSavedPassword: selectedFromLibraryThisEdit && !credential.hasUserEdits ? availableSavedPasswordID : nil)
             if !profile.usesCustomIcon, originalProfile?.usesCustomIcon == true {
                 ProfileIconStore.delete(for: profile.id)
             }
@@ -3195,6 +3286,238 @@ private struct SettingsFooter: View {
     }
 }
 
+private struct PendingPasswordSave: Identifiable {
+    let id = UUID()
+    let record: SavedPassword
+    let password: String?
+    let linkedProfiles: [SSHProfile]
+}
+
+private struct SavedPasswordSettingsPane: View {
+    @EnvironmentObject private var store: ApplicationStore
+    @StateObject private var credential = CredentialRevealController()
+    @State private var editingID: UUID?
+    @State private var name = ""
+    @State private var username = ""
+    @State private var pendingSave: PendingPasswordSave?
+    @State private var confirmsDelete = false
+    @State private var message: String?
+
+    private var editingRecord: SavedPassword? { store.savedPasswords.first { $0.id == editingID } }
+
+    var body: some View {
+        HStack(spacing: 0) {
+            sidebar
+            Divider()
+            editor
+        }
+        .background(SnakeStyle.canvas)
+        .sheet(item: $pendingSave) { pending in
+            PasswordSyncSelectionSheet(pending: pending) { selected in
+                commit(pending.record, password: pending.password, selected: selected)
+                pendingSave = nil
+            } onCancel: { pendingSave = nil }
+            .environmentObject(store)
+        }
+        .confirmationDialog("删除此密码条目？", isPresented: $confirmsDelete) {
+            Button("删除密码条目", role: .destructive) { deleteCurrent() }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text(L10n.format("将解除 %@ 个会话的关联，但保留会话各自的账号和密码。",
+                             editingRecord.map { store.linkedProfiles(for: $0.id).count } ?? 0))
+        }
+        .onDisappear { credential.reset() }
+    }
+
+    private var sidebar: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text("密码管理").font(.system(size: 15, weight: .semibold))
+                Spacer()
+                Button { startNew() } label: { Image(systemName: "plus") }
+                    .buttonStyle(SnakeIconButtonStyle())
+                    .help("新增常用账号")
+            }
+            .padding(.horizontal, 14)
+            .frame(height: 46)
+            Divider()
+            ScrollView {
+                LazyVStack(spacing: 2) {
+                    ForEach(store.savedPasswords) { item in passwordRow(item) }
+                }
+                .padding(8)
+            }
+            if store.savedPasswords.isEmpty {
+                Text("还没有保存常用账号")
+                    .font(.system(size: 11)).foregroundStyle(SnakeStyle.muted)
+                    .padding(.horizontal, 14)
+            }
+        }
+        .frame(width: 210)
+        .background(SnakeStyle.chromeFrost)
+    }
+
+    private func passwordRow(_ item: SavedPassword) -> some View {
+        Button { select(item) } label: {
+            HStack(spacing: 9) {
+                Image(systemName: "key.horizontal.fill")
+                    .foregroundStyle(editingID == item.id ? SnakeStyle.action : SnakeStyle.muted)
+                    .frame(width: 18)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(item.name).font(.system(size: 12, weight: .medium)).lineLimit(1)
+                    Text(L10n.format("%@ · %@ 个会话", item.username, store.linkedProfiles(for: item.id).count))
+                        .font(.system(size: 10)).foregroundStyle(SnakeStyle.muted).lineLimit(1)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 10)
+            .frame(height: 48)
+            .background(editingID == item.id ? SnakeStyle.selectedRow : Color.clear,
+                        in: RoundedRectangle(cornerRadius: 7))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var editor: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                HStack(alignment: .firstTextBaseline) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(editingRecord == nil ? L10n.text("新增密码") : L10n.text("编辑密码"))
+                            .font(.system(size: 19, weight: .semibold))
+                        Text("独立加密保存；关联会话持有自己的密码副本。")
+                            .font(.system(size: 11)).foregroundStyle(SnakeStyle.muted)
+                    }
+                    Spacer()
+                    Image(systemName: "lock.shield")
+                        .font(.system(size: 17)).foregroundStyle(SnakeStyle.secure)
+                }
+                VStack(alignment: .leading, spacing: 10) {
+                    labeledField("名称", text: $name)
+                    labeledField("用户名", text: $username)
+                    CredentialInputView(account: editingRecord?.credentialAccount, isPassphrase: false, reveal: credential)
+                }
+                if let editingRecord {
+                    Text(L10n.format("当前关联 %@ 个 SSH 会话。修改账号或密码时可选择同步的会话；未选择的保持原值。",
+                                     store.linkedProfiles(for: editingRecord.id).count))
+                        .font(.system(size: 11)).foregroundStyle(SnakeStyle.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if let message {
+                    Text(message).font(.system(size: 11))
+                        .foregroundStyle(message == L10n.text("已保存") ? SnakeStyle.secure : Color.red)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                HStack {
+                    if editingRecord != nil {
+                        Button("删除…", role: .destructive) { confirmsDelete = true }
+                            .buttonStyle(SnakeOutlineButtonStyle())
+                    }
+                    Spacer()
+                    Button("保存密码") { prepareSave() }
+                        .buttonStyle(SnakeOutlineButtonStyle(emphasized: true))
+                }
+            }
+            .padding(22)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func labeledField(_ title: String, text: Binding<String>) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(title).font(.system(size: 11, weight: .medium)).foregroundStyle(SnakeStyle.muted)
+            TextField(title, text: text).textFieldStyle(.roundedBorder).frame(height: 30)
+        }
+    }
+
+    private func startNew() {
+        editingID = nil; name = ""; username = ""; message = nil; credential.reset()
+    }
+
+    private func select(_ item: SavedPassword) {
+        editingID = item.id; name = item.name; username = item.username; message = nil; credential.reset()
+    }
+
+    private func prepareSave() {
+        let record = SavedPassword(id: editingID ?? UUID(), name: name.trimmingCharacters(in: .whitespacesAndNewlines),
+                                   username: username.trimmingCharacters(in: .whitespacesAndNewlines))
+        let password = credential.valueToSave
+        let old = editingRecord
+        guard !record.name.isEmpty, !record.username.isEmpty,
+              old != nil || password != nil else {
+            message = ApplicationStoreError.invalidSavedPassword.localizedDescription
+            return
+        }
+        let linked = store.linkedProfiles(for: record.id)
+        if !linked.isEmpty && (old?.username != record.username || password != nil) {
+            pendingSave = PendingPasswordSave(record: record, password: password, linkedProfiles: linked)
+        } else {
+            commit(record, password: password, selected: [])
+        }
+    }
+
+    private func commit(_ record: SavedPassword, password: String?, selected: Set<UUID>) {
+        do {
+            let skipped = try store.saveSavedPassword(record, password: password, selectedProfileIDs: selected)
+            editingID = record.id
+            name = record.name
+            username = record.username
+            credential.reset()
+            message = skipped.isEmpty ? L10n.text("已保存") : L10n.text("已保存；部分会话状态变化，已跳过同步。")
+        } catch { message = error.localizedDescription }
+    }
+
+    private func deleteCurrent() {
+        guard let item = editingRecord else { return }
+        do { try store.deleteSavedPassword(item); startNew() }
+        catch { message = error.localizedDescription }
+    }
+}
+
+private struct PasswordSyncSelectionSheet: View {
+    let pending: PendingPasswordSave
+    let onCommit: (Set<UUID>) -> Void
+    let onCancel: () -> Void
+    @State private var selected: Set<UUID> = []
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("同步关联会话").font(.system(size: 19, weight: .semibold))
+            Text("只同步本次修改的账号或密码。默认不选择；未选择的会话仍保持关联与原凭据。")
+                .font(.system(size: 11)).foregroundStyle(SnakeStyle.muted)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(pending.linkedProfiles) { profile in
+                        Toggle(isOn: Binding(get: { selected.contains(profile.id) }, set: { value in
+                            if value { selected.insert(profile.id) } else { selected.remove(profile.id) }
+                        })) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(profile.name).font(.system(size: 12, weight: .medium))
+                                Text(profile.connectionLabel).font(.system(size: 10, design: .monospaced)).foregroundStyle(SnakeStyle.muted)
+                            }
+                        }
+                        .toggleStyle(.checkbox)
+                        .padding(.vertical, 4)
+                    }
+                }
+            }
+            Divider()
+            HStack {
+                Button("取消", action: onCancel).buttonStyle(SnakeOutlineButtonStyle())
+                Spacer()
+                Button("仅保存密码库") { onCommit([]) }.buttonStyle(SnakeOutlineButtonStyle())
+                Button("更新所选") { onCommit(selected) }
+                    .buttonStyle(SnakeOutlineButtonStyle(emphasized: true))
+                    .disabled(selected.isEmpty)
+            }
+        }
+        .padding(20)
+        .frame(width: 480, height: 360)
+        .background(SnakeStyle.canvas)
+    }
+}
+
 public struct SnakeSettingsView: View {
     @EnvironmentObject private var store: ApplicationStore
     @State private var shortcutError: String?
@@ -3208,6 +3531,9 @@ public struct SnakeSettingsView: View {
         TabView {
             appearancePane
                 .tabItem { Label("外观", systemImage: "circle.lefthalf.filled") }
+
+            SavedPasswordSettingsPane()
+                .tabItem { Label("密码", systemImage: "key.fill") }
 
             transferPane
                 .tabItem { Label("传输", systemImage: "arrow.up.arrow.down") }
@@ -3391,6 +3717,24 @@ public struct SnakeSettingsView: View {
     private var shortcutPane: some View {
         SettingsPane {
             Section {
+                HStack(alignment: .firstTextBaseline, spacing: 16) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("新建 SSH 会话标签")
+                        Text("在当前分栏打开新的会话管理标签")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: 12)
+                    SFTPShortcutRecorder(shortcut: store.newSessionTabShortcut) { newShortcut in
+                        shortcutError = store.updateNewSessionTabShortcut(newShortcut)
+                    }
+                    .frame(width: 150, height: 28)
+                }
+                .padding(.vertical, 2)
+            } header: {
+                Text("工作区快捷键")
+            }
+            Section {
                 shortcutRow(.search, detail: L10n.text("打开并聚焦当前目录检索"))
                 shortcutRow(.delete, detail: L10n.text("确认后删除当前选中的远程项目"))
                 shortcutRow(.uploadFile, detail: L10n.text("打开访达文件选择器并上传到当前目录"))
@@ -3407,7 +3751,7 @@ public struct SnakeSettingsView: View {
             }
             Section {
                 Button("恢复默认快捷键") {
-                    store.resetSFTPShortcuts()
+                    store.resetAllShortcuts()
                     shortcutError = nil
                 }
             }

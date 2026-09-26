@@ -4,11 +4,11 @@
 
 Snake is a native SSH workbench for macOS 15+: session management, terminal, SFTP file transfer, and SSHFS disk mapping share a single multi-window workspace.
 
-## Installing 1.1.2
+## Installing 1.1.3
 
 The current installer package is the **Apple Silicon (M-series) build**, requires **macOS 15 or later**, and there is no Intel / Universal 2 build.
 
-1. Open `Snake-1.1.2-macos-arm64.dmg`.
+1. Open `Snake-1.1.3-macos-arm64.dmg`.
 2. Drag **Snake.app into Applications** and wait for the copy to finish.
 3. Eject the disk image and launch Snake from Applications. Quit the old version before updating, and choose Replace when copying.
 
@@ -19,17 +19,17 @@ A local installer package has been generated and uploaded to GitHub Releases. Bu
 Place the DMG and the checksum file in the same directory and run the following in that directory:
 
 ```sh
-shasum -a 256 -c Snake-1.1.2-macos-arm64.dmg.sha256
+shasum -a 256 -c Snake-1.1.3-macos-arm64.dmg.sha256
 ```
 
-See the [1.1.2 release notes](docs/RELEASE_NOTES_1.1.2.md) for this update, and the [release process](docs/en/RELEASING.md) for build, signing, and notarization steps.
+See the [1.1.3 release notes](docs/RELEASE_NOTES_1.1.3.md) for this update, and the [release process](docs/en/RELEASING.md) for build, signing, and notarization steps.
 
 ## Current features
 
 ### Sessions and multi-window workspace
 
 - Native AppKit/SwiftUI interface with a unified top bar and light/dark appearance; SSH sessions use card tabs instead of a sidebar or groups. Disk mappings open in a separate tab from the entry point in the top-right corner.
-- Launching opens the SSH sessions page by default and never injects sample servers, sample mappings, or fake terminal output. Double-clicking the empty area at the end of the tab bar adds a session page to that split; `Command-K` focuses session search, creating a session page first when necessary.
+- Launching opens the SSH sessions page by default and never injects sample servers, sample mappings, or fake terminal output. Double-click the empty area at the end of the tab bar, or press the configurable `Command-T` shortcut (default), to add a session page to the current split and automatically focus search.
 - Supports session editing, space-separated tags, tag filtering with multi-selection, and cropping custom photo icons. Connecting through a card button, a double-click, or the context menu converts the current manager tab into a terminal or SFTP in place, without appending a tab.
 - Bonsplit supports tab reordering, side-by-side/top-and-bottom splits, dragging tabs out into separate windows, and merging across windows. Dropping a session card into the workspace creates a new connection, and holding Option creates an SFTP connection; moving an existing connection tab does not reconnect.
 - In the main workspace window, `Command-W` closes only the current tab or a redundant empty split, and the last empty split keeps the window open. The red button only closes the window, and reopening from the Dock restores the workspace within the current process; tab layouts are not restored across app restarts.
@@ -64,6 +64,7 @@ See the [1.1.2 release notes](docs/RELEASE_NOTES_1.1.2.md) for this update, and 
 - Connections are decrypted automatically; revealing saved plaintext on the edit page requires system authentication such as Touch ID or the Mac login password, and it is hidden after 30 seconds or when the window loses focus. Ad-hoc-signed updates may still trigger a separate keychain access authorization, so development builds are not guaranteed to be prompt-free.
 - SQLite still stores only a credential reference, never passwords; integrating a password tool later will replace only the `CredentialStore` backend.
 - Private keys are referenced through security-scoped bookmarks and the files are not copied.
+- Password management in Settings encrypts reusable accounts and passwords. Each SSH profile receives its own copy; library updates can be selectively synchronized, and independent username/password edits detach the profile. The private-key editor displays the resolved local path.
 - When a host key changes, the SSH terminal, SFTP, and remote directory picker show the old and new fingerprints; only after explicit confirmation is the trust record for the corresponding address and port updated and the connection re-established; cancelling keeps the original record, and the actual fingerprint is verified again on reconnect.
 - `SnakeMountHelper` accepts only managed mount directories and sshfs executable paths from the allowlist.
 - Terminal credentials are passed as bytes to Rust/libssh2 through UniFFI, and the authentication material is zeroed after use; the system `ssh` is never launched, and the password is never passed through argv, environment variables, or drag-and-drop payloads.
@@ -81,7 +82,7 @@ See the [1.1.2 release notes](docs/RELEASE_NOTES_1.1.2.md) for this update, and 
 
 - Workspaces are not restored across app restarts and interrupted transfers are not resumed automatically; a failed download retries from a fresh source version, and resumable downloads are not promised.
 - Password-based mount AskPass, the Intel / Universal 2 installer package, and Developer ID signing and notarization have not been delivered yet.
-- The known mount test `MountOperationsTests.testQuitIsCancelledWhenMountIsBusyOrMountTableCannotBeRead` fails with `invalidMapping`, so the overall test suite cannot be claimed to pass completely. The 24 shortcut/workspace tests related to this packaging and the installer integrity check pass; page and clean-Mac installation acceptance still need to be performed.
+- The known mount test `MountOperationsTests.testQuitIsCancelledWhenMountIsBusyOrMountTableCannotBeRead` fails with `invalidMapping`, so the overall test suite cannot be claimed to pass completely. Swift: 197 tests, 5 skipped and 1 pre-existing failure; the 25 shortcut/workspace tests and 22 Rust tests pass. Page and clean-Mac installation acceptance still need to be performed.
 
 ## Interface preview
 
@@ -116,12 +117,12 @@ System requirements: Xcode 16.4, Swift 6.1, Rust 1.87+. SwiftTerm is pinned to `
 ### Building the DMG
 
 ```sh
-zsh scripts/package-release-dmg.sh 1.1.2
+zsh scripts/package-release-dmg.sh 1.1.3
 ```
 
 Python 3 is required; the script builds with Release optimizations and only produces an installer package for the current host architecture. Artifacts are placed in `release/`, and it refuses to overwrite existing files with the same name. The app contains the Rust dynamic library, the Mount Helper, SwiftTerm Metal resources, and third-party licenses, and does not depend on dynamic libraries or rendering resources from the workspace.
 
-The version and build numbers are stored in `Resources/Info.plist` and are currently `1.1.2` / `1120`. The script uses ad-hoc signing by default; see the [release process](docs/en/RELEASING.md) for Developer ID signing, notarization, and regenerating the checksum file. Local packaging does not automatically create Git tags or publish a GitHub Release.
+The version and build numbers are stored in `Resources/Info.plist` and are currently `1.1.3` / `1130`. The script uses ad-hoc signing by default; see the [release process](docs/en/RELEASING.md) for Developer ID signing, notarization, and regenerating the checksum file. Local packaging does not automatically create Git tags or publish a GitHub Release.
 
 On launch, the app automatically migrates legacy plaintext credentials to the encrypted file; if an old session still has only a Keychain reference, it is migrated into encrypted storage after its first successful read. See [credential encryption and viewing](docs/en/CREDENTIAL_SECURITY.md) for the detailed design and manual acceptance steps.
 

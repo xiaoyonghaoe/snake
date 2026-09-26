@@ -62,6 +62,15 @@ pub struct SshProfile {
     pub tags_json: String,
     pub symbol_name: String,
     pub sort_order: i64,
+    /// Optional metadata link; the copied password lives in the profile's own account.
+    pub saved_password_id: Option<Uuid>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SavedPasswordRecord {
+    pub id: Uuid,
+    pub name: String,
+    pub username: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -205,11 +214,26 @@ impl SnakeStore {
                 value TEXT NOT NULL,
                 updated_at INTEGER NOT NULL DEFAULT (unixepoch())
             );
+            CREATE TABLE IF NOT EXISTS saved_passwords (
+                id TEXT PRIMARY KEY NOT NULL,
+                name TEXT NOT NULL,
+                username TEXT NOT NULL,
+                created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+                updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+            );
             INSERT OR IGNORE INTO schema_migrations(version) VALUES (1);
             UPDATE transfer_jobs SET state = 'interrupted', updated_at = unixepoch()
             WHERE state IN ('queued', 'scanning', 'running');
             ",
         )?;
+        let has_saved_password_id = self.connection
+            .prepare("PRAGMA table_info(ssh_profiles)")?
+            .query_map([], |row| row.get::<_, String>(1))?
+            .any(|name| name.as_deref() == Ok("saved_password_id"));
+        if !has_saved_password_id {
+            self.connection.execute_batch("ALTER TABLE ssh_profiles ADD COLUMN saved_password_id TEXT REFERENCES saved_passwords(id) ON DELETE SET NULL")?;
+        }
+        self.connection.execute("INSERT OR IGNORE INTO schema_migrations(version) VALUES (2)", [])?;
         Ok(())
     }
 
@@ -245,13 +269,14 @@ impl SnakeStore {
             AuthMethod::PrivateKey => "private_key",
         };
         self.connection.execute(
-            "INSERT INTO ssh_profiles(id, group_id, name, host, port, username, auth_method, keychain_account, private_key_bookmark, tags_json, symbol_name, sort_order)
-             VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+            "INSERT INTO ssh_profiles(id, group_id, name, host, port, username, auth_method, keychain_account, private_key_bookmark, tags_json, symbol_name, sort_order, saved_password_id)
+             VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
              ON CONFLICT(id) DO UPDATE SET
                 group_id = excluded.group_id, name = excluded.name, host = excluded.host, port = excluded.port,
                 username = excluded.username, auth_method = excluded.auth_method, keychain_account = excluded.keychain_account,
                 private_key_bookmark = excluded.private_key_bookmark, tags_json = excluded.tags_json,
                 symbol_name = excluded.symbol_name, sort_order = excluded.sort_order,
+                saved_password_id = excluded.saved_password_id,
                 updated_at = unixepoch()",
             params![
                 profile.id.to_string(),
@@ -266,6 +291,7 @@ impl SnakeStore {
                 profile.tags_json,
                 profile.symbol_name,
                 profile.sort_order,
+                profile.saved_password_id.map(|id| id.to_string()),
             ],
         )?;
         Ok(())
@@ -273,7 +299,7 @@ impl SnakeStore {
 
     pub fn profile(&self, id: Uuid) -> Result<Option<SshProfile>, SnakeCoreError> {
         self.connection.query_row(
-            "SELECT id, group_id, name, host, port, username, auth_method, keychain_account, private_key_bookmark, tags_json, symbol_name, sort_order
+            "SELECT id, group_id, name, host, port, username, auth_method, keychain_account, private_key_bookmark, tags_json, symbol_name, sort_order, saved_password_id
              FROM ssh_profiles WHERE id = ?1",
             params![id.to_string()],
             |row| {
@@ -291,6 +317,7 @@ impl SnakeStore {
                     tags_json: row.get(9)?,
                     symbol_name: row.get(10)?,
                     sort_order: row.get(11)?,
+                    saved_password_id: row.get::<_, Option<String>>(12)?.and_then(|value| Uuid::parse_str(&value).ok()),
                 })
             },
         ).optional().map_err(Into::into)
@@ -298,7 +325,7 @@ impl SnakeStore {
 
     pub fn profiles(&self) -> Result<Vec<SshProfile>, SnakeCoreError> {
         let mut statement = self.connection.prepare(
-            "SELECT id, group_id, name, host, port, username, auth_method, keychain_account, private_key_bookmark, tags_json, symbol_name, sort_order
+            "SELECT id, group_id, name, host, port, username, auth_method, keychain_account, private_key_bookmark, tags_json, symbol_name, sort_order, saved_password_id
              FROM ssh_profiles ORDER BY sort_order, name COLLATE NOCASE",
         )?;
         let profiles = statement
@@ -323,6 +350,7 @@ impl SnakeStore {
                     tags_json: row.get(9)?,
                     symbol_name: row.get(10)?,
                     sort_order: row.get(11)?,
+                    saved_password_id: row.get::<_, Option<String>>(12)?.and_then(|value| Uuid::parse_str(&value).ok()),
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;
@@ -342,6 +370,55 @@ impl SnakeStore {
             "DELETE FROM ssh_profiles WHERE id = ?1",
             params![id.to_string()],
         )?;
+        Ok(())
+    }
+
+    pub fn saved_passwords(&self) -> Result<Vec<SavedPasswordRecord>, SnakeCoreError> {
+        let mut statement = self.connection.prepare(
+            "SELECT id, name, username FROM saved_passwords ORDER BY name COLLATE NOCASE, id",
+        )?;
+        let records = statement.query_map([], |row| {
+            Ok(SavedPasswordRecord {
+                id: Uuid::parse_str(&row.get::<_, String>(0)?).unwrap_or_else(|_| Uuid::nil()),
+                name: row.get(1)?,
+                username: row.get(2)?,
+            })
+        })?.collect::<Result<Vec<_>, _>>()?;
+        Ok(records)
+    }
+
+    /// One SQLite transaction for metadata and selected, still-linked profiles.
+    /// Credentials are coordinated by Swift and are never passed to this method.
+    pub fn save_saved_password_and_sync(
+        &self,
+        record: &SavedPasswordRecord,
+        selected: &[Uuid],
+        sync_username: bool,
+    ) -> Result<Vec<Uuid>, SnakeCoreError> {
+        let transaction = self.connection.unchecked_transaction()?;
+        transaction.execute(
+            "INSERT INTO saved_passwords(id, name, username) VALUES(?1, ?2, ?3)
+             ON CONFLICT(id) DO UPDATE SET name=excluded.name, username=excluded.username, updated_at=unixepoch()",
+            params![record.id.to_string(), record.name, record.username],
+        )?;
+        let mut updated = Vec::new();
+        for id in selected {
+            let changed = transaction.execute(
+                "UPDATE ssh_profiles SET username = CASE WHEN ?3 THEN ?4 ELSE username END, updated_at=unixepoch()
+                 WHERE id=?1 AND saved_password_id=?2 AND auth_method='password'",
+                params![id.to_string(), record.id.to_string(), sync_username, record.username],
+            )?;
+            if changed != 1 {
+                return Err(SnakeCoreError::Storage(rusqlite::Error::QueryReturnedNoRows));
+            }
+            updated.push(*id);
+        }
+        transaction.commit()?;
+        Ok(updated)
+    }
+
+    pub fn delete_saved_password(&self, id: Uuid) -> Result<(), SnakeCoreError> {
+        self.connection.execute("DELETE FROM saved_passwords WHERE id=?1", params![id.to_string()])?;
         Ok(())
     }
 
@@ -475,6 +552,14 @@ pub struct CoreSshProfile {
     pub tags: Vec<String>,
     pub symbol_name: String,
     pub sort_order: i64,
+    pub saved_password_id: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, uniffi::Record)]
+pub struct CoreSavedPassword {
+    pub id: String,
+    pub name: String,
+    pub username: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, uniffi::Record)]
@@ -595,6 +680,7 @@ impl From<SshProfile> for CoreSshProfile {
             tags: serde_json::from_str(&value.tags_json).unwrap_or_default(),
             symbol_name: value.symbol_name,
             sort_order: value.sort_order,
+            saved_password_id: value.saved_password_id.map(|id| id.to_string()),
         }
     }
 }
@@ -632,6 +718,28 @@ impl CoreDatabase {
     pub fn profiles(&self) -> Result<Vec<CoreSshProfile>, CoreError> {
         self.with_store(|store| store.profiles())
             .map(|profiles| profiles.into_iter().map(Into::into).collect())
+    }
+
+    pub fn saved_passwords(&self) -> Result<Vec<CoreSavedPassword>, CoreError> {
+        self.with_store(|store| store.saved_passwords()).map(|records| records.into_iter().map(|record| CoreSavedPassword {
+            id: record.id.to_string(), name: record.name, username: record.username,
+        }).collect())
+    }
+
+    pub fn save_saved_password_and_sync(&self, record: CoreSavedPassword, selected_profile_ids: Vec<String>, sync_username: bool) -> Result<Vec<String>, CoreError> {
+        let id = parse_identifier(&record.id)?;
+        let selected = selected_profile_ids.iter().map(|value| parse_identifier(value)).collect::<Result<Vec<_>, _>>()?;
+        if record.name.trim().is_empty() || record.username.trim().is_empty() {
+            return Err(CoreError::InvalidInput { message: "saved password name and username cannot be empty".to_owned() });
+        }
+        let record = SavedPasswordRecord { id, name: record.name, username: record.username };
+        self.with_store(|store| store.save_saved_password_and_sync(&record, &selected, sync_username))
+            .map(|ids| ids.into_iter().map(|id| id.to_string()).collect())
+    }
+
+    pub fn delete_saved_password(&self, id: String) -> Result<(), CoreError> {
+        let id = parse_identifier(&id)?;
+        self.with_store(|store| store.delete_saved_password(id))
     }
 
     pub fn save_group(&self, group: CoreSessionGroup) -> Result<(), CoreError> {
@@ -683,6 +791,7 @@ impl CoreDatabase {
             tags_json,
             symbol_name: profile.symbol_name,
             sort_order: profile.sort_order,
+            saved_password_id: profile.saved_password_id.as_deref().map(parse_identifier).transpose()?,
         };
         self.with_store(|store| store.save_profile(&profile))
     }
@@ -2381,6 +2490,7 @@ mod tests {
             tags_json: "[\"生产\"]".into(),
             symbol_name: "server.rack".into(),
             sort_order: 0,
+            saved_password_id: None,
         };
         store.save_profile(&profile).unwrap();
         assert_eq!(store.groups().unwrap(), vec![group]);
@@ -2404,6 +2514,7 @@ mod tests {
             tags_json: "[]".into(),
             symbol_name: "server.rack".into(),
             sort_order: 0,
+            saved_password_id: None,
         };
         assert!(matches!(
             store.save_profile(&profile),
@@ -2436,6 +2547,7 @@ mod tests {
             tags: vec!["开发".into(), "内网".into()],
             symbol_name: "server.rack".into(),
             sort_order: 0,
+            saved_password_id: None,
         };
         database.save_profile(profile.clone()).unwrap();
         assert_eq!(database.profiles().unwrap(), vec![profile]);
@@ -2473,6 +2585,45 @@ mod tests {
         };
         database.save_transfer_job(transfer.clone()).unwrap();
         assert_eq!(database.transfer_jobs().unwrap(), vec![transfer]);
+    }
+
+    #[test]
+    fn saved_password_metadata_syncs_only_selected_linked_password_profiles() {
+        let temp = tempfile::NamedTempFile::new().unwrap();
+        let database = CoreDatabase::open(temp.path().to_string_lossy().into_owned()).unwrap();
+        let entry = CoreSavedPassword { id: Uuid::new_v4().to_string(), name: "team".into(), username: "old".into() };
+        database.save_saved_password_and_sync(entry.clone(), vec![], false).unwrap();
+        let make_profile = |id: String, linked: Option<String>, method: CoreAuthMethod| CoreSshProfile {
+            id, group_id: None, name: "host".into(), host: "127.0.0.1".into(), port: 22,
+            username: "old".into(), auth_method: method, keychain_account: Some("profile/password".into()),
+            private_key_bookmark: None, tags: vec![], symbol_name: "server.rack".into(), sort_order: 0,
+            saved_password_id: linked,
+        };
+        let linked = make_profile(Uuid::new_v4().to_string(), Some(entry.id.clone()), CoreAuthMethod::Password);
+        let untouched = make_profile(Uuid::new_v4().to_string(), Some(entry.id.clone()), CoreAuthMethod::Password);
+        let private_key = make_profile(Uuid::new_v4().to_string(), None, CoreAuthMethod::PrivateKey);
+        for profile in [&linked, &untouched, &private_key] { database.save_profile(profile.clone()).unwrap(); }
+        let changed = CoreSavedPassword { username: "new".into(), ..entry.clone() };
+        assert_eq!(database.save_saved_password_and_sync(changed.clone(), vec![linked.id.clone()], true).unwrap(), vec![linked.id.clone()]);
+        let profiles = database.profiles().unwrap();
+        assert_eq!(profiles.iter().find(|profile| profile.id == linked.id).unwrap().username, "new");
+        assert_eq!(profiles.iter().find(|profile| profile.id == untouched.id).unwrap().username, "old");
+        assert!(database.save_saved_password_and_sync(changed, vec![private_key.id.clone()], true).is_err());
+        database.delete_saved_password(entry.id).unwrap();
+        assert!(database.saved_passwords().unwrap().is_empty());
+        assert!(database.profiles().unwrap().iter().all(|profile| profile.saved_password_id.is_none()));
+        assert_eq!(database.profiles().unwrap().iter().find(|profile| profile.id == linked.id).unwrap().username, "new");
+    }
+
+    #[test]
+    fn existing_profile_schema_migrates_without_matching_old_sessions() {
+        let temp = tempfile::NamedTempFile::new().unwrap();
+        let connection = Connection::open(temp.path()).unwrap();
+        connection.execute_batch("CREATE TABLE ssh_profiles (id TEXT PRIMARY KEY, group_id TEXT, name TEXT, host TEXT, port INTEGER, username TEXT, auth_method TEXT, keychain_account TEXT, private_key_bookmark BLOB, tags_json TEXT, symbol_name TEXT, sort_order INTEGER); INSERT INTO ssh_profiles VALUES ('old','', 'old', '127.0.0.1',22,'root','password',NULL,NULL,'[]','server.rack',0);").unwrap();
+        drop(connection);
+        let store = SnakeStore::open(temp.path()).unwrap();
+        assert_eq!(store.profiles().unwrap().len(), 1);
+        assert_eq!(store.profiles().unwrap()[0].saved_password_id, None);
     }
 
     #[test]

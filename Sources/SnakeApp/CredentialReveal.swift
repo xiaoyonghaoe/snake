@@ -77,7 +77,7 @@ final class CredentialRevealController: @preconcurrency ObservableObject {
 
     init(
         timeoutNanoseconds: UInt64 = 30_000_000_000,
-        focusReturnTimeoutNanoseconds: UInt64 = 1_500_000_000,
+        focusReturnTimeoutNanoseconds: UInt64 = 3_000_000_000,
         canPresent: @escaping () -> Bool = { false },
         makeAuthentication: @escaping () -> any CredentialAuthenticating = { DeviceOwnerCredentialAuthentication() },
         read: @escaping (String) async throws -> Data? = { account in
@@ -110,8 +110,13 @@ final class CredentialRevealController: @preconcurrency ObservableObject {
         isLoading = true
         requestTask = Task { [weak self] in
             do {
-                try await verifier.authenticate()
+                // Settings and profile sheets may still be moving to the key
+                // window when their button becomes clickable. Starting LA in
+                // that gap can result in no system prompt at all.
+                try await self?.waitForPresentation(requestID: id)
                 guard let self, self.requestID == id, !Task.isCancelled else { return }
+                try await verifier.authenticate()
+                guard self.requestID == id, !Task.isCancelled else { return }
                 verifier.invalidate()
                 self.authentication = nil
                 self.isAuthenticating = false
@@ -159,7 +164,7 @@ final class CredentialRevealController: @preconcurrency ObservableObject {
                 case CredentialAuthenticationError.failed:
                     self.errorMessage = L10n.text("身份验证未通过，未显示密码。")
                 case CredentialAuthenticationError.windowNotReady:
-                    self.errorMessage = L10n.text("验证已通过，但编辑窗口尚未恢复焦点。请回到原窗口后重新查看。")
+                    self.errorMessage = L10n.text("编辑窗口尚未获得焦点。请回到原窗口后重新查看。")
                 case let storageError as CredentialStoreError:
                     self.errorMessage = storageError.localizedDescription
                 case let keychainError as KeychainStoreError:
@@ -284,17 +289,17 @@ struct CredentialInputView: View {
                 .focused($inputFocused)
                 .accessibilityLabel(isPassphrase ? L10n.text("私钥口令") : L10n.text("密码"))
                 Button {
-                    if reveal.isRevealed { reveal.hide() }
+                    if reveal.isLoading || reveal.isRevealed { reveal.hide() }
                     else { reveal.reveal(account: account) }
                 } label: {
                     Label(
-                        reveal.isRevealed ? L10n.text("隐藏") : L10n.text("查看"),
-                        systemImage: reveal.isRevealed ? "eye.slash" : "eye"
+                        reveal.isLoading ? L10n.text("取消验证") : (reveal.isRevealed ? L10n.text("隐藏") : L10n.text("查看")),
+                        systemImage: reveal.isLoading ? "xmark.circle" : (reveal.isRevealed ? "eye.slash" : "eye")
                     )
                     .fixedSize()
                 }
                 .buttonStyle(SnakeOutlineButtonStyle())
-                .disabled(!reveal.isRevealed && !reveal.canReveal(account: account))
+                .disabled(!reveal.isLoading && !reveal.isRevealed && !reveal.canReveal(account: account))
                 .help("验证身份后在原输入框显示并编辑；30 秒后恢复隐藏，保留草稿")
                 if reveal.isLoading {
                     ProgressView().controlSize(.small)

@@ -7,6 +7,7 @@ public enum CredentialStoreError: LocalizedError {
     case missingKey
     case invalidKey
     case authenticationFailed
+    case rollbackFailed
 
     public var errorDescription: String? {
         switch self {
@@ -20,6 +21,8 @@ public enum CredentialStoreError: LocalizedError {
             L10n.text("钥匙串中的凭据加密密钥格式无效。")
         case .authenticationFailed:
             L10n.text("凭据解密验证失败，文件可能损坏或密钥不匹配。原文件未被覆盖。")
+        case .rollbackFailed:
+            L10n.text("密码库保存失败，且凭据回滚未完成。请检查关联会话后重试。")
         }
     }
 }
@@ -54,6 +57,17 @@ public enum CredentialStore {
         // Otherwise a subsequent compatibility read could resurrect a secret.
         try KeychainStore.delete(account: account)
     }
+
+    /// The encrypted dictionary is written once, and restored if SQLite rejects
+    /// the accompanying metadata change. Neither closure nor error contains secrets.
+    static func withChanges<T>(_ changes: [CredentialChange], commit: () throws -> T) throws -> T {
+        try backend.withChanges(changes, commit: commit)
+    }
+}
+
+struct CredentialChange {
+    let account: String
+    let secret: String?
 }
 
 protocol CredentialEncryptionKeyProviding: Sendable {
@@ -120,6 +134,29 @@ final class EncryptedCredentialStore: @unchecked Sendable {
         var credentials = try loadUnlocked()
         guard credentials.removeValue(forKey: account) != nil else { return }
         try persistUnlocked(credentials)
+    }
+
+    func withChanges<T>(_ changes: [CredentialChange], commit: () throws -> T) throws -> T {
+        if changes.isEmpty { return try commit() }
+        lock.lock()
+        defer { lock.unlock() }
+        let original = try loadUnlocked()
+        var proposed = original
+        for change in changes {
+            if let secret = change.secret { proposed[change.account] = secret }
+            else { proposed.removeValue(forKey: change.account) }
+        }
+        if proposed != original { try persistUnlocked(proposed) }
+        do {
+            return try commit()
+        } catch {
+            do {
+                if proposed != original { try persistUnlocked(original) }
+            } catch {
+                throw CredentialStoreError.rollbackFailed
+            }
+            throw error
+        }
     }
 
     private func loadUnlocked() throws -> [String: String] {

@@ -102,6 +102,7 @@ public struct SSHProfile: Identifiable, Codable, Hashable, Sendable {
     public var tags: [String]
     public var symbolName: String
     public var sortOrder: Int
+    public var savedPasswordID: UUID?
 
     public init(
         id: UUID = UUID(),
@@ -115,7 +116,8 @@ public struct SSHProfile: Identifiable, Codable, Hashable, Sendable {
         privateKeyBookmark: Data? = nil,
         tags: [String] = [],
         symbolName: String = "server.rack",
-        sortOrder: Int = 0
+        sortOrder: Int = 0,
+        savedPasswordID: UUID? = nil
     ) {
         self.id = id
         self.groupID = groupID
@@ -129,12 +131,27 @@ public struct SSHProfile: Identifiable, Codable, Hashable, Sendable {
         self.tags = tags
         self.symbolName = symbolName
         self.sortOrder = sortOrder
+        self.savedPasswordID = savedPasswordID
     }
 
     public var connectionLabel: String { "\(username)@\(host):\(port)" }
     public var keychainPasswordAccount: String { "\(id.uuidString)/password" }
     public var keychainPassphraseAccount: String { "\(id.uuidString)/key-passphrase" }
     public var usesCustomIcon: Bool { symbolName == Self.customIconSymbolName }
+}
+
+public struct SavedPassword: Identifiable, Hashable, Sendable {
+    public var id: UUID
+    public var name: String
+    public var username: String
+
+    public init(id: UUID = UUID(), name: String, username: String) {
+        self.id = id
+        self.name = name
+        self.username = username
+    }
+
+    public var credentialAccount: String { "library/\(id.uuidString)/password" }
 }
 
 enum SessionTags {

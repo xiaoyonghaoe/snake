@@ -1050,6 +1050,7 @@ public final class SFTPRuntime: ObservableObject, Identifiable {
     @Published private(set) var searchCommandRequest = 0
     @Published private(set) var deleteCommandRequest = 0
     @Published private(set) var uploadFileCommandRequest = 0
+    @Published private(set) var shortcutNotice: String?
     public let uploader: LocalUploadCoordinator
     private var handle: CoreSftpHandle?
     private var connectionAttemptID = UUID()
@@ -1070,6 +1071,17 @@ public final class SFTPRuntime: ObservableObject, Identifiable {
     func requestSearchCommand() { searchCommandRequest &+= 1 }
     func requestDeleteCommand() { deleteCommandRequest &+= 1 }
     func requestUploadFileCommand() { uploadFileCommandRequest &+= 1 }
+
+    func showShortcutUnavailableNotice() {
+        shortcutNotice = connectionState == .connected
+            ? L10n.text("目录正在加载，请稍后再试。")
+            : L10n.text("请先完成 SFTP 连接，再使用快捷键。")
+        let notice = shortcutNotice
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(3))
+            if self?.shortcutNotice == notice { self?.shortcutNotice = nil }
+        }
+    }
 
     init(profile: SSHProfile) {
         self.profile = profile
@@ -1918,6 +1930,13 @@ public final class WorkspaceTabRuntime: ObservableObject, Identifiable {
     @Published var selectedProfileID: UUID?
     @Published var selectedMappingID: UUID?
     @Published var searchFocusRequest = 0
+    private var handledSearchFocusRequest = 0
+
+    func takeSearchFocusRequest() -> Bool {
+        guard kind == .sessions, searchFocusRequest > handledSearchFocusRequest else { return false }
+        handledSearchFocusRequest = searchFocusRequest
+        return true
+    }
 
     init(manager kind: WorkspaceTabKind = .sessions) {
         precondition(kind == .sessions || kind == .mounts)
@@ -2032,7 +2051,7 @@ public final class WorkspaceWindowState: ObservableObject, Identifiable {
             self?.activePaneID = paneID
         }
         bonsplit.onTabBarTrailingDoubleClick = { [weak self] paneID in
-            _ = self?.add(WorkspaceTabRuntime(manager: .sessions), to: paneID)
+            _ = self?.openManager(.sessions, to: paneID)
         }
         bonsplit.onTabContextAction = { [weak self] tabID, paneID, action in
             self?.performTabContextAction(action, tabID: tabID, paneID: paneID)
@@ -2066,12 +2085,18 @@ public final class WorkspaceWindowState: ObservableObject, Identifiable {
         return true
     }
 
-    func openManager(_ kind: WorkspaceTabKind) {
-        _ = add(WorkspaceTabRuntime(manager: kind), to: activePaneID ?? bonsplit.focusedPaneId)
+    @discardableResult
+    func openManager(_ kind: WorkspaceTabKind, to pane: PaneID? = nil) -> Bool {
+        let runtime = WorkspaceTabRuntime(manager: kind)
+        if kind == .sessions { runtime.searchFocusRequest = 1 }
+        return add(runtime, to: pane ?? activePaneID ?? bonsplit.focusedPaneId)
     }
 
     func focusSessionSearch() {
-        if selectedRuntime?.kind != .sessions { openManager(.sessions) }
+        if selectedRuntime?.kind != .sessions {
+            openManager(.sessions)
+            return
+        }
         selectedRuntime?.searchFocusRequest += 1
     }
 
@@ -2192,9 +2217,8 @@ public final class WorkspaceWindowCoordinator: NSObject {
     private var sftpSearchMenuItem: NSMenuItem?
     private var sftpDeleteMenuItem: NSMenuItem?
     private var sftpUploadMenuItem: NSMenuItem?
+    private var newSessionTabMenuItem: NSMenuItem?
     private var fileMenuItem: NSMenuItem?
-    // Intercept only configured SFTP shortcuts before native/SwiftUI content
-    // handles key equivalents. This is application-local, not a global hotkey.
     nonisolated(unsafe) private var sftpShortcutMonitor: Any?
     private(set) lazy var dragging = WorkspaceDragCoordinator(owner: self)
 
@@ -2202,20 +2226,54 @@ public final class WorkspaceWindowCoordinator: NSObject {
         self.store = store
         super.init()
         _ = dragging
+        // Menus (including SwiftUI's rebuilt Edit menu) may consume Command-F
+        // before a window's performKeyEquivalent runs. Scope the early monitor
+        // to the actual key Snake window; the window override is the fallback.
         sftpShortcutMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard let self, event.window === NSApp.keyWindow else { return event }
-            return self.handleSFTPShortcut(event) ? nil : event
+            guard let self, let window = NSApp.keyWindow as? SnakeWorkspaceWindow,
+                  event.window == nil || event.window === window else { return event }
+            if self.handleNewSessionTabShortcut(event, in: window) { return nil }
+            return self.handleSFTPShortcut(event, in: window) ? nil : event
         }
     }
 
     deinit { if let sftpShortcutMonitor { NSEvent.removeMonitor(sftpShortcutMonitor) } }
 
-    func handleSFTPShortcut(_ event: NSEvent) -> Bool {
+    func handleNewSessionTabShortcut(_ event: NSEvent, in window: NSWindow) -> Bool {
+        guard event.type == .keyDown,
+              (event.window === window || (event.window == nil && NSApp.keyWindow === window)),
+              SFTPShortcut.from(event: event) == store.newSessionTabShortcut,
+              let record = windows.values.first(where: { $0.window === window }) else { return false }
+        guard !event.isARepeat, NSApp.modalWindow == nil, window.attachedSheet == nil,
+              dragging.active == nil else { return true }
+        record.state.openManager(.sessions)
+        return true
+    }
+
+    /// The window receiving the key equivalent is authoritative. App-wide
+    /// monitors can see a stale key window while SwiftUI rebuilds Settings.
+    func handleSFTPShortcut(_ event: NSEvent, in window: NSWindow) -> Bool {
+        guard event.type == .keyDown,
+              (event.window === window || (event.window == nil && NSApp.keyWindow === window)),
+              let record = windows.values.first(where: { $0.window === window }),
+              let runtime = record.state.selectedRuntime?.sftp,
+              NSApp.modalWindow == nil,
+              window.attachedSheet == nil else { return false }
         guard dragging.active == nil,
-              let action = SFTPShortcutPolicy.action(for: event, configured: store.sftpShortcuts),
-              canPerformSFTPCommand(action) else { return false }
+              let action = SFTPShortcutPolicy.action(for: event, configured: store.sftpShortcuts) else { return false }
         // Holding the key must not reopen file pickers or repeat confirmation.
-        if !event.isARepeat { performSFTPCommand(action) }
+        if !event.isARepeat {
+            switch action {
+            case .search:
+                if runtime.canSearchWithShortcut { runtime.requestSearchCommand() }
+                else { runtime.showShortcutUnavailableNotice() }
+            case .delete:
+                if !keyWindowIsEditingText && runtime.canDeleteWithShortcut { runtime.requestDeleteCommand() }
+            case .uploadFile:
+                if runtime.canUploadFileWithShortcut { runtime.requestUploadFileCommand() }
+                else { runtime.showShortcutUnavailableNotice() }
+            }
+        }
         return true
     }
 
@@ -2228,7 +2286,7 @@ public final class WorkspaceWindowCoordinator: NSObject {
         // Locate the menu by action rather than by title so it survives a
         // language change.
         let workspaceActions: Set<Selector> = [
-            #selector(closeCurrentItem(_:)), #selector(searchSessions(_:)),
+            #selector(closeCurrentItem(_:)), #selector(newSessionTab(_:)),
             #selector(searchSFTP(_:)), #selector(deleteSFTPSelection(_:)), #selector(uploadSFTPFile(_:))
         ]
         let fileMenu: NSMenu
@@ -2253,12 +2311,8 @@ public final class WorkspaceWindowCoordinator: NSObject {
             closeItem.target = self
             fileMenu.insertItem(closeItem, at: 0)
         }
-        if fileMenu.items.contains(where: { $0.action == #selector(searchSessions(_:)) }) == false {
-            let searchItem = NSMenuItem(title: L10n.text("搜索 SSH 会话"), action: #selector(searchSessions(_:)), keyEquivalent: "k")
-            searchItem.keyEquivalentModifierMask = [.command]
-            searchItem.target = self
-            fileMenu.addItem(searchItem)
-        }
+        newSessionTabMenuItem = menuItem(in: fileMenu, title: L10n.text("新建 SSH 会话标签"),
+            action: #selector(newSessionTab(_:)), existing: newSessionTabMenuItem)
 
         let hadSFTPCommands = fileMenu.items.contains { $0.action == #selector(searchSFTP(_:)) }
         if !hadSFTPCommands { fileMenu.addItem(.separator()) }
@@ -2284,7 +2338,7 @@ public final class WorkspaceWindowCoordinator: NSObject {
             guard let action = item.action else { continue }
             switch action {
             case #selector(closeCurrentItem(_:)): item.title = L10n.text("关闭标签")
-            case #selector(searchSessions(_:)): item.title = L10n.text("搜索 SSH 会话")
+            case #selector(newSessionTab(_:)): item.title = L10n.text("新建 SSH 会话标签")
             case #selector(searchSFTP(_:)): item.title = L10n.text("在 SFTP 中检索")
             case #selector(deleteSFTPSelection(_:)): item.title = L10n.text("删除所选 SFTP 项目…")
             case #selector(uploadSFTPFile(_:)): item.title = L10n.text("上传文件到 SFTP…")
@@ -2307,6 +2361,7 @@ public final class WorkspaceWindowCoordinator: NSObject {
     }
 
     private func applyConfiguredShortcuts() {
+        configure(newSessionTabMenuItem, shortcut: store.newSessionTabShortcut)
         configure(sftpSearchMenuItem, shortcut: store.sftpSearchShortcut)
         configure(sftpDeleteMenuItem, shortcut: store.sftpDeleteShortcut)
         configure(sftpUploadMenuItem, shortcut: store.sftpUploadShortcut)
@@ -2711,8 +2766,10 @@ public final class WorkspaceWindowCoordinator: NSObject {
         return true
     }
 
-    @objc private func searchSessions(_ sender: Any?) {
-        keyWindowRecord?.state.focusSessionSearch()
+    @objc private func newSessionTab(_ sender: Any?) {
+        guard NSApp.modalWindow == nil, let record = keyWindowRecord,
+              record.window?.attachedSheet == nil else { return }
+        record.state.openManager(.sessions)
     }
 
     @objc private func searchSFTP(_ sender: Any?) {
@@ -2820,7 +2877,7 @@ private final class SnakeWindowDelegate: NSObject, NSWindowDelegate, NSDraggingD
 extension WorkspaceWindowCoordinator: NSMenuItemValidation {
     public func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         let hasUnblockedWindow = NSApp.modalWindow == nil && keyWindowRecord?.window?.attachedSheet == nil
-        if menuItem.action == #selector(searchSessions(_:)) {
+        if menuItem.action == #selector(newSessionTab(_:)) {
             return hasUnblockedWindow && keyWindowRecord != nil
         }
         if menuItem.action == #selector(searchSFTP(_:)) {

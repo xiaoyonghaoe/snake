@@ -91,10 +91,10 @@ enum SFTPShortcutPolicy {
         return SFTPShortcutAction.allCases.first { configured[$0] == shortcut }
     }
 
-    private static let reserved: Set<SFTPShortcut> = [
+    static let reserved: Set<SFTPShortcut> = [
         SFTPShortcut(keyEquivalent: "q", modifiers: [.command]),
         SFTPShortcut(keyEquivalent: "w", modifiers: [.command]),
-        SFTPShortcut(keyEquivalent: "k", modifiers: [.command]),
+        SFTPShortcut(keyEquivalent: "n", modifiers: [.command]),
         SFTPShortcut(keyEquivalent: ",", modifiers: [.command]),
         SFTPShortcut(keyEquivalent: "h", modifiers: [.command]),
         SFTPShortcut(keyEquivalent: "m", modifiers: [.command]),
@@ -108,7 +108,8 @@ enum SFTPShortcutPolicy {
     static func validationError(
         action: SFTPShortcutAction,
         shortcut: SFTPShortcut,
-        configured: [SFTPShortcutAction: SFTPShortcut]
+        configured: [SFTPShortcutAction: SFTPShortcut],
+        workspaceShortcut: SFTPShortcut = WorkspaceShortcutPolicy.defaultNewTab
     ) -> String? {
         let safeModifier: NSEvent.ModifierFlags = [.command, .control, .option]
         guard !shortcut.modifiers.intersection(safeModifier).isEmpty else {
@@ -117,7 +118,30 @@ enum SFTPShortcutPolicy {
         if reserved.contains(shortcut) {
             return L10n.format("%@ 已被 Snake 或 macOS 常用命令占用。", shortcut.displayText)
         }
+        if shortcut == workspaceShortcut {
+            return L10n.format("%@ 已用于新建 SSH 会话标签。", shortcut.displayText)
+        }
         if let conflict = configured.first(where: { $0.key != action && $0.value == shortcut })?.key {
+            return L10n.format("%@ 已用于 SFTP %@。", shortcut.displayText, conflict.title)
+        }
+        return nil
+    }
+}
+
+enum WorkspaceShortcutPolicy {
+    static let defaultNewTab = SFTPShortcut(keyEquivalent: "t", modifiers: [.command])
+
+    static func validationError(
+        _ shortcut: SFTPShortcut,
+        sftpShortcuts: [SFTPShortcutAction: SFTPShortcut]
+    ) -> String? {
+        guard !shortcut.modifiers.intersection([.command, .control, .option]).isEmpty else {
+            return L10n.text("快捷键必须包含 Command、Control 或 Option。")
+        }
+        if SFTPShortcutPolicy.reserved.contains(shortcut) {
+            return L10n.format("%@ 已被 Snake 或 macOS 常用命令占用。", shortcut.displayText)
+        }
+        if let conflict = sftpShortcuts.first(where: { $0.value == shortcut })?.key {
             return L10n.format("%@ 已用于 SFTP %@。", shortcut.displayText, conflict.title)
         }
         return nil

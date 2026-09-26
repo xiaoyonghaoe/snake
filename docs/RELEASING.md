@@ -8,7 +8,7 @@
 脚本只构建当前宿主架构，不将 arm64 冒充 Universal 2。
 
 ```sh
-zsh scripts/package-release-dmg.sh 1.1.2
+zsh scripts/package-release-dmg.sh 1.1.3
 ```
 
 输出在 `release/`（Git 忽略）：DMG 及 SHA-256 文件。已存在同名产物时拒绝覆盖。
@@ -21,7 +21,7 @@ zsh scripts/package-release-dmg.sh 1.1.2
 构建号默认读取 plist，可用 `SNAKE_BUILD_NUMBER` 覆盖。
 Cargo 许可证清单按锁文件和目标架构生成，包含 normal/build 依赖，不包含 dev 依赖。
 
-## 当前 1.1.2
+## 当前 1.1.3
 
 - Apple Silicon / macOS 15+；本地 ad-hoc 签名，不是 Apple 公证包。
 - 不包含 Intel 或 Universal 2 产物。
@@ -36,9 +36,9 @@ Cargo 许可证清单按锁文件和目标架构生成，包含 normal/build 依
 更换签名可能影响原测试包的钥匙串访问批准，发布前必须回归已保存凭据连接。
 
 ```sh
-xcrun notarytool submit release/Snake-1.1.2-macos-arm64.dmg --keychain-profile <你的公证配置名> --wait
-xcrun stapler staple release/Snake-1.1.2-macos-arm64.dmg
-xcrun stapler validate release/Snake-1.1.2-macos-arm64.dmg
+xcrun notarytool submit release/Snake-1.1.3-macos-arm64.dmg --keychain-profile <你的公证配置名> --wait
+xcrun stapler staple release/Snake-1.1.3-macos-arm64.dmg
+xcrun stapler validate release/Snake-1.1.3-macos-arm64.dmg
 ```
 
 只有公证结果为 Accepted 后才装订票据。装订会改变文件，必须重新生成 SHA-256，不能沿用旧值。
@@ -50,7 +50,16 @@ Apple 安全机制参见 [官方说明](https://support.apple.com/zh-cn/102445)�
 上传 DMG、同名 SHA-256 和版本说明；在发布页注明架构、最低系统版本与是否公证。
 公开版本前先提交对应源码并确认构建和源码一致，再由维护者创建标签及 Release。
 
-## 本次构建验证记录（1.1.2 / 1120）
+## 本次构建验证记录（1.1.3 / 1130）
+
+- Release 构建成功，应用、Helper 和 Rust dylib 均为 arm64；版本为 `1.1.3` / `1130`。
+- DMG 8,693,334 字节；SHA-256：`a0f317358c222df7dbbbe903ee485cd8c006e927c59a17309458810a76c44a51`。
+- `hdiutil verify`、SHA-256 校验及只读挂载后的 `codesign --verify --deep --strict` 通过；Applications 链接为 `/Applications`。
+- 挂载包可定位全部资源，7 个 Metal shader 函数编译通过，英文 601 条语言资源与中文源语言齐备；未启动应用。
+- Swift 197 项：5 项外部夹具跳过、1 项既有挂载 `invalidMapping` 失败；快捷键/工作区 25 项通过。Rust 22 项通过。
+- 页面、真实系统身份验证、干净 Mac 安装与升级由用户验收；未完成 Developer ID 签名与公证。
+
+## 历史构建验证记录（1.1.2 / 1120）
 
 - Release 构建成功；应用、helper 和 Rust dylib 均为 arm64。
 - `hdiutil verify` 通过；`shasum -a 256 -c` 校验通过。DMG 为 8,461,084 字节，

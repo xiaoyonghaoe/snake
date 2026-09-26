@@ -253,21 +253,21 @@ typedef void (*UniffiForeignFutureCompleteVoid)(uint64_t, UniffiForeignFutureStr
 #endif
 #ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_CORE_TERMINAL_OBSERVER_METHOD0
 #define UNIFFI_FFIDEF_CALLBACK_INTERFACE_CORE_TERMINAL_OBSERVER_METHOD0
-typedef void (*UniffiCallbackInterfaceCoreTerminalObserverMethod0)(uint64_t, RustBuffer, void* _Nonnull, 
+typedef void (*UniffiCallbackInterfaceCoreTerminalObserverMethod0)(uint64_t, RustBuffer, void* _Nonnull,
         RustCallStatus *_Nonnull uniffiCallStatus
     );
 
 #endif
 #ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_CORE_TERMINAL_OBSERVER_METHOD1
 #define UNIFFI_FFIDEF_CALLBACK_INTERFACE_CORE_TERMINAL_OBSERVER_METHOD1
-typedef void (*UniffiCallbackInterfaceCoreTerminalObserverMethod1)(uint64_t, int32_t, RustBuffer, void* _Nonnull, 
+typedef void (*UniffiCallbackInterfaceCoreTerminalObserverMethod1)(uint64_t, int32_t, RustBuffer, void* _Nonnull,
         RustCallStatus *_Nonnull uniffiCallStatus
     );
 
 #endif
 #ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_CORE_TRANSFER_OBSERVER_METHOD0
 #define UNIFFI_FFIDEF_CALLBACK_INTERFACE_CORE_TRANSFER_OBSERVER_METHOD0
-typedef void (*UniffiCallbackInterfaceCoreTransferObserverMethod0)(uint64_t, uint64_t, uint64_t, void* _Nonnull, 
+typedef void (*UniffiCallbackInterfaceCoreTransferObserverMethod0)(uint64_t, uint64_t, uint64_t, void* _Nonnull,
         RustCallStatus *_Nonnull uniffiCallStatus
     );
 
@@ -319,6 +319,11 @@ void uniffi_snake_core_fn_method_coredatabase_delete_mount_mapping(void*_Nonnull
 void uniffi_snake_core_fn_method_coredatabase_delete_profile(void*_Nonnull ptr, RustBuffer id, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_FN_METHOD_COREDATABASE_DELETE_SAVED_PASSWORD
+#define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_FN_METHOD_COREDATABASE_DELETE_SAVED_PASSWORD
+void uniffi_snake_core_fn_method_coredatabase_delete_saved_password(void*_Nonnull ptr, RustBuffer id, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_FN_METHOD_COREDATABASE_DELETE_TRANSFER_JOB
 #define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_FN_METHOD_COREDATABASE_DELETE_TRANSFER_JOB
 void uniffi_snake_core_fn_method_coredatabase_delete_transfer_job(void*_Nonnull ptr, RustBuffer id, RustCallStatus *_Nonnull out_status
@@ -354,9 +359,19 @@ void uniffi_snake_core_fn_method_coredatabase_save_mount_mapping(void*_Nonnull p
 void uniffi_snake_core_fn_method_coredatabase_save_profile(void*_Nonnull ptr, RustBuffer profile, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_FN_METHOD_COREDATABASE_SAVE_SAVED_PASSWORD_AND_SYNC
+#define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_FN_METHOD_COREDATABASE_SAVE_SAVED_PASSWORD_AND_SYNC
+RustBuffer uniffi_snake_core_fn_method_coredatabase_save_saved_password_and_sync(void*_Nonnull ptr, RustBuffer record, RustBuffer selected_profile_ids, int8_t sync_username, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_FN_METHOD_COREDATABASE_SAVE_TRANSFER_JOB
 #define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_FN_METHOD_COREDATABASE_SAVE_TRANSFER_JOB
 void uniffi_snake_core_fn_method_coredatabase_save_transfer_job(void*_Nonnull ptr, RustBuffer job, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_FN_METHOD_COREDATABASE_SAVED_PASSWORDS
+#define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_FN_METHOD_COREDATABASE_SAVED_PASSWORDS
+RustBuffer uniffi_snake_core_fn_method_coredatabase_saved_passwords(void*_Nonnull ptr, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_FN_METHOD_COREDATABASE_TRANSFER_JOBS
@@ -567,7 +582,7 @@ void uniffi_snake_core_fn_free_coretransfercontrol(void*_Nonnull ptr, RustCallSt
 #ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_FN_CONSTRUCTOR_CORETRANSFERCONTROL_NEW
 #define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_FN_CONSTRUCTOR_CORETRANSFERCONTROL_NEW
 void*_Nonnull uniffi_snake_core_fn_constructor_coretransfercontrol_new(RustCallStatus *_Nonnull out_status
-    
+
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_FN_METHOD_CORETRANSFERCONTROL_CANCEL
@@ -908,367 +923,385 @@ void ffi_snake_core_rust_future_complete_void(uint64_t handle, RustCallStatus *_
 #ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_FUNC_OPEN_SFTP_PASSWORD
 #define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_FUNC_OPEN_SFTP_PASSWORD
 uint16_t uniffi_snake_core_checksum_func_open_sftp_password(void
-    
+
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_FUNC_OPEN_SFTP_PRIVATE_KEY
 #define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_FUNC_OPEN_SFTP_PRIVATE_KEY
 uint16_t uniffi_snake_core_checksum_func_open_sftp_private_key(void
-    
+
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_FUNC_OPEN_TERMINAL_PASSWORD
 #define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_FUNC_OPEN_TERMINAL_PASSWORD
 uint16_t uniffi_snake_core_checksum_func_open_terminal_password(void
-    
+
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_FUNC_OPEN_TERMINAL_PRIVATE_KEY
 #define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_FUNC_OPEN_TERMINAL_PRIVATE_KEY
 uint16_t uniffi_snake_core_checksum_func_open_terminal_private_key(void
-    
+
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_FUNC_PROBE_HOST_KEY
 #define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_FUNC_PROBE_HOST_KEY
 uint16_t uniffi_snake_core_checksum_func_probe_host_key(void
-    
+
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_COREDATABASE_DELETE_GROUP
 #define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_COREDATABASE_DELETE_GROUP
 uint16_t uniffi_snake_core_checksum_method_coredatabase_delete_group(void
-    
+
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_COREDATABASE_DELETE_MOUNT_MAPPING
 #define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_COREDATABASE_DELETE_MOUNT_MAPPING
 uint16_t uniffi_snake_core_checksum_method_coredatabase_delete_mount_mapping(void
-    
+
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_COREDATABASE_DELETE_PROFILE
 #define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_COREDATABASE_DELETE_PROFILE
 uint16_t uniffi_snake_core_checksum_method_coredatabase_delete_profile(void
-    
+
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_COREDATABASE_DELETE_SAVED_PASSWORD
+#define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_COREDATABASE_DELETE_SAVED_PASSWORD
+uint16_t uniffi_snake_core_checksum_method_coredatabase_delete_saved_password(void
+
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_COREDATABASE_DELETE_TRANSFER_JOB
 #define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_COREDATABASE_DELETE_TRANSFER_JOB
 uint16_t uniffi_snake_core_checksum_method_coredatabase_delete_transfer_job(void
-    
+
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_COREDATABASE_GROUPS
 #define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_COREDATABASE_GROUPS
 uint16_t uniffi_snake_core_checksum_method_coredatabase_groups(void
-    
+
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_COREDATABASE_MOUNT_MAPPINGS
 #define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_COREDATABASE_MOUNT_MAPPINGS
 uint16_t uniffi_snake_core_checksum_method_coredatabase_mount_mappings(void
-    
+
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_COREDATABASE_PROFILES
 #define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_COREDATABASE_PROFILES
 uint16_t uniffi_snake_core_checksum_method_coredatabase_profiles(void
-    
+
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_COREDATABASE_SAVE_GROUP
 #define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_COREDATABASE_SAVE_GROUP
 uint16_t uniffi_snake_core_checksum_method_coredatabase_save_group(void
-    
+
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_COREDATABASE_SAVE_MOUNT_MAPPING
 #define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_COREDATABASE_SAVE_MOUNT_MAPPING
 uint16_t uniffi_snake_core_checksum_method_coredatabase_save_mount_mapping(void
-    
+
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_COREDATABASE_SAVE_PROFILE
 #define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_COREDATABASE_SAVE_PROFILE
 uint16_t uniffi_snake_core_checksum_method_coredatabase_save_profile(void
-    
+
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_COREDATABASE_SAVE_SAVED_PASSWORD_AND_SYNC
+#define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_COREDATABASE_SAVE_SAVED_PASSWORD_AND_SYNC
+uint16_t uniffi_snake_core_checksum_method_coredatabase_save_saved_password_and_sync(void
+
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_COREDATABASE_SAVE_TRANSFER_JOB
 #define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_COREDATABASE_SAVE_TRANSFER_JOB
 uint16_t uniffi_snake_core_checksum_method_coredatabase_save_transfer_job(void
-    
+
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_COREDATABASE_SAVED_PASSWORDS
+#define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_COREDATABASE_SAVED_PASSWORDS
+uint16_t uniffi_snake_core_checksum_method_coredatabase_saved_passwords(void
+
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_COREDATABASE_TRANSFER_JOBS
 #define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_COREDATABASE_TRANSFER_JOBS
 uint16_t uniffi_snake_core_checksum_method_coredatabase_transfer_jobs(void
-    
+
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORESFTPHANDLE_ASSEMBLE_UPLOAD
 #define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORESFTPHANDLE_ASSEMBLE_UPLOAD
 uint16_t uniffi_snake_core_checksum_method_coresftphandle_assemble_upload(void
-    
+
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORESFTPHANDLE_CHECKSUM_CAPABILITY
 #define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORESFTPHANDLE_CHECKSUM_CAPABILITY
 uint16_t uniffi_snake_core_checksum_method_coresftphandle_checksum_capability(void
-    
+
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORESFTPHANDLE_COPY_FROM
 #define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORESFTPHANDLE_COPY_FROM
 uint16_t uniffi_snake_core_checksum_method_coresftphandle_copy_from(void
-    
+
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORESFTPHANDLE_COPY_FROM_CONTROLLED
 #define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORESFTPHANDLE_COPY_FROM_CONTROLLED
 uint16_t uniffi_snake_core_checksum_method_coresftphandle_copy_from_controlled(void
-    
+
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORESFTPHANDLE_COPY_SYMBOLIC_LINK_FROM
 #define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORESFTPHANDLE_COPY_SYMBOLIC_LINK_FROM
 uint16_t uniffi_snake_core_checksum_method_coresftphandle_copy_symbolic_link_from(void
-    
+
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORESFTPHANDLE_CREATE_DIRECTORY
 #define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORESFTPHANDLE_CREATE_DIRECTORY
 uint16_t uniffi_snake_core_checksum_method_coresftphandle_create_directory(void
-    
+
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORESFTPHANDLE_CREATE_FILE
 #define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORESFTPHANDLE_CREATE_FILE
 uint16_t uniffi_snake_core_checksum_method_coresftphandle_create_file(void
-    
+
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORESFTPHANDLE_DOWNLOAD
 #define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORESFTPHANDLE_DOWNLOAD
 uint16_t uniffi_snake_core_checksum_method_coresftphandle_download(void
-    
+
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORESFTPHANDLE_DOWNLOAD_RANGE
 #define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORESFTPHANDLE_DOWNLOAD_RANGE
 uint16_t uniffi_snake_core_checksum_method_coresftphandle_download_range(void
-    
+
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORESFTPHANDLE_FILE_METADATA
 #define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORESFTPHANDLE_FILE_METADATA
 uint16_t uniffi_snake_core_checksum_method_coresftphandle_file_metadata(void
-    
+
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORESFTPHANDLE_FINALIZE_RESUMABLE_UPLOAD
 #define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORESFTPHANDLE_FINALIZE_RESUMABLE_UPLOAD
 uint16_t uniffi_snake_core_checksum_method_coresftphandle_finalize_resumable_upload(void
-    
+
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORESFTPHANDLE_HOME_DIRECTORY
 #define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORESFTPHANDLE_HOME_DIRECTORY
 uint16_t uniffi_snake_core_checksum_method_coresftphandle_home_directory(void
-    
+
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORESFTPHANDLE_LIST
 #define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORESFTPHANDLE_LIST
 uint16_t uniffi_snake_core_checksum_method_coresftphandle_list(void
-    
+
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORESFTPHANDLE_PATH_EXISTS
 #define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORESFTPHANDLE_PATH_EXISTS
 uint16_t uniffi_snake_core_checksum_method_coresftphandle_path_exists(void
-    
+
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORESFTPHANDLE_PREPARE_NATIVE_UPLOAD
 #define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORESFTPHANDLE_PREPARE_NATIVE_UPLOAD
 uint16_t uniffi_snake_core_checksum_method_coresftphandle_prepare_native_upload(void
-    
+
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORESFTPHANDLE_PUBLISH_NATIVE_UPLOAD
 #define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORESFTPHANDLE_PUBLISH_NATIVE_UPLOAD
 uint16_t uniffi_snake_core_checksum_method_coresftphandle_publish_native_upload(void
-    
+
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORESFTPHANDLE_PUBLISH_UPLOAD
 #define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORESFTPHANDLE_PUBLISH_UPLOAD
 uint16_t uniffi_snake_core_checksum_method_coresftphandle_publish_upload(void
-    
+
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORESFTPHANDLE_REMOTE_CHECKSUM
 #define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORESFTPHANDLE_REMOTE_CHECKSUM
 uint16_t uniffi_snake_core_checksum_method_coresftphandle_remote_checksum(void
-    
+
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORESFTPHANDLE_REMOVE_DIRECTORY
 #define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORESFTPHANDLE_REMOVE_DIRECTORY
 uint16_t uniffi_snake_core_checksum_method_coresftphandle_remove_directory(void
-    
+
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORESFTPHANDLE_REMOVE_DIRECTORY_RECURSIVE
 #define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORESFTPHANDLE_REMOVE_DIRECTORY_RECURSIVE
 uint16_t uniffi_snake_core_checksum_method_coresftphandle_remove_directory_recursive(void
-    
+
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORESFTPHANDLE_REMOVE_FILE
 #define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORESFTPHANDLE_REMOVE_FILE
 uint16_t uniffi_snake_core_checksum_method_coresftphandle_remove_file(void
-    
+
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORESFTPHANDLE_REMOVE_TRANSFER_TEMPORARY
 #define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORESFTPHANDLE_REMOVE_TRANSFER_TEMPORARY
 uint16_t uniffi_snake_core_checksum_method_coresftphandle_remove_transfer_temporary(void
-    
+
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORESFTPHANDLE_RENAME
 #define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORESFTPHANDLE_RENAME
 uint16_t uniffi_snake_core_checksum_method_coresftphandle_rename(void
-    
+
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORESFTPHANDLE_SET_PERMISSIONS
 #define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORESFTPHANDLE_SET_PERMISSIONS
 uint16_t uniffi_snake_core_checksum_method_coresftphandle_set_permissions(void
-    
+
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORESFTPHANDLE_SET_PERMISSIONS_RECURSIVE
 #define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORESFTPHANDLE_SET_PERMISSIONS_RECURSIVE
 uint16_t uniffi_snake_core_checksum_method_coresftphandle_set_permissions_recursive(void
-    
+
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORESFTPHANDLE_UPLOAD
 #define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORESFTPHANDLE_UPLOAD
 uint16_t uniffi_snake_core_checksum_method_coresftphandle_upload(void
-    
+
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORESFTPHANDLE_UPLOAD_CONTROLLED
 #define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORESFTPHANDLE_UPLOAD_CONTROLLED
 uint16_t uniffi_snake_core_checksum_method_coresftphandle_upload_controlled(void
-    
+
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORESFTPHANDLE_UPLOAD_NATIVE_RANGE
 #define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORESFTPHANDLE_UPLOAD_NATIVE_RANGE
 uint16_t uniffi_snake_core_checksum_method_coresftphandle_upload_native_range(void
-    
+
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORESFTPHANDLE_UPLOAD_PART_RESUMABLE
 #define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORESFTPHANDLE_UPLOAD_PART_RESUMABLE
 uint16_t uniffi_snake_core_checksum_method_coresftphandle_upload_part_resumable(void
-    
+
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORETERMINALHANDLE_CLOSE
 #define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORETERMINALHANDLE_CLOSE
 uint16_t uniffi_snake_core_checksum_method_coreterminalhandle_close(void
-    
+
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORETERMINALHANDLE_RESIZE
 #define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORETERMINALHANDLE_RESIZE
 uint16_t uniffi_snake_core_checksum_method_coreterminalhandle_resize(void
-    
+
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORETERMINALHANDLE_SECURITY_INFO
 #define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORETERMINALHANDLE_SECURITY_INFO
 uint16_t uniffi_snake_core_checksum_method_coreterminalhandle_security_info(void
-    
+
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORETERMINALHANDLE_SHELL_NAME
 #define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORETERMINALHANDLE_SHELL_NAME
 uint16_t uniffi_snake_core_checksum_method_coreterminalhandle_shell_name(void
-    
+
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORETERMINALHANDLE_WRITE
 #define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORETERMINALHANDLE_WRITE
 uint16_t uniffi_snake_core_checksum_method_coreterminalhandle_write(void
-    
+
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORETRANSFERCONTROL_CANCEL
 #define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORETRANSFERCONTROL_CANCEL
 uint16_t uniffi_snake_core_checksum_method_coretransfercontrol_cancel(void
-    
+
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORETRANSFERCONTROL_CHECKPOINT
 #define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORETRANSFERCONTROL_CHECKPOINT
 uint16_t uniffi_snake_core_checksum_method_coretransfercontrol_checkpoint(void
-    
+
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORETRANSFERCONTROL_PAUSE
 #define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORETRANSFERCONTROL_PAUSE
 uint16_t uniffi_snake_core_checksum_method_coretransfercontrol_pause(void
-    
+
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORETRANSFERCONTROL_RESUME
 #define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORETRANSFERCONTROL_RESUME
 uint16_t uniffi_snake_core_checksum_method_coretransfercontrol_resume(void
-    
+
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_CONSTRUCTOR_COREDATABASE_OPEN
 #define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_CONSTRUCTOR_COREDATABASE_OPEN
 uint16_t uniffi_snake_core_checksum_constructor_coredatabase_open(void
-    
+
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_CONSTRUCTOR_CORETRANSFERCONTROL_NEW
 #define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_CONSTRUCTOR_CORETRANSFERCONTROL_NEW
 uint16_t uniffi_snake_core_checksum_constructor_coretransfercontrol_new(void
-    
+
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORETERMINALOBSERVER_ON_OUTPUT
 #define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORETERMINALOBSERVER_ON_OUTPUT
 uint16_t uniffi_snake_core_checksum_method_coreterminalobserver_on_output(void
-    
+
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORETERMINALOBSERVER_ON_CLOSED
 #define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORETERMINALOBSERVER_ON_CLOSED
 uint16_t uniffi_snake_core_checksum_method_coreterminalobserver_on_closed(void
-    
+
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORETRANSFEROBSERVER_ON_PROGRESS
 #define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORETRANSFEROBSERVER_ON_PROGRESS
 uint16_t uniffi_snake_core_checksum_method_coretransferobserver_on_progress(void
-    
+
 );
 #endif
 #ifndef UNIFFI_FFIDEF_FFI_SNAKE_CORE_UNIFFI_CONTRACT_VERSION
 #define UNIFFI_FFIDEF_FFI_SNAKE_CORE_UNIFFI_CONTRACT_VERSION
 uint32_t ffi_snake_core_uniffi_contract_version(void
-    
+
 );
 #endif
 

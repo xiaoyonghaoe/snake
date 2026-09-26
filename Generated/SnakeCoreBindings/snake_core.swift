@@ -570,31 +570,37 @@ fileprivate struct FfiConverterData: FfiConverterRustBuffer {
 
 
 public protocol CoreDatabaseProtocol: AnyObject, Sendable {
-    
-    func deleteGroup(id: String) throws 
-    
-    func deleteMountMapping(id: String) throws 
-    
-    func deleteProfile(id: String) throws 
-    
-    func deleteTransferJob(id: String) throws 
-    
+
+    func deleteGroup(id: String) throws
+
+    func deleteMountMapping(id: String) throws
+
+    func deleteProfile(id: String) throws
+
+    func deleteSavedPassword(id: String) throws
+
+    func deleteTransferJob(id: String) throws
+
     func groups() throws  -> [CoreSessionGroup]
-    
+
     func mountMappings() throws  -> [CoreMountMapping]
-    
+
     func profiles() throws  -> [CoreSshProfile]
-    
-    func saveGroup(group: CoreSessionGroup) throws 
-    
-    func saveMountMapping(mapping: CoreMountMapping) throws 
-    
-    func saveProfile(profile: CoreSshProfile) throws 
-    
-    func saveTransferJob(job: CoreTransferJob) throws 
-    
+
+    func saveGroup(group: CoreSessionGroup) throws
+
+    func saveMountMapping(mapping: CoreMountMapping) throws
+
+    func saveProfile(profile: CoreSshProfile) throws
+
+    func saveSavedPasswordAndSync(record: CoreSavedPassword, selectedProfileIds: [String], syncUsername: Bool) throws  -> [String]
+
+    func saveTransferJob(job: CoreTransferJob) throws
+
+    func savedPasswords() throws  -> [CoreSavedPassword]
+
     func transferJobs() throws  -> [CoreTransferJob]
-    
+
 }
 open class CoreDatabase: CoreDatabaseProtocol, @unchecked Sendable {
     fileprivate let pointer: UnsafeMutableRawPointer!
@@ -645,7 +651,7 @@ open class CoreDatabase: CoreDatabaseProtocol, @unchecked Sendable {
         try! rustCall { uniffi_snake_core_fn_free_coredatabase(pointer, $0) }
     }
 
-    
+
 public static func `open`(path: String)throws  -> CoreDatabase  {
     return try  FfiConverterTypeCoreDatabase_lift(try rustCallWithError(FfiConverterTypeCoreError_lift) {
     uniffi_snake_core_fn_constructor_coredatabase_open(
@@ -653,93 +659,117 @@ public static func `open`(path: String)throws  -> CoreDatabase  {
     )
 })
 }
-    
 
-    
+
+
 open func deleteGroup(id: String)throws   {try rustCallWithError(FfiConverterTypeCoreError_lift) {
     uniffi_snake_core_fn_method_coredatabase_delete_group(self.uniffiClonePointer(),
         FfiConverterString.lower(id),$0
     )
 }
 }
-    
+
 open func deleteMountMapping(id: String)throws   {try rustCallWithError(FfiConverterTypeCoreError_lift) {
     uniffi_snake_core_fn_method_coredatabase_delete_mount_mapping(self.uniffiClonePointer(),
         FfiConverterString.lower(id),$0
     )
 }
 }
-    
+
 open func deleteProfile(id: String)throws   {try rustCallWithError(FfiConverterTypeCoreError_lift) {
     uniffi_snake_core_fn_method_coredatabase_delete_profile(self.uniffiClonePointer(),
         FfiConverterString.lower(id),$0
     )
 }
 }
-    
+
+open func deleteSavedPassword(id: String)throws   {try rustCallWithError(FfiConverterTypeCoreError_lift) {
+    uniffi_snake_core_fn_method_coredatabase_delete_saved_password(self.uniffiClonePointer(),
+        FfiConverterString.lower(id),$0
+    )
+}
+}
+
 open func deleteTransferJob(id: String)throws   {try rustCallWithError(FfiConverterTypeCoreError_lift) {
     uniffi_snake_core_fn_method_coredatabase_delete_transfer_job(self.uniffiClonePointer(),
         FfiConverterString.lower(id),$0
     )
 }
 }
-    
+
 open func groups()throws  -> [CoreSessionGroup]  {
     return try  FfiConverterSequenceTypeCoreSessionGroup.lift(try rustCallWithError(FfiConverterTypeCoreError_lift) {
     uniffi_snake_core_fn_method_coredatabase_groups(self.uniffiClonePointer(),$0
     )
 })
 }
-    
+
 open func mountMappings()throws  -> [CoreMountMapping]  {
     return try  FfiConverterSequenceTypeCoreMountMapping.lift(try rustCallWithError(FfiConverterTypeCoreError_lift) {
     uniffi_snake_core_fn_method_coredatabase_mount_mappings(self.uniffiClonePointer(),$0
     )
 })
 }
-    
+
 open func profiles()throws  -> [CoreSshProfile]  {
     return try  FfiConverterSequenceTypeCoreSshProfile.lift(try rustCallWithError(FfiConverterTypeCoreError_lift) {
     uniffi_snake_core_fn_method_coredatabase_profiles(self.uniffiClonePointer(),$0
     )
 })
 }
-    
+
 open func saveGroup(group: CoreSessionGroup)throws   {try rustCallWithError(FfiConverterTypeCoreError_lift) {
     uniffi_snake_core_fn_method_coredatabase_save_group(self.uniffiClonePointer(),
         FfiConverterTypeCoreSessionGroup_lower(group),$0
     )
 }
 }
-    
+
 open func saveMountMapping(mapping: CoreMountMapping)throws   {try rustCallWithError(FfiConverterTypeCoreError_lift) {
     uniffi_snake_core_fn_method_coredatabase_save_mount_mapping(self.uniffiClonePointer(),
         FfiConverterTypeCoreMountMapping_lower(mapping),$0
     )
 }
 }
-    
+
 open func saveProfile(profile: CoreSshProfile)throws   {try rustCallWithError(FfiConverterTypeCoreError_lift) {
     uniffi_snake_core_fn_method_coredatabase_save_profile(self.uniffiClonePointer(),
         FfiConverterTypeCoreSshProfile_lower(profile),$0
     )
 }
 }
-    
+
+open func saveSavedPasswordAndSync(record: CoreSavedPassword, selectedProfileIds: [String], syncUsername: Bool)throws  -> [String]  {
+    return try  FfiConverterSequenceString.lift(try rustCallWithError(FfiConverterTypeCoreError_lift) {
+    uniffi_snake_core_fn_method_coredatabase_save_saved_password_and_sync(self.uniffiClonePointer(),
+        FfiConverterTypeCoreSavedPassword_lower(record),
+        FfiConverterSequenceString.lower(selectedProfileIds),
+        FfiConverterBool.lower(syncUsername),$0
+    )
+})
+}
+
 open func saveTransferJob(job: CoreTransferJob)throws   {try rustCallWithError(FfiConverterTypeCoreError_lift) {
     uniffi_snake_core_fn_method_coredatabase_save_transfer_job(self.uniffiClonePointer(),
         FfiConverterTypeCoreTransferJob_lower(job),$0
     )
 }
 }
-    
+
+open func savedPasswords()throws  -> [CoreSavedPassword]  {
+    return try  FfiConverterSequenceTypeCoreSavedPassword.lift(try rustCallWithError(FfiConverterTypeCoreError_lift) {
+    uniffi_snake_core_fn_method_coredatabase_saved_passwords(self.uniffiClonePointer(),$0
+    )
+})
+}
+
 open func transferJobs()throws  -> [CoreTransferJob]  {
     return try  FfiConverterSequenceTypeCoreTransferJob.lift(try rustCallWithError(FfiConverterTypeCoreError_lift) {
     uniffi_snake_core_fn_method_coredatabase_transfer_jobs(self.uniffiClonePointer(),$0
     )
 })
 }
-    
+
 
 }
 
@@ -799,84 +829,84 @@ public func FfiConverterTypeCoreDatabase_lower(_ value: CoreDatabase) -> UnsafeM
 
 
 public protocol CoreSftpHandleProtocol: AnyObject, Sendable {
-    
-    func assembleUpload(parts: [String], staging: String, control: CoreTransferControl) throws 
-    
+
+    func assembleUpload(parts: [String], staging: String, control: CoreTransferControl) throws
+
     func checksumCapability() throws  -> CoreChecksumCapability
-    
-    func copyFrom(source: CoreSftpHandle, sourcePath: String, destinationPath: String, isDirectory: Bool) throws 
-    
-    func copyFromControlled(source: CoreSftpHandle, sourcePath: String, destinationPath: String, isDirectory: Bool, totalBytes: UInt64, control: CoreTransferControl, observer: CoreTransferObserver) throws 
-    
-    func copySymbolicLinkFrom(source: CoreSftpHandle, sourcePath: String, destinationPath: String) throws 
-    
-    func createDirectory(path: String) throws 
-    
-    func createFile(path: String) throws 
-    
-    func download(remotePath: String, localPath: String) throws 
-    
+
+    func copyFrom(source: CoreSftpHandle, sourcePath: String, destinationPath: String, isDirectory: Bool) throws
+
+    func copyFromControlled(source: CoreSftpHandle, sourcePath: String, destinationPath: String, isDirectory: Bool, totalBytes: UInt64, control: CoreTransferControl, observer: CoreTransferObserver) throws
+
+    func copySymbolicLinkFrom(source: CoreSftpHandle, sourcePath: String, destinationPath: String) throws
+
+    func createDirectory(path: String) throws
+
+    func createFile(path: String) throws
+
+    func download(remotePath: String, localPath: String) throws
+
     /**
      * Swift owns an O_EXCL, no-follow staging descriptor for the duration of
      * all workers. Clone it but use positional writes (dup shares seek state).
      */
-    func downloadRange(remotePath: String, localFd: Int32, offset: UInt64, length: UInt64, control: CoreTransferControl, observer: CoreTransferObserver) throws 
-    
+    func downloadRange(remotePath: String, localFd: Int32, offset: UInt64, length: UInt64, control: CoreTransferControl, observer: CoreTransferObserver) throws
+
     func fileMetadata(path: String) throws  -> CoreFileMetadata
-    
+
     /**
      * Concatenates completed part files into a staging file and then moves
      * that staging file into place. `mv -f` is deliberately the final step:
      * an interrupted upload never truncates the user's existing target.
      */
-    func finalizeResumableUpload(remotePartPaths: [String], remoteStagingPath: String, remoteTargetPath: String, overwrite: Bool) throws 
-    
+    func finalizeResumableUpload(remotePartPaths: [String], remoteStagingPath: String, remoteTargetPath: String, overwrite: Bool) throws
+
     func homeDirectory() throws  -> String
-    
+
     func list(path: String) throws  -> [CoreRemoteEntry]
-    
+
     func pathExists(path: String)  -> Bool
-    
+
     /**
      * SFTP-only accounts cannot run cat/mv. Independent handles write
      * disjoint ranges into one fresh, exclusively created staging file.
      */
-    func prepareNativeUpload(staging: String) throws 
-    
-    func publishNativeUpload(staging: String, target: String, overwrite: Bool, control: CoreTransferControl) throws 
-    
-    func publishUpload(staging: String, target: String, parts: [String], overwrite: Bool, control: CoreTransferControl) throws 
-    
+    func prepareNativeUpload(staging: String) throws
+
+    func publishNativeUpload(staging: String, target: String, overwrite: Bool, control: CoreTransferControl) throws
+
+    func publishUpload(staging: String, target: String, parts: [String], overwrite: Bool, control: CoreTransferControl) throws
+
     func remoteChecksum(path: String, capability: CoreChecksumCapability, control: CoreTransferControl) throws  -> String
-    
-    func removeDirectory(path: String) throws 
-    
-    func removeDirectoryRecursive(path: String) throws 
-    
-    func removeFile(path: String) throws 
-    
-    func removeTransferTemporary(path: String) throws 
-    
-    func rename(source: String, destination: String) throws 
-    
-    func setPermissions(path: String, mode: UInt32) throws 
-    
-    func setPermissionsRecursive(path: String, mode: UInt32) throws 
-    
-    func upload(localPath: String, remotePath: String) throws 
-    
-    func uploadControlled(localPath: String, remotePath: String, control: CoreTransferControl, observer: CoreTransferObserver) throws 
-    
-    func uploadNativeRange(localPath: String, staging: String, offset: UInt64, length: UInt64, control: CoreTransferControl, observer: CoreTransferObserver) throws 
-    
+
+    func removeDirectory(path: String) throws
+
+    func removeDirectoryRecursive(path: String) throws
+
+    func removeFile(path: String) throws
+
+    func removeTransferTemporary(path: String) throws
+
+    func rename(source: String, destination: String) throws
+
+    func setPermissions(path: String, mode: UInt32) throws
+
+    func setPermissionsRecursive(path: String, mode: UInt32) throws
+
+    func upload(localPath: String, remotePath: String) throws
+
+    func uploadControlled(localPath: String, remotePath: String, control: CoreTransferControl, observer: CoreTransferObserver) throws
+
+    func uploadNativeRange(localPath: String, staging: String, offset: UInt64, length: UInt64, control: CoreTransferControl, observer: CoreTransferObserver) throws
+
     /**
      * Uploads one deterministic part file. Existing bytes are kept and the
      * transfer continues at the remote part's current size. The caller uses
      * independent SFTP handles for parallel parts, avoiding shared-session
      * serialization and concurrent random writes to one remote file.
      */
-    func uploadPartResumable(localPath: String, remotePartPath: String, localOffset: UInt64, partLength: UInt64, control: CoreTransferControl, observer: CoreTransferObserver) throws 
-    
+    func uploadPartResumable(localPath: String, remotePartPath: String, localOffset: UInt64, partLength: UInt64, control: CoreTransferControl, observer: CoreTransferObserver) throws
+
 }
 open class CoreSftpHandle: CoreSftpHandleProtocol, @unchecked Sendable {
     fileprivate let pointer: UnsafeMutableRawPointer!
@@ -927,9 +957,9 @@ open class CoreSftpHandle: CoreSftpHandleProtocol, @unchecked Sendable {
         try! rustCall { uniffi_snake_core_fn_free_coresftphandle(pointer, $0) }
     }
 
-    
 
-    
+
+
 open func assembleUpload(parts: [String], staging: String, control: CoreTransferControl)throws   {try rustCallWithError(FfiConverterTypeCoreError_lift) {
     uniffi_snake_core_fn_method_coresftphandle_assemble_upload(self.uniffiClonePointer(),
         FfiConverterSequenceString.lower(parts),
@@ -938,14 +968,14 @@ open func assembleUpload(parts: [String], staging: String, control: CoreTransfer
     )
 }
 }
-    
+
 open func checksumCapability()throws  -> CoreChecksumCapability  {
     return try  FfiConverterTypeCoreChecksumCapability_lift(try rustCallWithError(FfiConverterTypeCoreError_lift) {
     uniffi_snake_core_fn_method_coresftphandle_checksum_capability(self.uniffiClonePointer(),$0
     )
 })
 }
-    
+
 open func copyFrom(source: CoreSftpHandle, sourcePath: String, destinationPath: String, isDirectory: Bool)throws   {try rustCallWithError(FfiConverterTypeCoreError_lift) {
     uniffi_snake_core_fn_method_coresftphandle_copy_from(self.uniffiClonePointer(),
         FfiConverterTypeCoreSftpHandle_lower(source),
@@ -955,7 +985,7 @@ open func copyFrom(source: CoreSftpHandle, sourcePath: String, destinationPath: 
     )
 }
 }
-    
+
 open func copyFromControlled(source: CoreSftpHandle, sourcePath: String, destinationPath: String, isDirectory: Bool, totalBytes: UInt64, control: CoreTransferControl, observer: CoreTransferObserver)throws   {try rustCallWithError(FfiConverterTypeCoreError_lift) {
     uniffi_snake_core_fn_method_coresftphandle_copy_from_controlled(self.uniffiClonePointer(),
         FfiConverterTypeCoreSftpHandle_lower(source),
@@ -968,7 +998,7 @@ open func copyFromControlled(source: CoreSftpHandle, sourcePath: String, destina
     )
 }
 }
-    
+
 open func copySymbolicLinkFrom(source: CoreSftpHandle, sourcePath: String, destinationPath: String)throws   {try rustCallWithError(FfiConverterTypeCoreError_lift) {
     uniffi_snake_core_fn_method_coresftphandle_copy_symbolic_link_from(self.uniffiClonePointer(),
         FfiConverterTypeCoreSftpHandle_lower(source),
@@ -977,21 +1007,21 @@ open func copySymbolicLinkFrom(source: CoreSftpHandle, sourcePath: String, desti
     )
 }
 }
-    
+
 open func createDirectory(path: String)throws   {try rustCallWithError(FfiConverterTypeCoreError_lift) {
     uniffi_snake_core_fn_method_coresftphandle_create_directory(self.uniffiClonePointer(),
         FfiConverterString.lower(path),$0
     )
 }
 }
-    
+
 open func createFile(path: String)throws   {try rustCallWithError(FfiConverterTypeCoreError_lift) {
     uniffi_snake_core_fn_method_coresftphandle_create_file(self.uniffiClonePointer(),
         FfiConverterString.lower(path),$0
     )
 }
 }
-    
+
 open func download(remotePath: String, localPath: String)throws   {try rustCallWithError(FfiConverterTypeCoreError_lift) {
     uniffi_snake_core_fn_method_coresftphandle_download(self.uniffiClonePointer(),
         FfiConverterString.lower(remotePath),
@@ -999,7 +1029,7 @@ open func download(remotePath: String, localPath: String)throws   {try rustCallW
     )
 }
 }
-    
+
     /**
      * Swift owns an O_EXCL, no-follow staging descriptor for the duration of
      * all workers. Clone it but use positional writes (dup shares seek state).
@@ -1015,7 +1045,7 @@ open func downloadRange(remotePath: String, localFd: Int32, offset: UInt64, leng
     )
 }
 }
-    
+
 open func fileMetadata(path: String)throws  -> CoreFileMetadata  {
     return try  FfiConverterTypeCoreFileMetadata_lift(try rustCallWithError(FfiConverterTypeCoreError_lift) {
     uniffi_snake_core_fn_method_coresftphandle_file_metadata(self.uniffiClonePointer(),
@@ -1023,7 +1053,7 @@ open func fileMetadata(path: String)throws  -> CoreFileMetadata  {
     )
 })
 }
-    
+
     /**
      * Concatenates completed part files into a staging file and then moves
      * that staging file into place. `mv -f` is deliberately the final step:
@@ -1038,14 +1068,14 @@ open func finalizeResumableUpload(remotePartPaths: [String], remoteStagingPath: 
     )
 }
 }
-    
+
 open func homeDirectory()throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeCoreError_lift) {
     uniffi_snake_core_fn_method_coresftphandle_home_directory(self.uniffiClonePointer(),$0
     )
 })
 }
-    
+
 open func list(path: String)throws  -> [CoreRemoteEntry]  {
     return try  FfiConverterSequenceTypeCoreRemoteEntry.lift(try rustCallWithError(FfiConverterTypeCoreError_lift) {
     uniffi_snake_core_fn_method_coresftphandle_list(self.uniffiClonePointer(),
@@ -1053,7 +1083,7 @@ open func list(path: String)throws  -> [CoreRemoteEntry]  {
     )
 })
 }
-    
+
 open func pathExists(path: String) -> Bool  {
     return try!  FfiConverterBool.lift(try! rustCall() {
     uniffi_snake_core_fn_method_coresftphandle_path_exists(self.uniffiClonePointer(),
@@ -1061,7 +1091,7 @@ open func pathExists(path: String) -> Bool  {
     )
 })
 }
-    
+
     /**
      * SFTP-only accounts cannot run cat/mv. Independent handles write
      * disjoint ranges into one fresh, exclusively created staging file.
@@ -1072,7 +1102,7 @@ open func prepareNativeUpload(staging: String)throws   {try rustCallWithError(Ff
     )
 }
 }
-    
+
 open func publishNativeUpload(staging: String, target: String, overwrite: Bool, control: CoreTransferControl)throws   {try rustCallWithError(FfiConverterTypeCoreError_lift) {
     uniffi_snake_core_fn_method_coresftphandle_publish_native_upload(self.uniffiClonePointer(),
         FfiConverterString.lower(staging),
@@ -1082,7 +1112,7 @@ open func publishNativeUpload(staging: String, target: String, overwrite: Bool, 
     )
 }
 }
-    
+
 open func publishUpload(staging: String, target: String, parts: [String], overwrite: Bool, control: CoreTransferControl)throws   {try rustCallWithError(FfiConverterTypeCoreError_lift) {
     uniffi_snake_core_fn_method_coresftphandle_publish_upload(self.uniffiClonePointer(),
         FfiConverterString.lower(staging),
@@ -1093,7 +1123,7 @@ open func publishUpload(staging: String, target: String, parts: [String], overwr
     )
 }
 }
-    
+
 open func remoteChecksum(path: String, capability: CoreChecksumCapability, control: CoreTransferControl)throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeCoreError_lift) {
     uniffi_snake_core_fn_method_coresftphandle_remote_checksum(self.uniffiClonePointer(),
@@ -1103,35 +1133,35 @@ open func remoteChecksum(path: String, capability: CoreChecksumCapability, contr
     )
 })
 }
-    
+
 open func removeDirectory(path: String)throws   {try rustCallWithError(FfiConverterTypeCoreError_lift) {
     uniffi_snake_core_fn_method_coresftphandle_remove_directory(self.uniffiClonePointer(),
         FfiConverterString.lower(path),$0
     )
 }
 }
-    
+
 open func removeDirectoryRecursive(path: String)throws   {try rustCallWithError(FfiConverterTypeCoreError_lift) {
     uniffi_snake_core_fn_method_coresftphandle_remove_directory_recursive(self.uniffiClonePointer(),
         FfiConverterString.lower(path),$0
     )
 }
 }
-    
+
 open func removeFile(path: String)throws   {try rustCallWithError(FfiConverterTypeCoreError_lift) {
     uniffi_snake_core_fn_method_coresftphandle_remove_file(self.uniffiClonePointer(),
         FfiConverterString.lower(path),$0
     )
 }
 }
-    
+
 open func removeTransferTemporary(path: String)throws   {try rustCallWithError(FfiConverterTypeCoreError_lift) {
     uniffi_snake_core_fn_method_coresftphandle_remove_transfer_temporary(self.uniffiClonePointer(),
         FfiConverterString.lower(path),$0
     )
 }
 }
-    
+
 open func rename(source: String, destination: String)throws   {try rustCallWithError(FfiConverterTypeCoreError_lift) {
     uniffi_snake_core_fn_method_coresftphandle_rename(self.uniffiClonePointer(),
         FfiConverterString.lower(source),
@@ -1139,7 +1169,7 @@ open func rename(source: String, destination: String)throws   {try rustCallWithE
     )
 }
 }
-    
+
 open func setPermissions(path: String, mode: UInt32)throws   {try rustCallWithError(FfiConverterTypeCoreError_lift) {
     uniffi_snake_core_fn_method_coresftphandle_set_permissions(self.uniffiClonePointer(),
         FfiConverterString.lower(path),
@@ -1147,7 +1177,7 @@ open func setPermissions(path: String, mode: UInt32)throws   {try rustCallWithEr
     )
 }
 }
-    
+
 open func setPermissionsRecursive(path: String, mode: UInt32)throws   {try rustCallWithError(FfiConverterTypeCoreError_lift) {
     uniffi_snake_core_fn_method_coresftphandle_set_permissions_recursive(self.uniffiClonePointer(),
         FfiConverterString.lower(path),
@@ -1155,7 +1185,7 @@ open func setPermissionsRecursive(path: String, mode: UInt32)throws   {try rustC
     )
 }
 }
-    
+
 open func upload(localPath: String, remotePath: String)throws   {try rustCallWithError(FfiConverterTypeCoreError_lift) {
     uniffi_snake_core_fn_method_coresftphandle_upload(self.uniffiClonePointer(),
         FfiConverterString.lower(localPath),
@@ -1163,7 +1193,7 @@ open func upload(localPath: String, remotePath: String)throws   {try rustCallWit
     )
 }
 }
-    
+
 open func uploadControlled(localPath: String, remotePath: String, control: CoreTransferControl, observer: CoreTransferObserver)throws   {try rustCallWithError(FfiConverterTypeCoreError_lift) {
     uniffi_snake_core_fn_method_coresftphandle_upload_controlled(self.uniffiClonePointer(),
         FfiConverterString.lower(localPath),
@@ -1173,7 +1203,7 @@ open func uploadControlled(localPath: String, remotePath: String, control: CoreT
     )
 }
 }
-    
+
 open func uploadNativeRange(localPath: String, staging: String, offset: UInt64, length: UInt64, control: CoreTransferControl, observer: CoreTransferObserver)throws   {try rustCallWithError(FfiConverterTypeCoreError_lift) {
     uniffi_snake_core_fn_method_coresftphandle_upload_native_range(self.uniffiClonePointer(),
         FfiConverterString.lower(localPath),
@@ -1185,7 +1215,7 @@ open func uploadNativeRange(localPath: String, staging: String, offset: UInt64, 
     )
 }
 }
-    
+
     /**
      * Uploads one deterministic part file. Existing bytes are kept and the
      * transfer continues at the remote part's current size. The caller uses
@@ -1203,7 +1233,7 @@ open func uploadPartResumable(localPath: String, remotePartPath: String, localOf
     )
 }
 }
-    
+
 
 }
 
@@ -1263,17 +1293,17 @@ public func FfiConverterTypeCoreSftpHandle_lower(_ value: CoreSftpHandle) -> Uns
 
 
 public protocol CoreTerminalHandleProtocol: AnyObject, Sendable {
-    
-    func close() 
-    
-    func resize(columns: UInt32, rows: UInt32, pixelWidth: UInt32, pixelHeight: UInt32) throws 
-    
+
+    func close()
+
+    func resize(columns: UInt32, rows: UInt32, pixelWidth: UInt32, pixelHeight: UInt32) throws
+
     func securityInfo()  -> CoreConnectionSecurity
-    
+
     func shellName()  -> String
-    
-    func write(data: Data) throws 
-    
+
+    func write(data: Data) throws
+
 }
 open class CoreTerminalHandle: CoreTerminalHandleProtocol, @unchecked Sendable {
     fileprivate let pointer: UnsafeMutableRawPointer!
@@ -1324,15 +1354,15 @@ open class CoreTerminalHandle: CoreTerminalHandleProtocol, @unchecked Sendable {
         try! rustCall { uniffi_snake_core_fn_free_coreterminalhandle(pointer, $0) }
     }
 
-    
 
-    
+
+
 open func close()  {try! rustCall() {
     uniffi_snake_core_fn_method_coreterminalhandle_close(self.uniffiClonePointer(),$0
     )
 }
 }
-    
+
 open func resize(columns: UInt32, rows: UInt32, pixelWidth: UInt32, pixelHeight: UInt32)throws   {try rustCallWithError(FfiConverterTypeCoreError_lift) {
     uniffi_snake_core_fn_method_coreterminalhandle_resize(self.uniffiClonePointer(),
         FfiConverterUInt32.lower(columns),
@@ -1342,28 +1372,28 @@ open func resize(columns: UInt32, rows: UInt32, pixelWidth: UInt32, pixelHeight:
     )
 }
 }
-    
+
 open func securityInfo() -> CoreConnectionSecurity  {
     return try!  FfiConverterTypeCoreConnectionSecurity_lift(try! rustCall() {
     uniffi_snake_core_fn_method_coreterminalhandle_security_info(self.uniffiClonePointer(),$0
     )
 })
 }
-    
+
 open func shellName() -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
     uniffi_snake_core_fn_method_coreterminalhandle_shell_name(self.uniffiClonePointer(),$0
     )
 })
 }
-    
+
 open func write(data: Data)throws   {try rustCallWithError(FfiConverterTypeCoreError_lift) {
     uniffi_snake_core_fn_method_coreterminalhandle_write(self.uniffiClonePointer(),
         FfiConverterData.lower(data),$0
     )
 }
 }
-    
+
 
 }
 
@@ -1423,15 +1453,15 @@ public func FfiConverterTypeCoreTerminalHandle_lower(_ value: CoreTerminalHandle
 
 
 public protocol CoreTransferControlProtocol: AnyObject, Sendable {
-    
-    func cancel() 
-    
-    func checkpoint() throws 
-    
-    func pause() 
-    
-    func resume() 
-    
+
+    func cancel()
+
+    func checkpoint() throws
+
+    func pause()
+
+    func resume()
+
 }
 open class CoreTransferControl: CoreTransferControlProtocol, @unchecked Sendable {
     fileprivate let pointer: UnsafeMutableRawPointer!
@@ -1489,33 +1519,33 @@ public convenience init() {
         try! rustCall { uniffi_snake_core_fn_free_coretransfercontrol(pointer, $0) }
     }
 
-    
 
-    
+
+
 open func cancel()  {try! rustCall() {
     uniffi_snake_core_fn_method_coretransfercontrol_cancel(self.uniffiClonePointer(),$0
     )
 }
 }
-    
+
 open func checkpoint()throws   {try rustCallWithError(FfiConverterTypeCoreError_lift) {
     uniffi_snake_core_fn_method_coretransfercontrol_checkpoint(self.uniffiClonePointer(),$0
     )
 }
 }
-    
+
 open func pause()  {try! rustCall() {
     uniffi_snake_core_fn_method_coretransfercontrol_pause(self.uniffiClonePointer(),$0
     )
 }
 }
-    
+
 open func resume()  {try! rustCall() {
     uniffi_snake_core_fn_method_coretransfercontrol_resume(self.uniffiClonePointer(),$0
     )
 }
 }
-    
+
 
 }
 
@@ -1621,8 +1651,8 @@ public struct FfiConverterTypeCoreChecksumCapability: FfiConverterRustBuffer {
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> CoreChecksumCapability {
         return
             try CoreChecksumCapability(
-                tool: FfiConverterString.read(from: &buf), 
-                algorithm: FfiConverterString.read(from: &buf), 
+                tool: FfiConverterString.read(from: &buf),
+                algorithm: FfiConverterString.read(from: &buf),
                 reason: FfiConverterString.read(from: &buf)
         )
     }
@@ -1723,12 +1753,12 @@ public struct FfiConverterTypeCoreConnectionSecurity: FfiConverterRustBuffer {
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> CoreConnectionSecurity {
         return
             try CoreConnectionSecurity(
-                hostKeyAlgorithm: FfiConverterString.read(from: &buf), 
-                hostKeyFingerprint: FfiConverterString.read(from: &buf), 
-                keyExchangeAlgorithm: FfiConverterString.read(from: &buf), 
-                clientToServerCipher: FfiConverterString.read(from: &buf), 
-                serverToClientCipher: FfiConverterString.read(from: &buf), 
-                clientToServerMac: FfiConverterOptionString.read(from: &buf), 
+                hostKeyAlgorithm: FfiConverterString.read(from: &buf),
+                hostKeyFingerprint: FfiConverterString.read(from: &buf),
+                keyExchangeAlgorithm: FfiConverterString.read(from: &buf),
+                clientToServerCipher: FfiConverterString.read(from: &buf),
+                serverToClientCipher: FfiConverterString.read(from: &buf),
+                clientToServerMac: FfiConverterOptionString.read(from: &buf),
                 serverToClientMac: FfiConverterOptionString.read(from: &buf)
         )
     }
@@ -1815,9 +1845,9 @@ public struct FfiConverterTypeCoreFileMetadata: FfiConverterRustBuffer {
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> CoreFileMetadata {
         return
             try CoreFileMetadata(
-                size: FfiConverterUInt64.read(from: &buf), 
-                modifiedAt: FfiConverterUInt64.read(from: &buf), 
-                kind: FfiConverterString.read(from: &buf), 
+                size: FfiConverterUInt64.read(from: &buf),
+                modifiedAt: FfiConverterUInt64.read(from: &buf),
+                kind: FfiConverterString.read(from: &buf),
                 linkTarget: FfiConverterOptionString.read(from: &buf)
         )
     }
@@ -1901,9 +1931,9 @@ public struct FfiConverterTypeCoreHostKey: FfiConverterRustBuffer {
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> CoreHostKey {
         return
             try CoreHostKey(
-                host: FfiConverterString.read(from: &buf), 
-                port: FfiConverterUInt16.read(from: &buf), 
-                algorithm: FfiConverterString.read(from: &buf), 
+                host: FfiConverterString.read(from: &buf),
+                port: FfiConverterUInt16.read(from: &buf),
+                algorithm: FfiConverterString.read(from: &buf),
                 fingerprint: FfiConverterString.read(from: &buf)
         )
     }
@@ -2023,15 +2053,15 @@ public struct FfiConverterTypeCoreMountMapping: FfiConverterRustBuffer {
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> CoreMountMapping {
         return
             try CoreMountMapping(
-                id: FfiConverterString.read(from: &buf), 
-                profileId: FfiConverterOptionString.read(from: &buf), 
-                profileSnapshot: FfiConverterString.read(from: &buf), 
-                name: FfiConverterString.read(from: &buf), 
-                remotePath: FfiConverterString.read(from: &buf), 
-                userAccessPath: FfiConverterString.read(from: &buf), 
-                managedMountPath: FfiConverterString.read(from: &buf), 
-                autoMount: FfiConverterBool.read(from: &buf), 
-                enabled: FfiConverterBool.read(from: &buf), 
+                id: FfiConverterString.read(from: &buf),
+                profileId: FfiConverterOptionString.read(from: &buf),
+                profileSnapshot: FfiConverterString.read(from: &buf),
+                name: FfiConverterString.read(from: &buf),
+                remotePath: FfiConverterString.read(from: &buf),
+                userAccessPath: FfiConverterString.read(from: &buf),
+                managedMountPath: FfiConverterString.read(from: &buf),
+                autoMount: FfiConverterBool.read(from: &buf),
+                enabled: FfiConverterBool.read(from: &buf),
                 lastError: FfiConverterOptionString.read(from: &buf)
         )
     }
@@ -2145,13 +2175,13 @@ public struct FfiConverterTypeCoreRemoteEntry: FfiConverterRustBuffer {
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> CoreRemoteEntry {
         return
             try CoreRemoteEntry(
-                name: FfiConverterString.read(from: &buf), 
-                path: FfiConverterString.read(from: &buf), 
-                isDirectory: FfiConverterBool.read(from: &buf), 
-                isSymbolicLink: FfiConverterBool.read(from: &buf), 
-                linkTarget: FfiConverterOptionString.read(from: &buf), 
-                size: FfiConverterInt64.read(from: &buf), 
-                modifiedAt: FfiConverterInt64.read(from: &buf), 
+                name: FfiConverterString.read(from: &buf),
+                path: FfiConverterString.read(from: &buf),
+                isDirectory: FfiConverterBool.read(from: &buf),
+                isSymbolicLink: FfiConverterBool.read(from: &buf),
+                linkTarget: FfiConverterOptionString.read(from: &buf),
+                size: FfiConverterInt64.read(from: &buf),
+                modifiedAt: FfiConverterInt64.read(from: &buf),
                 permissions: FfiConverterString.read(from: &buf)
         )
     }
@@ -2181,6 +2211,84 @@ public func FfiConverterTypeCoreRemoteEntry_lift(_ buf: RustBuffer) throws -> Co
 #endif
 public func FfiConverterTypeCoreRemoteEntry_lower(_ value: CoreRemoteEntry) -> RustBuffer {
     return FfiConverterTypeCoreRemoteEntry.lower(value)
+}
+
+
+public struct CoreSavedPassword {
+    public var id: String
+    public var name: String
+    public var username: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, name: String, username: String) {
+        self.id = id
+        self.name = name
+        self.username = username
+    }
+}
+
+#if compiler(>=6)
+extension CoreSavedPassword: Sendable {}
+#endif
+
+
+extension CoreSavedPassword: Equatable, Hashable {
+    public static func ==(lhs: CoreSavedPassword, rhs: CoreSavedPassword) -> Bool {
+        if lhs.id != rhs.id {
+            return false
+        }
+        if lhs.name != rhs.name {
+            return false
+        }
+        if lhs.username != rhs.username {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(name)
+        hasher.combine(username)
+    }
+}
+
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeCoreSavedPassword: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> CoreSavedPassword {
+        return
+            try CoreSavedPassword(
+                id: FfiConverterString.read(from: &buf),
+                name: FfiConverterString.read(from: &buf),
+                username: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: CoreSavedPassword, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterString.write(value.name, into: &buf)
+        FfiConverterString.write(value.username, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCoreSavedPassword_lift(_ buf: RustBuffer) throws -> CoreSavedPassword {
+    return try FfiConverterTypeCoreSavedPassword.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCoreSavedPassword_lower(_ value: CoreSavedPassword) -> RustBuffer {
+    return FfiConverterTypeCoreSavedPassword.lower(value)
 }
 
 
@@ -2233,8 +2341,8 @@ public struct FfiConverterTypeCoreSessionGroup: FfiConverterRustBuffer {
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> CoreSessionGroup {
         return
             try CoreSessionGroup(
-                id: FfiConverterString.read(from: &buf), 
-                name: FfiConverterString.read(from: &buf), 
+                id: FfiConverterString.read(from: &buf),
+                name: FfiConverterString.read(from: &buf),
                 sortOrder: FfiConverterInt64.read(from: &buf)
         )
     }
@@ -2275,10 +2383,11 @@ public struct CoreSshProfile {
     public var tags: [String]
     public var symbolName: String
     public var sortOrder: Int64
+    public var savedPasswordId: String?
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(id: String, groupId: String?, name: String, host: String, port: UInt16, username: String, authMethod: CoreAuthMethod, keychainAccount: String?, privateKeyBookmark: Data?, tags: [String], symbolName: String, sortOrder: Int64) {
+    public init(id: String, groupId: String?, name: String, host: String, port: UInt16, username: String, authMethod: CoreAuthMethod, keychainAccount: String?, privateKeyBookmark: Data?, tags: [String], symbolName: String, sortOrder: Int64, savedPasswordId: String?) {
         self.id = id
         self.groupId = groupId
         self.name = name
@@ -2291,6 +2400,7 @@ public struct CoreSshProfile {
         self.tags = tags
         self.symbolName = symbolName
         self.sortOrder = sortOrder
+        self.savedPasswordId = savedPasswordId
     }
 }
 
@@ -2337,6 +2447,9 @@ extension CoreSshProfile: Equatable, Hashable {
         if lhs.sortOrder != rhs.sortOrder {
             return false
         }
+        if lhs.savedPasswordId != rhs.savedPasswordId {
+            return false
+        }
         return true
     }
 
@@ -2353,6 +2466,7 @@ extension CoreSshProfile: Equatable, Hashable {
         hasher.combine(tags)
         hasher.combine(symbolName)
         hasher.combine(sortOrder)
+        hasher.combine(savedPasswordId)
     }
 }
 
@@ -2365,18 +2479,19 @@ public struct FfiConverterTypeCoreSshProfile: FfiConverterRustBuffer {
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> CoreSshProfile {
         return
             try CoreSshProfile(
-                id: FfiConverterString.read(from: &buf), 
-                groupId: FfiConverterOptionString.read(from: &buf), 
-                name: FfiConverterString.read(from: &buf), 
-                host: FfiConverterString.read(from: &buf), 
-                port: FfiConverterUInt16.read(from: &buf), 
-                username: FfiConverterString.read(from: &buf), 
-                authMethod: FfiConverterTypeCoreAuthMethod.read(from: &buf), 
-                keychainAccount: FfiConverterOptionString.read(from: &buf), 
-                privateKeyBookmark: FfiConverterOptionData.read(from: &buf), 
-                tags: FfiConverterSequenceString.read(from: &buf), 
-                symbolName: FfiConverterString.read(from: &buf), 
-                sortOrder: FfiConverterInt64.read(from: &buf)
+                id: FfiConverterString.read(from: &buf),
+                groupId: FfiConverterOptionString.read(from: &buf),
+                name: FfiConverterString.read(from: &buf),
+                host: FfiConverterString.read(from: &buf),
+                port: FfiConverterUInt16.read(from: &buf),
+                username: FfiConverterString.read(from: &buf),
+                authMethod: FfiConverterTypeCoreAuthMethod.read(from: &buf),
+                keychainAccount: FfiConverterOptionString.read(from: &buf),
+                privateKeyBookmark: FfiConverterOptionData.read(from: &buf),
+                tags: FfiConverterSequenceString.read(from: &buf),
+                symbolName: FfiConverterString.read(from: &buf),
+                sortOrder: FfiConverterInt64.read(from: &buf),
+                savedPasswordId: FfiConverterOptionString.read(from: &buf)
         )
     }
 
@@ -2393,6 +2508,7 @@ public struct FfiConverterTypeCoreSshProfile: FfiConverterRustBuffer {
         FfiConverterSequenceString.write(value.tags, into: &buf)
         FfiConverterString.write(value.symbolName, into: &buf)
         FfiConverterInt64.write(value.sortOrder, into: &buf)
+        FfiConverterOptionString.write(value.savedPasswordId, into: &buf)
     }
 }
 
@@ -2503,15 +2619,15 @@ public struct FfiConverterTypeCoreTransferJob: FfiConverterRustBuffer {
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> CoreTransferJob {
         return
             try CoreTransferJob(
-                id: FfiConverterString.read(from: &buf), 
-                sourceProfileName: FfiConverterString.read(from: &buf), 
-                targetProfileName: FfiConverterString.read(from: &buf), 
-                sourcePath: FfiConverterString.read(from: &buf), 
-                targetPath: FfiConverterString.read(from: &buf), 
-                totalBytes: FfiConverterInt64.read(from: &buf), 
-                completedBytes: FfiConverterInt64.read(from: &buf), 
-                state: FfiConverterString.read(from: &buf), 
-                errorMessage: FfiConverterOptionString.read(from: &buf), 
+                id: FfiConverterString.read(from: &buf),
+                sourceProfileName: FfiConverterString.read(from: &buf),
+                targetProfileName: FfiConverterString.read(from: &buf),
+                sourcePath: FfiConverterString.read(from: &buf),
+                targetPath: FfiConverterString.read(from: &buf),
+                totalBytes: FfiConverterInt64.read(from: &buf),
+                completedBytes: FfiConverterInt64.read(from: &buf),
+                state: FfiConverterString.read(from: &buf),
+                errorMessage: FfiConverterOptionString.read(from: &buf),
                 createdAt: FfiConverterInt64.read(from: &buf)
         )
     }
@@ -2549,7 +2665,7 @@ public func FfiConverterTypeCoreTransferJob_lower(_ value: CoreTransferJob) -> R
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 
 public enum CoreAuthMethod {
-    
+
     case password
     case privateKey
 }
@@ -2568,26 +2684,26 @@ public struct FfiConverterTypeCoreAuthMethod: FfiConverterRustBuffer {
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> CoreAuthMethod {
         let variant: Int32 = try readInt(&buf)
         switch variant {
-        
+
         case 1: return .password
-        
+
         case 2: return .privateKey
-        
+
         default: throw UniffiInternalError.unexpectedEnumCase
         }
     }
 
     public static func write(_ value: CoreAuthMethod, into buf: inout [UInt8]) {
         switch value {
-        
-        
+
+
         case .password:
             writeInt(&buf, Int32(1))
-        
-        
+
+
         case .privateKey:
             writeInt(&buf, Int32(2))
-        
+
         }
     }
 }
@@ -2618,8 +2734,8 @@ extension CoreAuthMethod: Equatable, Hashable {}
 
 public enum CoreError: Swift.Error {
 
-    
-    
+
+
     case Storage(message: String
     )
     case InvalidIdentifier(value: String
@@ -2627,7 +2743,7 @@ public enum CoreError: Swift.Error {
     case InvalidInput(message: String
     )
     case StorageLock
-    case Connection(message: String, 
+    case Connection(message: String,
         /**
          * Stable ASCII stage code (for example `ssh_handshake`) that the
          * Swift layer maps onto a localized stage name. `None` means the
@@ -2657,9 +2773,9 @@ public struct FfiConverterTypeCoreError: FfiConverterRustBuffer {
         let variant: Int32 = try readInt(&buf)
         switch variant {
 
-        
 
-        
+
+
         case 1: return .Storage(
             message: try FfiConverterString.read(from: &buf)
             )
@@ -2671,24 +2787,24 @@ public struct FfiConverterTypeCoreError: FfiConverterRustBuffer {
             )
         case 4: return .StorageLock
         case 5: return .Connection(
-            message: try FfiConverterString.read(from: &buf), 
+            message: try FfiConverterString.read(from: &buf),
             stage: try FfiConverterOptionString.read(from: &buf)
             )
         case 6: return .HostKeyUnknown(
-            host: try FfiConverterString.read(from: &buf), 
-            port: try FfiConverterUInt16.read(from: &buf), 
-            algorithm: try FfiConverterString.read(from: &buf), 
+            host: try FfiConverterString.read(from: &buf),
+            port: try FfiConverterUInt16.read(from: &buf),
+            algorithm: try FfiConverterString.read(from: &buf),
             fingerprint: try FfiConverterString.read(from: &buf)
             )
         case 7: return .HostKeyMismatch(
-            host: try FfiConverterString.read(from: &buf), 
-            port: try FfiConverterUInt16.read(from: &buf), 
-            algorithm: try FfiConverterString.read(from: &buf), 
-            fingerprint: try FfiConverterString.read(from: &buf), 
+            host: try FfiConverterString.read(from: &buf),
+            port: try FfiConverterUInt16.read(from: &buf),
+            algorithm: try FfiConverterString.read(from: &buf),
+            fingerprint: try FfiConverterString.read(from: &buf),
             previousFingerprints: try FfiConverterSequenceString.read(from: &buf)
             )
         case 8: return .Authentication(
-            message: try FfiConverterString.read(from: &buf), 
+            message: try FfiConverterString.read(from: &buf),
             stage: try FfiConverterOptionString.read(from: &buf)
             )
         case 9: return .TerminalClosed
@@ -2704,43 +2820,43 @@ public struct FfiConverterTypeCoreError: FfiConverterRustBuffer {
     public static func write(_ value: CoreError, into buf: inout [UInt8]) {
         switch value {
 
-        
 
-        
-        
+
+
+
         case let .Storage(message):
             writeInt(&buf, Int32(1))
             FfiConverterString.write(message, into: &buf)
-            
-        
+
+
         case let .InvalidIdentifier(value):
             writeInt(&buf, Int32(2))
             FfiConverterString.write(value, into: &buf)
-            
-        
+
+
         case let .InvalidInput(message):
             writeInt(&buf, Int32(3))
             FfiConverterString.write(message, into: &buf)
-            
-        
+
+
         case .StorageLock:
             writeInt(&buf, Int32(4))
-        
-        
+
+
         case let .Connection(message,stage):
             writeInt(&buf, Int32(5))
             FfiConverterString.write(message, into: &buf)
             FfiConverterOptionString.write(stage, into: &buf)
-            
-        
+
+
         case let .HostKeyUnknown(host,port,algorithm,fingerprint):
             writeInt(&buf, Int32(6))
             FfiConverterString.write(host, into: &buf)
             FfiConverterUInt16.write(port, into: &buf)
             FfiConverterString.write(algorithm, into: &buf)
             FfiConverterString.write(fingerprint, into: &buf)
-            
-        
+
+
         case let .HostKeyMismatch(host,port,algorithm,fingerprint,previousFingerprints):
             writeInt(&buf, Int32(7))
             FfiConverterString.write(host, into: &buf)
@@ -2748,26 +2864,26 @@ public struct FfiConverterTypeCoreError: FfiConverterRustBuffer {
             FfiConverterString.write(algorithm, into: &buf)
             FfiConverterString.write(fingerprint, into: &buf)
             FfiConverterSequenceString.write(previousFingerprints, into: &buf)
-            
-        
+
+
         case let .Authentication(message,stage):
             writeInt(&buf, Int32(8))
             FfiConverterString.write(message, into: &buf)
             FfiConverterOptionString.write(stage, into: &buf)
-            
-        
+
+
         case .TerminalClosed:
             writeInt(&buf, Int32(9))
-        
-        
+
+
         case .TransferCancelled:
             writeInt(&buf, Int32(10))
-        
-        
+
+
         case let .Conflict(path):
             writeInt(&buf, Int32(11))
             FfiConverterString.write(path, into: &buf)
-            
+
         }
     }
 }
@@ -2806,11 +2922,11 @@ extension CoreError: Foundation.LocalizedError {
 
 
 public protocol CoreTerminalObserver: AnyObject, Sendable {
-    
-    func onOutput(data: Data) 
-    
-    func onClosed(exitStatus: Int32, message: String?) 
-    
+
+    func onOutput(data: Data)
+
+    func onClosed(exitStatus: Int32, message: String?)
+
 }
 
 
@@ -2839,7 +2955,7 @@ fileprivate struct UniffiCallbackInterfaceCoreTerminalObserver {
                 )
             }
 
-            
+
             let writeReturn = { () }
             uniffiTraitInterfaceCall(
                 callStatus: uniffiCallStatus,
@@ -2865,7 +2981,7 @@ fileprivate struct UniffiCallbackInterfaceCoreTerminalObserver {
                 )
             }
 
-            
+
             let writeReturn = { () }
             uniffiTraitInterfaceCall(
                 callStatus: uniffiCallStatus,
@@ -2950,9 +3066,9 @@ public func FfiConverterCallbackInterfaceCoreTerminalObserver_lower(_ v: CoreTer
 
 
 public protocol CoreTransferObserver: AnyObject, Sendable {
-    
-    func onProgress(completedBytes: UInt64, totalBytes: UInt64) 
-    
+
+    func onProgress(completedBytes: UInt64, totalBytes: UInt64)
+
 }
 
 
@@ -2983,7 +3099,7 @@ fileprivate struct UniffiCallbackInterfaceCoreTransferObserver {
                 )
             }
 
-            
+
             let writeReturn = { () }
             uniffiTraitInterfaceCall(
                 callStatus: uniffiCallStatus,
@@ -3190,6 +3306,31 @@ fileprivate struct FfiConverterSequenceTypeCoreRemoteEntry: FfiConverterRustBuff
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeCoreSavedPassword: FfiConverterRustBuffer {
+    typealias SwiftType = [CoreSavedPassword]
+
+    public static func write(_ value: [CoreSavedPassword], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeCoreSavedPassword.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [CoreSavedPassword] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [CoreSavedPassword]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeCoreSavedPassword.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeCoreSessionGroup: FfiConverterRustBuffer {
     typealias SwiftType = [CoreSessionGroup]
 
@@ -3365,6 +3506,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_snake_core_checksum_method_coredatabase_delete_profile() != 26991) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_snake_core_checksum_method_coredatabase_delete_saved_password() != 16151) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_snake_core_checksum_method_coredatabase_delete_transfer_job() != 56295) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -3386,7 +3530,13 @@ private let initializationResult: InitializationResult = {
     if (uniffi_snake_core_checksum_method_coredatabase_save_profile() != 50562) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_snake_core_checksum_method_coredatabase_save_saved_password_and_sync() != 35547) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_snake_core_checksum_method_coredatabase_save_transfer_job() != 47680) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_snake_core_checksum_method_coredatabase_saved_passwords() != 44641) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_snake_core_checksum_method_coredatabase_transfer_jobs() != 63195) {

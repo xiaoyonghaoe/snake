@@ -8,6 +8,8 @@ final class SnakeWorkspaceWindow: NSWindow {
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         if workspaceCoordinator?.handleFinderPasteShortcut(event, in: self) == true { return true }
         if workspaceCoordinator?.handleWorkspaceCloseShortcut(event, in: self) == true { return true }
+        if workspaceCoordinator?.handleNewSessionTabShortcut(event, in: self) == true { return true }
+        if workspaceCoordinator?.handleSFTPShortcut(event, in: self) == true { return true }
         return super.performKeyEquivalent(with: event)
     }
 }

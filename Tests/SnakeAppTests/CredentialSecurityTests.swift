@@ -145,6 +145,27 @@ final class CredentialSecurityTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: url), original)
         XCTAssertEqual(keys.creationCount, 0)
     }
+
+    func testBatchChangesRollbackWhenMetadataCommitFails() throws {
+        let (url, keys, store) = try fixture()
+        try store.save("old-library", account: "library/id/password")
+        try store.save("old-session", account: "session/password")
+        struct Rejected: Error {}
+        XCTAssertThrowsError(try store.withChanges([
+            CredentialChange(account: "library/id/password", secret: "new-library"),
+            CredentialChange(account: "session/password", secret: "new-session")
+        ]) { throw Rejected() } as Void)
+        let reloaded = EncryptedCredentialStore(fileURL: url, keys: keys)
+        XCTAssertEqual(try reloaded.read(account: "library/id/password"), "old-library")
+        XCTAssertEqual(try reloaded.read(account: "session/password"), "old-session")
+        try store.withChanges([
+            CredentialChange(account: "library/id/password", secret: "new-library"),
+            CredentialChange(account: "session/password", secret: "new-session")
+        ]) { }
+        XCTAssertEqual(try reloaded.read(account: "library/id/password"), "new-library")
+        XCTAssertEqual(try reloaded.read(account: "session/password"), "new-session")
+        XCTAssertFalse(String(decoding: try Data(contentsOf: url), as: UTF8.self).contains("new-library"))
+    }
 }
 
 @MainActor
@@ -267,17 +288,37 @@ final class CredentialRevealTests: XCTestCase {
         XCTAssertFalse(controller.isLoading)
     }
 
-    func testInactiveWindowCannotReadEvenAfterAuthentication() async {
+    func testInactiveWindowDoesNotStartAuthenticationOrRead() async {
         let verifier = FakeCredentialAuthentication()
         var reads = 0
         let controller = CredentialRevealController(focusReturnTimeoutNanoseconds: 20_000_000, canPresent: { false }, makeAuthentication: { verifier }, read: { _ in reads += 1; return nil })
         controller.reveal(account: "test/password")
-        await waitUntil { verifier.completion != nil }
-        verifier.resolve()
         await waitUntil { !controller.isLoading }
         XCTAssertEqual(reads, 0)
+        XCTAssertNil(verifier.completion)
         XCTAssertNil(controller.plaintext)
-        XCTAssertTrue(controller.errorMessage?.contains("恢复焦点") == true)
+        XCTAssertTrue(controller.errorMessage?.contains("获得焦点") == true)
+    }
+
+    func testCancelWhileWaitingForPresentationAllowsFreshAttempt() async {
+        var ready = false
+        var verifiers: [FakeCredentialAuthentication] = []
+        let controller = CredentialRevealController(focusReturnTimeoutNanoseconds: 200_000_000,
+            canPresent: { ready }, makeAuthentication: {
+                let verifier = FakeCredentialAuthentication()
+                verifiers.append(verifier)
+                return verifier
+            }, read: { _ in Data("fixture".utf8) })
+        controller.reveal(account: "test/password")
+        XCTAssertTrue(controller.isLoading)
+        controller.hide()
+        ready = true
+        controller.reveal(account: "test/password")
+        await waitUntil { verifiers.count == 2 && verifiers[1].completion != nil }
+        verifiers[1].resolve()
+        await waitUntil { controller.plaintext != nil }
+        XCTAssertEqual(controller.plaintext, "fixture")
+        controller.hide()
     }
 
     func testMissingAndDamagedCredentialsNeverDisplayPlaintext() async {
@@ -319,7 +360,7 @@ final class CredentialRevealTests: XCTestCase {
 
     func testAuthenticationWaitsForSystemPanelToReturnFocus() async {
         let verifier = FakeCredentialAuthentication()
-        var ready = false
+        var ready = true
         var reads = 0
         let controller = CredentialRevealController(focusReturnTimeoutNanoseconds: 200_000_000, canPresent: { ready }, makeAuthentication: { verifier }, read: { _ in
             reads += 1
@@ -327,6 +368,7 @@ final class CredentialRevealTests: XCTestCase {
         })
         controller.reveal(account: "test/password")
         await waitUntil { verifier.completion != nil }
+        ready = false
         verifier.resolve()
         await waitUntil { !controller.isAuthenticating }
         XCTAssertTrue(controller.isLoading)
@@ -427,11 +469,12 @@ final class CredentialRevealTests: XCTestCase {
 
     func testDismissDuringFocusRestorationNeverReadsEvenWhenWindowReturns() async {
         let verifier = FakeCredentialAuthentication()
-        var ready = false
+        var ready = true
         var reads = 0
         let controller = CredentialRevealController(canPresent: { ready }, makeAuthentication: { verifier }, read: { _ in reads += 1; return nil })
         controller.reveal(account: "test/password")
         await waitUntil { verifier.completion != nil }
+        ready = false
         verifier.resolve()
         await waitUntil { !controller.isAuthenticating }
         controller.hide()

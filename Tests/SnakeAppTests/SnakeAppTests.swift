@@ -4,6 +4,27 @@ import XCTest
 
 @MainActor
 final class SnakeAppTests: XCTestCase {
+    func testSavedPasswordMetadataAndProfileAssociationRoundTrip() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("snake-password-metadata-\(UUID())")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("snake.sqlite3")
+        let persistence = try CorePersistence(databaseURL: url)
+        let saved = SavedPassword(name: "team", username: "deploy")
+        XCTAssertEqual(try persistence.save(saved, selectedProfileIDs: [], syncUsername: false), [])
+        var profile = SSHProfile(name: "host", host: "127.0.0.1", username: "deploy", savedPasswordID: saved.id)
+        try persistence.save(profile)
+        XCTAssertEqual(try persistence.loadProfiles().first?.savedPasswordID, saved.id)
+        XCTAssertEqual(try persistence.loadSavedPasswords(), [saved])
+        profile.username = "independent"
+        profile.savedPasswordID = nil
+        try persistence.save(profile)
+        XCTAssertNil(try persistence.loadProfiles().first?.savedPasswordID)
+        try persistence.deleteSavedPassword(id: saved.id)
+        XCTAssertTrue(try persistence.loadSavedPasswords().isEmpty)
+        XCTAssertEqual(try persistence.loadProfiles().first?.username, "independent")
+    }
+
     func testProfileConnectionLabelUsesMonoFriendlyFormat() {
         let profile = SSHProfile(name: "api", host: "10.0.0.8", port: 2222, username: "deploy")
         XCTAssertEqual(profile.connectionLabel, "deploy@10.0.0.8:2222")
