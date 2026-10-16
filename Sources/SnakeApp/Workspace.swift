@@ -60,6 +60,10 @@ public final class TerminalRuntime: ObservableObject, Identifiable {
     private var appliedFontSize: Double?
     private var isStarting = false
     private var connectionAttemptID = UUID()
+    private var shellStartup: TerminalShellStartup?
+    private var shellStartupTimeout: Task<Void, Never>?
+    private var pendingStartupInput = Data()
+    private var pendingLoginOutput = Data()
     private var uploaderCancellable: AnyCancellable?
 
     init(profile: SSHProfile) {
@@ -159,6 +163,14 @@ public final class TerminalRuntime: ObservableObject, Identifiable {
 
     func send(_ data: Data) {
         guard let handle, !data.isEmpty else { return }
+        if shellStartup != nil {
+            pendingStartupInput.append(data)
+            return
+        }
+        write(data, to: handle)
+    }
+
+    private func write(_ data: Data, to handle: CoreTerminalHandle) {
         ioQueue.async { [weak self] in
             do {
                 try handle.write(data: data)
@@ -221,6 +233,25 @@ public final class TerminalRuntime: ObservableObject, Identifiable {
 
     func feed(_ data: Data, attemptID: UUID) {
         guard attemptID == connectionAttemptID else { return }
+        if state == .connecting, handle == nil {
+            pendingLoginOutput.append(data)
+            if pendingLoginOutput.count >= TerminalShellStartup.bufferLimit {
+                display(pendingLoginOutput)
+                pendingLoginOutput.removeAll()
+            }
+            return
+        }
+        var output = data
+        if var startup = shellStartup {
+            output = startup.consume(data)
+            shellStartup = startup
+            if startup.isComplete { finishShellStartup() }
+        }
+        display(output)
+    }
+
+    private func display(_ data: Data) {
+        guard !data.isEmpty else { return }
         let bytes = [UInt8](data)
         terminalView?.feed(byteArray: bytes[...])
     }
@@ -228,6 +259,7 @@ public final class TerminalRuntime: ObservableObject, Identifiable {
     func terminalDidClose(exitStatus: Int32, message: String?, attemptID: UUID) {
         guard attemptID == connectionAttemptID else { return }
         handle = nil
+        finishShellStartup()
         isStarting = false
         securityInfo = nil
         currentRemoteDirectory = nil
@@ -248,6 +280,7 @@ public final class TerminalRuntime: ObservableObject, Identifiable {
         pendingHostKey = nil
         let attemptID = UUID()
         connectionAttemptID = attemptID
+        pendingLoginOutput.removeAll()
         let observer = RustTerminalObserver(runtime: self, attemptID: attemptID)
         let profile = profile
         let knownHostsPath = Self.knownHostsPath
@@ -396,15 +429,46 @@ public final class TerminalRuntime: ObservableObject, Identifiable {
     }
 
     private func stopHandle() {
+        shellStartupTimeout?.cancel()
+        shellStartupTimeout = nil
+        shellStartup = nil
+        pendingStartupInput.removeAll()
+        pendingLoginOutput.removeAll()
         let oldHandle = handle
         handle = nil
         ioQueue.async { oldHandle?.close() }
     }
 
     private func installDirectoryHook(shellName: String) {
-        guard let command = TerminalShellIntegration.hookCommand(for: shellName),
-              let data = command.data(using: .utf8) else { return }
-        send(data)
+        guard let handle, var startup = TerminalShellStartup(shellName: shellName) else {
+            display(pendingLoginOutput)
+            pendingLoginOutput.removeAll()
+            return
+        }
+        if !pendingLoginOutput.isEmpty {
+            display(startup.consume(pendingLoginOutput))
+            pendingLoginOutput.removeAll()
+        }
+        shellStartup = startup
+        let attemptID = connectionAttemptID
+        shellStartupTimeout = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(3))
+            guard !Task.isCancelled, let self, self.connectionAttemptID == attemptID else { return }
+            self.finishShellStartup()
+        }
+        write(startup.command, to: handle)
+    }
+
+    private func finishShellStartup() {
+        display(pendingLoginOutput)
+        pendingLoginOutput.removeAll()
+        if var startup = shellStartup { display(startup.finish()) }
+        shellStartup = nil
+        shellStartupTimeout?.cancel()
+        shellStartupTimeout = nil
+        let input = pendingStartupInput
+        pendingStartupInput.removeAll()
+        if let handle, !input.isEmpty { write(input, to: handle) }
     }
 
     nonisolated private static var knownHostsPath: String {

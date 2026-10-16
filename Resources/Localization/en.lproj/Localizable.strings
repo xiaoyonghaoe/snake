@@ -570,8 +570,11 @@
 "删除已选主题" = "Delete selected theme";
 "终端配色示例 · 文件颜色仅用于预览" = "Terminal color sample · file colors are illustrative only";
 "内置浅色主题使用 Snake 白底适配；导入主题保留原背景。只改变终端显示，不修改远端 ls／ll。" = "Built-in light themes use a Snake white background; imports retain their original background. Display only—remote ls/ll is unchanged.";
-"已导入主题不可用，已恢复 Tokyo Night。" = "Imported theme unavailable; restored Tokyo Night.";
-"已删除导入主题，已恢复 Tokyo Night。" = "Imported theme deleted; restored Tokyo Night.";
+"已导入主题不可用，已恢复 Ghostty 清晰。" = "Imported theme unavailable; restored Ghostty Clear.";
+"已删除导入主题，已恢复 Ghostty 清晰。" = "Imported theme deleted; restored Ghostty Clear.";
+"Ghostty 清晰" = "Ghostty Clear";
+"纯白" = "Pure White";
+"# gray / comment / 次要输出" = "# gray / comment / secondary output";
 "主题文件超过 1 MB 限制。" = "Theme file exceeds the 1 MB limit.";
 "不是有效的 .itermcolors 属性列表。" = "Not a valid .itermcolors property list.";
 "缺少前景、背景或完整的 ANSI 16 色。" = "Foreground, background, or the complete ANSI 16-color palette is missing.";

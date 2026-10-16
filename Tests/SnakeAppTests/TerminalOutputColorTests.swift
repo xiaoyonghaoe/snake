@@ -49,6 +49,19 @@ final class TerminalOutputColorTests: XCTestCase {
         for preset in TerminalThemePreset.allCases {
             XCTAssertEqual(TerminalTheme(preset: preset, isDark: false).backgroundHex, 0xFFFFFF)
         }
+        let white = TerminalTheme(preset: .pureWhite, isDark: false)
+        let whiteInDarkApp = TerminalTheme(preset: .pureWhite, isDark: true)
+        XCTAssertEqual(whiteInDarkApp.backgroundHex, 0xFFFFFF)
+        XCTAssertEqual(whiteInDarkApp.foregroundHex, white.foregroundHex)
+        XCTAssertEqual(whiteInDarkApp.ansiHex, white.ansiHex)
+        XCTAssertEqual(whiteInDarkApp.cursorHex, white.cursorHex)
+        XCTAssertEqual(whiteInDarkApp.selectionHex, white.selectionHex)
+        for level in [TerminalLogLevel.error, .warning, .info, .debug] {
+            XCTAssertEqual(whiteInDarkApp.logColorHex(level), white.logColorHex(level))
+        }
+        for role in TerminalFieldRole.allCases {
+            XCTAssertEqual(whiteInDarkApp.fieldColorHex(role), white.fieldColorHex(role))
+        }
     }
 
     func testTokyoPaletteMatchesPinnedFilesWithWhiteDayBackground() throws {

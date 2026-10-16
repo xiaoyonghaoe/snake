@@ -2,10 +2,14 @@ import AppKit
 import SwiftTerm
 
 enum TerminalThemePreset: String, CaseIterable {
-    case classic, vivid, tokyoNight, catppuccin, gruvbox, solarized
+    case ghostty, pureWhite, classic, vivid, tokyoNight, catppuccin, gruvbox, solarized
+
+    static let defaultPreset: Self = .ghostty
 
     var title: String {
         switch self {
+        case .ghostty: L10n.text("Ghostty 清晰")
+        case .pureWhite: L10n.text("纯白")
         case .classic: L10n.text("经典")
         case .vivid: L10n.text("鲜明")
         case .tokyoNight: "Tokyo Night"
@@ -23,8 +27,29 @@ struct TerminalTheme: Equatable {
     var fieldHighlightEnabled = false
     var importedPalette: TerminalPalette? = nil
 
+    private static let whitePalette = TerminalPalette(
+        foreground: 0x1F2328, background: 0xFFFFFF,
+        cursor: 0x284F78, cursorText: 0xFFFFFF, selection: 0xD5E4F5,
+        ansi: [0x1D1F21,0xB23943,0x526C22,0x805900,0x305F8B,0x75558C,0x26746F,0x5D6470,
+               0x646B77,0xB82E3A,0x4D741B,0x8B5E00,0x286AA6,0x8053A5,0x1F766C,0x1F2328]
+    )
+
+    // A fixed white terminal keeps light-surface accents even in a dark app.
+    private var usesDarkAccents: Bool {
+        preset == .pureWhite && importedPalette == nil ? false : isDark
+    }
+
     private var builtinPalette: TerminalPalette? {
         switch preset {
+        case .pureWhite:
+            return Self.whitePalette
+        case .ghostty:
+            // Ghostty default palette, with Snake contrast adaptations.
+            // Exact source revision and MIT notice: Vendor/TerminalThemes.
+            return isDark
+                ? TerminalPalette(foreground: 0xFFFFFF, background: 0x282C34, cursor: 0xFFFFFF, cursorText: 0x282C34, selection: 0x444E62,
+                                  ansi: [0x1D1F21,0xF07A7A,0xB5BD68,0xF0C674,0x81A2BE,0xB294BB,0x8ABEB7,0xDADDD9,0x9A9EA6,0xFF8B8B,0xC5D777,0xFFE098,0x9CC5F2,0xD1B3E5,0xA2E0D2,0xFFFFFF])
+                : Self.whitePalette
         case .catppuccin:
             return isDark
                 ? TerminalPalette(foreground: 0xCDD6F4, background: 0x1E1E2E, cursor: 0xF5E0DC, cursorText: 0x1E1E2E, selection: 0x585B70,
@@ -137,9 +162,9 @@ struct TerminalTheme: Equatable {
         }
         let value: UInt32 = switch level {
         case .error: ansiHex[1]
-        case .warning: isDark ? 0xFFB86B : 0xA64B00
+        case .warning: usesDarkAccents ? 0xFFB86B : 0xA64B00
         case .info: ansiHex[4]
-        case .debug: isDark ? 0xBF9BFF : 0x753EC8
+        case .debug: usesDarkAccents ? 0xBF9BFF : 0x753EC8
         }
         return readableAccent(value)
     }
@@ -151,7 +176,9 @@ struct TerminalTheme: Equatable {
         case .success: ansiHex[2]
         case .address: ansiHex[4]
         case .permission, .path: ansiHex[6]
-        case .time: isDark ? 0xA9B1D6 : 0x6172B0
+        case .time:
+            (preset == .ghostty || preset == .pureWhite) && importedPalette == nil
+                ? ansiHex[8] : (isDark ? 0xA9B1D6 : 0x6172B0)
         }
         return readableAccent(value)
     }
@@ -173,7 +200,7 @@ struct TerminalTheme: Equatable {
             let fraction = Double(step + 1) / 20
             result = [16, 8, 0].reduce(UInt32(0)) { value, shift in
                 let channel = Double((hex >> shift) & 255)
-                let mixed = min(255, max(0, channel + ((isDark ? 255 : 0) - channel) * fraction))
+                let mixed = min(255, max(0, channel + ((usesDarkAccents ? 255 : 0) - channel) * fraction))
                 return value | (UInt32(mixed.rounded()) << shift)
             }
         }

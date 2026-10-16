@@ -3865,6 +3865,8 @@ public struct SnakeSettingsView: View {
              + Text("logs/  ").foregroundColor(Color(nsColor: TerminalTheme.nsColor(previewTheme.ansiHex[6])))
              + Text("start.sh").foregroundColor(Color(nsColor: TerminalTheme.nsColor(previewTheme.ansiHex[2]))))
             Text("普通输出 · 连接保持正常")
+            Text("# gray / comment / 次要输出")
+                .foregroundColor(Color(nsColor: TerminalTheme.nsColor(previewTheme.ansiHex[8])))
             previewLog("drwxr-xr-x  4.0K  2026-09-13 09:30")
             previewLog("running  192.0.2.10:22  /var/log  80%")
             previewLog(L10n.text("[ERROR] FATAL 连接超时"))

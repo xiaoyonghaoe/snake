@@ -70,7 +70,7 @@ public final class ApplicationStore: ObservableObject {
     @Published private(set) var importedTerminalThemes: [ImportedTerminalTheme]
     @Published var terminalThemeNotice: String?
     var terminalThemePreset: TerminalThemePreset {
-        get { TerminalThemePreset(rawValue: selectedTerminalThemeID) ?? .tokyoNight }
+        get { TerminalThemePreset(rawValue: selectedTerminalThemeID) ?? .defaultPreset }
         set { selectedTerminalThemeID = newValue.rawValue }
     }
     @Published var terminalLogHighlightEnabled: Bool {
@@ -118,7 +118,7 @@ public final class ApplicationStore: ObservableObject {
     private let terminalHighlightKey = "com.snake.terminal.log-highlight"
     private let terminalFieldHighlightKey = "com.snake.terminal.field-highlight"
     private let terminalThemeLibrary: TerminalThemeLibrary
-    private let tokyoMigrationKey = "com.snake.terminal.tokyo-migration-v1"
+    private let ghosttyMigrationKey = "com.snake.terminal.ghostty-contrast-migration-v1"
     private let appearanceKey = "com.snake.appearance.dark"
     private let appLanguageKey = "com.snake.appearance.language"
     private let sftpSearchShortcutKey = "com.snake.shortcuts.sftp-search"
@@ -142,19 +142,20 @@ public final class ApplicationStore: ObservableObject {
         let initialLanguage = AppLanguage(rawValue: defaults.string(forKey: appLanguageKey) ?? "") ?? .system
         self.appLanguage = initialLanguage
         LocalizationStore.shared.setLanguage(initialLanguage)
-        if !defaults.bool(forKey: tokyoMigrationKey) {
-            if defaults.string(forKey: terminalThemeKey) == nil {
-                defaults.set(TerminalThemePreset.tokyoNight.rawValue, forKey: terminalThemeKey)
+        if !defaults.bool(forKey: ghosttyMigrationKey) {
+            let oldTheme = defaults.string(forKey: terminalThemeKey)
+            if oldTheme == nil || oldTheme == TerminalThemePreset.tokyoNight.rawValue {
+                defaults.set(TerminalThemePreset.defaultPreset.rawValue, forKey: terminalThemeKey)
             }
-            defaults.set(true, forKey: tokyoMigrationKey)
+            defaults.set(true, forKey: ghosttyMigrationKey)
         }
-        let savedThemeID = defaults.string(forKey: terminalThemeKey) ?? TerminalThemePreset.tokyoNight.rawValue
+        let savedThemeID = defaults.string(forKey: terminalThemeKey) ?? TerminalThemePreset.defaultPreset.rawValue
         if TerminalThemePreset(rawValue: savedThemeID) != nil || loadedThemes.contains(where: { $0.selectionID == savedThemeID }) {
             self.selectedTerminalThemeID = savedThemeID
         } else {
-            self.selectedTerminalThemeID = TerminalThemePreset.tokyoNight.rawValue
-            self.terminalThemeNotice = L10n.text("已导入主题不可用，已恢复 Tokyo Night。")
-            defaults.set(TerminalThemePreset.tokyoNight.rawValue, forKey: terminalThemeKey)
+            self.selectedTerminalThemeID = TerminalThemePreset.defaultPreset.rawValue
+            self.terminalThemeNotice = L10n.text("已导入主题不可用，已恢复 Ghostty 清晰。")
+            defaults.set(TerminalThemePreset.defaultPreset.rawValue, forKey: terminalThemeKey)
         }
         self.terminalLogHighlightEnabled = defaults.object(forKey: terminalHighlightKey) == nil
             ? true : defaults.bool(forKey: terminalHighlightKey)
@@ -1013,8 +1014,8 @@ public final class ApplicationStore: ObservableObject {
         do {
             try terminalThemeLibrary.remove(theme)
             importedTerminalThemes.removeAll { $0.id == theme.id }
-            selectedTerminalThemeID = TerminalThemePreset.tokyoNight.rawValue
-            terminalThemeNotice = L10n.text("已删除导入主题，已恢复 Tokyo Night。")
+            selectedTerminalThemeID = TerminalThemePreset.defaultPreset.rawValue
+            terminalThemeNotice = L10n.text("已删除导入主题，已恢复 Ghostty 清晰。")
         } catch {
             terminalThemeNotice = error.localizedDescription
         }

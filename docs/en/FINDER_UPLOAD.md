@@ -8,6 +8,8 @@ Updated: 2026-09-09. Applies to the current Swift/AppKit + Rust implementation. 
 
 - Drag local files, multiple files or folders in from Finder; the target directory hint is shown before the drop.
 - Terminal: uploads to the shell directory most recently reported by OSC 7; when the directory is unknown, an absolute-path confirmation dialog appears and it tries to prefill the home directory through a separate SFTP connection.
+- Directory hooks for bash/zsh/fish are initialized only in the current SSH shell, without editing remote configuration. A unique per-connection OSC acknowledgement bounds a short startup-output buffer; the internal command echo and initial prompt are removed while OSC 7 reports are retained. Subsequent user commands and output pass through normally.
+- Input entered during initialization is queued and sent in order after acknowledgement. A 3-second timeout or 64 KiB output limit releases the original output and input so an unusual shell cannot block the terminal; disconnect/reconnect discards the old initialization state. This fallback may show the internal command rather than conceal real connection errors.
 - SFTP: uploads to the current directory. Drops are rejected while a directory change is not yet complete, so files do not land in the old directory.
 - Files are accepted only in the terminal/SFTP content area. The sidebar, title bar, tab bar and empty panes do not forward files to the last focused session.
 - A disconnected session cannot upload; an overlay prompts you to complete the connection first.

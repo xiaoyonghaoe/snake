@@ -69,12 +69,12 @@ final class TerminalThemeImportTests: XCTestCase {
         XCTAssertEqual(store.selectedTerminalThemeID, theme.selectionID)
         XCTAssertNotNil(store.terminalThemeNotice)
         store.deleteSelectedImportedTerminalTheme()
-        XCTAssertEqual(store.selectedTerminalThemeID, TerminalThemePreset.tokyoNight.rawValue)
+        XCTAssertEqual(store.selectedTerminalThemeID, TerminalThemePreset.defaultPreset.rawValue)
         XCTAssertTrue(library.load().isEmpty)
         defaults.set(theme.selectionID, forKey: "com.snake.terminal.theme")
         let restored = ApplicationStore(databaseURL: root.appendingPathComponent("db.sqlite3"),
                                         userDefaults: defaults, terminalThemeDirectoryURL: library.directoryURL)
-        XCTAssertEqual(restored.selectedTerminalThemeID, TerminalThemePreset.tokyoNight.rawValue)
+        XCTAssertEqual(restored.selectedTerminalThemeID, TerminalThemePreset.defaultPreset.rawValue)
         XCTAssertNotNil(restored.terminalThemeNotice)
     }
 }

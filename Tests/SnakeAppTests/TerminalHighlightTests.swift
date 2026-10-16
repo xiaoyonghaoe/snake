@@ -52,7 +52,7 @@ final class TerminalHighlightTests: XCTestCase {
         }
         let db = directory.appendingPathComponent("test.sqlite3")
         let store = ApplicationStore(databaseURL: db, userDefaults: defaults)
-        XCTAssertEqual(store.terminalThemePreset, .tokyoNight)
+        XCTAssertEqual(store.terminalThemePreset, .ghostty)
         XCTAssertTrue(store.terminalLogHighlightEnabled)
         store.terminalThemePreset = .classic
         store.terminalLogHighlightEnabled = false
@@ -60,7 +60,56 @@ final class TerminalHighlightTests: XCTestCase {
         XCTAssertEqual(restored.terminalThemePreset, .classic)
         XCTAssertFalse(restored.terminalLogHighlightEnabled)
         defaults.set("removed-preset", forKey: "com.snake.terminal.theme")
-        XCTAssertEqual(ApplicationStore(databaseURL: db, userDefaults: defaults).terminalThemePreset, .tokyoNight)
+        XCTAssertEqual(ApplicationStore(databaseURL: db, userDefaults: defaults).terminalThemePreset, .ghostty)
+    }
+
+    func testGhosttyContrastCoversMutedANSISelectionAndCursor() {
+        for dark in [true, false] {
+            let theme = TerminalTheme(preset: .ghostty, isDark: dark)
+            // ANSI black remains a dark surface color for terminal applications.
+            // All other named colors, including bright black/comments, must be legible.
+            for (index, color) in theme.ansiHex.enumerated() where index != 0 {
+                XCTAssertGreaterThanOrEqual(contrast(color, theme.backgroundHex), 4.5,
+                                            "Ghostty ANSI \(index), dark=\(dark)")
+            }
+            XCTAssertGreaterThanOrEqual(contrast(theme.foregroundHex, theme.backgroundHex), 10)
+            XCTAssertGreaterThanOrEqual(contrast(theme.foregroundHex, theme.selectionHex), 7)
+            XCTAssertGreaterThanOrEqual(contrast(theme.cursorTextHex, theme.cursorHex), 7)
+        }
+    }
+
+    func testGhosttyUpgradeRunsOnceAndPreservesOtherAndImportedThemes() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("snake-ghostty-\(UUID())")
+        let suite = "snake-ghostty-\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer {
+            defaults.removePersistentDomain(forName: suite)
+            try? FileManager.default.removeItem(at: root)
+        }
+        func store() -> ApplicationStore {
+            ApplicationStore(databaseURL: root.appendingPathComponent("test.sqlite3"), userDefaults: defaults,
+                             terminalThemeDirectoryURL: root.appendingPathComponent("themes"))
+        }
+        defaults.set("tokyoNight", forKey: "com.snake.terminal.theme")
+        XCTAssertEqual(store().terminalThemePreset, .ghostty)
+        let upgraded = store()
+        upgraded.terminalThemePreset = .tokyoNight
+        XCTAssertEqual(store().terminalThemePreset, .tokyoNight, "Explicit choices after the upgrade must persist")
+        for preset in TerminalThemePreset.allCases where preset != .tokyoNight {
+            defaults.removeObject(forKey: "com.snake.terminal.ghostty-contrast-migration-v1")
+            defaults.set(preset.rawValue, forKey: "com.snake.terminal.theme")
+            XCTAssertEqual(store().terminalThemePreset, preset)
+        }
+        let library = TerminalThemeLibrary(directoryURL: root.appendingPathComponent("themes"))
+        let color: [String: Double] = ["Red Component": 0.2, "Green Component": 0.3, "Blue Component": 0.4]
+        var plist: [String: Any] = ["Foreground Color": color, "Background Color": color]
+        for index in 0..<16 { plist["Ansi \(index) Color"] = color }
+        let imported = try library.add(data: PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0), name: "Custom")
+        defaults.removeObject(forKey: "com.snake.terminal.ghostty-contrast-migration-v1")
+        defaults.set(imported.selectionID, forKey: "com.snake.terminal.theme")
+        XCTAssertEqual(store().selectedTerminalThemeID, imported.selectionID)
+        XCTAssertEqual(store().terminalTheme(isDark: true).ansiHex, imported.palette(isDark: true).ansi)
     }
 
     func testSharedRendererUnicodeAndFragmentedOutput() {
@@ -129,13 +178,15 @@ final class TerminalHighlightTests: XCTestCase {
         let original = view.terminal.getText(start: Position(col: 0, row: 0), end: Position(col: 20, row: 1))
         let scroll = buffer.yDisp
         view.selection.setSelection(start: Position(col: 0, row: 1), end: Position(col: 4, row: 1))
-        for dark in [true, false] {
-            runtime.applyTheme(TerminalTheme(preset: .vivid, isDark: dark))
-            XCTAssertTrue(view === runtime.terminalSurface())
-            XCTAssertTrue(buffer === view.terminal.buffer)
-            XCTAssertEqual(buffer.yDisp, scroll)
-            XCTAssertTrue(view.selection.active)
-            XCTAssertEqual(view.terminal.getText(start: Position(col: 0, row: 0), end: Position(col: 20, row: 1)), original)
+        for preset in TerminalThemePreset.allCases {
+            for dark in [true, false] {
+                runtime.applyTheme(TerminalTheme(preset: preset, isDark: dark))
+                XCTAssertTrue(view === runtime.terminalSurface())
+                XCTAssertTrue(buffer === view.terminal.buffer)
+                XCTAssertEqual(buffer.yDisp, scroll)
+                XCTAssertTrue(view.selection.active)
+                XCTAssertEqual(view.terminal.getText(start: Position(col: 0, row: 0), end: Position(col: 20, row: 1)), original)
+            }
         }
         view.selection.active = false
         runtime.applyTheme(TerminalTheme(preset: .vivid, isDark: false, logHighlightEnabled: false))
