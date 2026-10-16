@@ -217,9 +217,15 @@ impl CoreSftpHandle {
         control.wait_if_paused()?;
         let staging = validated_remote_upload_path(&staging)?;
         let target = validated_remote_upload_path(&target)?;
+        if self.sftp.stat(Path::new(&target)).is_ok_and(|stat| stat.is_dir()) {
+            return Err(CoreError::Conflict { path: target });
+        }
         if !overwrite { ensure_destination_absent(&self.sftp, Path::new(&target))?; }
-        let flags = if overwrite { ssh2::RenameFlags::ATOMIC | ssh2::RenameFlags::OVERWRITE } else { ssh2::RenameFlags::empty() };
-        self.sftp.rename(Path::new(&staging), Path::new(&target), Some(flags)).map_err(connection_error)
+        if overwrite {
+            sftp_publish::atomic_rename(&self._session, &staging, &target)
+        } else {
+            self.sftp.rename(Path::new(&staging), Path::new(&target), Some(ssh2::RenameFlags::empty())).map_err(connection_error)
+        }
     }
 
     pub fn assemble_upload(&self, parts: Vec<String>, staging: String, control: Arc<CoreTransferControl>) -> Result<(), CoreError> {
@@ -233,12 +239,9 @@ impl CoreSftpHandle {
     }
 
     pub fn publish_upload(&self, staging: String, target: String, parts: Vec<String>, overwrite: bool, control: Arc<CoreTransferControl>) -> Result<(), CoreError> {
-        control.wait_if_paused()?;
-        let staging = validated_remote_upload_path(&staging)?;
-        let target = validated_remote_upload_path(&target)?;
-        if !overwrite { ensure_destination_absent(&self.sftp, Path::new(&target))?; }
-        let command = format!("mv {} -- {} {} && test ! -e {}", if overwrite { "-f" } else { "-n" }, shell_single_quote(&staging), shell_single_quote(&target), shell_single_quote(&staging));
-        run_remote_command(&self._session, &posix_command(&command), "发布上传文件")?;
+        // SFTP rename names an exact destination and cannot move the staging
+        // file inside a directory, even if another process swaps the target.
+        self.publish_native_upload(staging, target, overwrite, control)?;
         // Cleanup failure after successful publication must not misreport the
         // completed transfer; unlink only exact managed parts, never recurse.
         for part in parts {

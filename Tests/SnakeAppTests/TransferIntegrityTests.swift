@@ -5,6 +5,33 @@ import SnakeCoreBindings
 @testable import SnakeApp
 
 final class TransferIntegrityTests: XCTestCase {
+    func testUploadPartsAreBoundToJobAndContentsRatherThanMetadata() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("snake-upload-identity-\(UUID())")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let file = root.appendingPathComponent("source")
+        let date = Date(timeIntervalSince1970: 1_700_000_000)
+        func digest(_ bytes: String) throws -> String {
+            try Data(bytes.utf8).write(to: file)
+            try FileManager.default.setAttributes([.modificationDate: date], ofItemAtPath: file.path)
+            return try TransferIntegrity.localDigest(url: file, algorithm: "SHA-256", control: CoreTransferControl())
+        }
+        let firstDigest = try digest("AAAAAAAA")
+        let firstVersion = try TransferIntegrity.LocalVersion(file)
+        let secondDigest = try digest("BBBBBBBB")
+        let secondVersion = try TransferIntegrity.LocalVersion(file)
+        XCTAssertEqual(firstVersion.size, secondVersion.size)
+        XCTAssertEqual(firstVersion.modified, secondVersion.modified)
+        let job = UUID()
+        func token(_ id: UUID, _ digest: String?) -> String {
+            LocalUploadCoordinator.uploadToken(jobID: id, remotePath: "/srv/target", size: 8, workers: 1, sourceDigest: digest)
+        }
+        XCTAssertNotEqual(token(job, firstDigest), token(job, secondDigest), "Changed contents must not reuse an old prefix")
+        XCTAssertNotEqual(token(job, secondDigest), token(UUID(), secondDigest), "Concurrent jobs must own different parts")
+        XCTAssertEqual(token(job, secondDigest), token(job, secondDigest), "An unchanged source can resume the same job")
+        XCTAssertNotEqual(token(job, nil), token(job, nil), "Failed local hashing must disable part reuse")
+    }
+
     func testSHA256MD5StreamingAndCancellation() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("snake-integrity-\(UUID())")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)

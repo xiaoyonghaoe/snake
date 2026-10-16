@@ -139,6 +139,32 @@ final class SFTPShortcutTests: XCTestCase {
                        SFTPShortcutAction.search.defaultShortcut)
     }
 
+    func testRelaunchPreservesReassignedDefaultKeysAndSwappedSFTPKeys() throws {
+        let suite = "snake-shortcut-reassignment-\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(suite)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer {
+            defaults.removePersistentDomain(forName: suite)
+            try? FileManager.default.removeItem(at: root)
+        }
+        let database = root.appendingPathComponent("db")
+        let store = ApplicationStore(databaseURL: database, userDefaults: defaults)
+        let temporary = SFTPShortcut(keyEquivalent: "k", modifiers: [.command])
+        XCTAssertNil(store.updateSFTPShortcut(.search, shortcut: temporary))
+        XCTAssertNil(store.updateNewSessionTabShortcut(SFTPShortcutAction.search.defaultShortcut))
+        let restored = ApplicationStore(databaseURL: database, userDefaults: defaults)
+        XCTAssertEqual(restored.newSessionTabShortcut, SFTPShortcutAction.search.defaultShortcut)
+        XCTAssertEqual(restored.sftpSearchShortcut, temporary)
+
+        XCTAssertNil(restored.updateNewSessionTabShortcut(WorkspaceShortcutPolicy.defaultNewTab))
+        XCTAssertNil(restored.updateSFTPShortcut(.uploadFile, shortcut: SFTPShortcutAction.search.defaultShortcut))
+        XCTAssertNil(restored.updateSFTPShortcut(.search, shortcut: SFTPShortcutAction.uploadFile.defaultShortcut))
+        let swapped = ApplicationStore(databaseURL: database, userDefaults: defaults)
+        XCTAssertEqual(swapped.sftpSearchShortcut, SFTPShortcutAction.uploadFile.defaultShortcut)
+        XCTAssertEqual(swapped.sftpUploadShortcut, SFTPShortcutAction.search.defaultShortcut)
+    }
+
     func testRuntimeCommandRequestsAreExplicitAndCapabilityAware() {
         let runtime = SFTPRuntime(profile: SSHProfile(name: "offline", host: "127.0.0.1", username: "test"))
         XCTAssertFalse(runtime.canSearchWithShortcut)

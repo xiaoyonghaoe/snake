@@ -186,22 +186,15 @@ public final class ApplicationStore: ObservableObject {
             ?? NSFont.monospacedSystemFont(ofSize: 13, weight: .regular).fontName
         let savedFontSize = defaults.double(forKey: terminalFontSizeKey)
         self.terminalFontSize = savedFontSize == 0 ? 13 : min(max(savedFontSize, 9), 32)
-        let defaultSFTPShortcuts = Dictionary(uniqueKeysWithValues:
-            SFTPShortcutAction.allCases.map { ($0, $0.defaultShortcut) })
-        let savedNewTab = Self.loadShortcut(from: defaults, key: newSessionTabShortcutKey,
-            fallback: WorkspaceShortcutPolicy.defaultNewTab)
-        let newTabShortcut = WorkspaceShortcutPolicy.validationError(
-            savedNewTab, sftpShortcuts: defaultSFTPShortcuts) == nil
-            ? savedNewTab : WorkspaceShortcutPolicy.defaultNewTab
-        self.newSessionTabShortcut = newTabShortcut
-        let loadedShortcuts = Self.loadSFTPShortcuts(
+        let loadedShortcuts = Self.loadShortcuts(
             from: defaults,
             keys: [.search: sftpSearchShortcutKey, .delete: sftpDeleteShortcutKey, .uploadFile: sftpUploadShortcutKey],
-            workspaceShortcut: newTabShortcut
+            newTabKey: newSessionTabShortcutKey
         )
-        self.sftpSearchShortcut = loadedShortcuts[.search]!
-        self.sftpDeleteShortcut = loadedShortcuts[.delete]!
-        self.sftpUploadShortcut = loadedShortcuts[.uploadFile]!
+        self.newSessionTabShortcut = loadedShortcuts.newTab
+        self.sftpSearchShortcut = loadedShortcuts.sftp[.search]!
+        self.sftpDeleteShortcut = loadedShortcuts.sftp[.delete]!
+        self.sftpUploadShortcut = loadedShortcuts.sftp[.uploadFile]!
         let persistence = try? CorePersistence(databaseURL: databaseURL)
         self.corePersistence = persistence
         let sqliteGroups = (try? persistence?.loadGroups()) ?? []
@@ -209,11 +202,11 @@ public final class ApplicationStore: ObservableObject {
         let sqliteSavedPasswords = (try? persistence?.loadSavedPasswords()) ?? []
         let legacyGroups = Self.decode([SessionGroup].self, data: defaults.data(forKey: groupsKey))
         let legacyProfiles = Self.decode([SSHProfile].self, data: defaults.data(forKey: profilesKey))
-        let restoredGroups = sqliteGroups.isEmpty ? legacyGroups : sqliteGroups
-        let restoredProfiles = sqliteProfiles.isEmpty ? legacyProfiles : sqliteProfiles
+        let restoredGroups = sqliteGroups + (legacyGroups ?? []).filter { legacy in !sqliteGroups.contains { $0.id == legacy.id } }
+        let restoredProfiles = sqliteProfiles + (legacyProfiles ?? []).filter { legacy in !sqliteProfiles.contains { $0.id == legacy.id } }
         let sqliteMounts = (try? persistence?.loadMountMappings()) ?? []
         let legacyMounts = Self.decode([MountMapping].self, data: defaults.data(forKey: mountsKey))
-        let restoredMounts = sqliteMounts.isEmpty ? legacyMounts : sqliteMounts
+        let restoredMounts = sqliteMounts + (legacyMounts ?? []).filter { legacy in !sqliteMounts.contains { $0.id == legacy.id } }
         let persistedTransfers = (try? persistence?.loadTransferJobs()) ?? []
         let obsoleteLocalUploadRecords = persistedTransfers.filter { $0.sourceProfileName == TransferJob.localEndpointName }
         self.transferJobs = persistedTransfers.filter { $0.sourceProfileName != TransferJob.localEndpointName }
@@ -232,11 +225,17 @@ public final class ApplicationStore: ObservableObject {
         for job in obsoleteLocalUploadRecords {
             try? persistence?.deleteTransfer(id: job.id)
         }
-        if sqliteProfiles.isEmpty && !legacyProfiles.isEmpty {
-            persistConfiguration()
-            defaults.removeObject(forKey: groupsKey)
-            defaults.removeObject(forKey: profilesKey)
-            defaults.removeObject(forKey: mountsKey)
+        if let persistence, let legacyGroups, let legacyProfiles, let legacyMounts {
+            do {
+                // Import is idempotent: after a partial failure the original
+                // defaults remain and missing rows are retried on next launch.
+                try persistence.importLegacy(groups: legacyGroups, profiles: legacyProfiles, mappings: legacyMounts)
+                defaults.removeObject(forKey: groupsKey)
+                defaults.removeObject(forKey: profilesKey)
+                defaults.removeObject(forKey: mountsKey)
+            } catch {
+                // Preserve the only durable copy when storage is unavailable.
+            }
         }
         let automaticMappings = mountMappings.filter { $0.autoMount && $0.enabled }.map(\.id)
         if !automaticMappings.isEmpty {
@@ -301,20 +300,26 @@ public final class ApplicationStore: ObservableObject {
         return shortcut
     }
 
-    private static func loadSFTPShortcuts(
+    private static func loadShortcuts(
         from defaults: UserDefaults,
         keys: [SFTPShortcutAction: String],
-        workspaceShortcut: SFTPShortcut
-    ) -> [SFTPShortcutAction: SFTPShortcut] {
-        var result = Dictionary(uniqueKeysWithValues: SFTPShortcutAction.allCases.map { ($0, $0.defaultShortcut) })
-        for action in SFTPShortcutAction.allCases {
-            let candidate = loadShortcut(from: defaults, key: keys[action]!, fallback: action.defaultShortcut)
-            if SFTPShortcutPolicy.validationError(action: action, shortcut: candidate,
-                configured: result, workspaceShortcut: workspaceShortcut) == nil {
-                result[action] = candidate
-            }
+        newTabKey: String
+    ) -> (newTab: SFTPShortcut, sftp: [SFTPShortcutAction: SFTPShortcut]) {
+        let newTab = loadShortcut(from: defaults, key: newTabKey, fallback: WorkspaceShortcutPolicy.defaultNewTab)
+        let candidates = Dictionary(uniqueKeysWithValues: SFTPShortcutAction.allCases.map { action in
+            (action, loadShortcut(from: defaults, key: keys[action]!, fallback: action.defaultShortcut))
+        })
+        // Validate the saved configuration together, including swaps of keys
+        // that were defaults for another command before the user changed them.
+        if WorkspaceShortcutPolicy.validationError(newTab, sftpShortcuts: candidates) == nil,
+           SFTPShortcutAction.allCases.allSatisfy({ action in
+               SFTPShortcutPolicy.validationError(action: action, shortcut: candidates[action]!,
+                   configured: candidates, workspaceShortcut: newTab) == nil
+           }) {
+            return (newTab, candidates)
         }
-        return result
+        return (WorkspaceShortcutPolicy.defaultNewTab,
+                Dictionary(uniqueKeysWithValues: SFTPShortcutAction.allCases.map { ($0, $0.defaultShortcut) }))
     }
 
     public var selectedProfile: SSHProfile? {
@@ -1021,12 +1026,11 @@ public final class ApplicationStore: ObservableObject {
         }
     }
 
-    private static func decode<T: Decodable>(_ type: T.Type, data: Data?) -> T {
-        guard let data, let value = try? JSONDecoder().decode(T.self, from: data) else {
-            if let empty = [] as? T { return empty }
-            fatalError("Unable to create an empty configuration value")
-        }
-        return value
+    private static func decode<T: Decodable>(_ type: [T].Type, data: Data?) -> [T]? {
+        guard let data else { return [] }
+        // Malformed legacy bytes are not an empty collection and must never
+        // be erased as though they had been successfully migrated.
+        return try? JSONDecoder().decode(type, from: data)
     }
 }
 

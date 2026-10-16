@@ -596,6 +596,7 @@ public final class LocalUploadCoordinator: ObservableObject {
     var hasUploadActivity: Bool { activity.startedAt != nil || !records.isEmpty }
     private var conflictContinuation: CheckedContinuation<SFTPUploadConflictDecision, Never>?
     var batchTask: Task<Void, Never>?
+    private var pendingUploadRetries: [UUID: UUID] = [:]
 
     public init(profile: SSHProfile) {
         self.profile = profile
@@ -719,6 +720,7 @@ public final class LocalUploadCoordinator: ObservableObject {
     }
 
     public func cancel(jobID: UUID, store: ApplicationStore) {
+        pendingUploadRetries.removeValue(forKey: jobID)
         store.cancel(jobID: jobID)
         update(jobID: jobID, state: .cancelled, finishedAt: .now)
     }
@@ -731,7 +733,8 @@ public final class LocalUploadCoordinator: ObservableObject {
             batchTask = Task { await previous?.value; await retry() }
             return
         }
-        guard let record = records.first(where: { $0.jobID == jobID }),
+        guard pendingUploadRetries[jobID] == nil,
+              let record = records.first(where: { $0.jobID == jobID }),
               [.failed, .cancelled, .interrupted].contains(record.state) else { return }
         let item = SFTPUploadItem(
             localURL: record.localURL,
@@ -739,10 +742,29 @@ public final class LocalUploadCoordinator: ObservableObject {
             size: record.fileSize,
             isDirectory: false
         )
+        let retryID = UUID()
+        pendingUploadRetries[jobID] = retryID
         store.prepareTransferRetry(jobID)
         update(jobID: jobID, state: .queued, finishedAt: nil)
         activity.begin()
-        Task {
+        let previous = batchTask
+        batchTask = Task {
+            // The old attempt must finish its cancellation and cleanup before
+            // a new control or any resumable parts can be reused for this job.
+            await previous?.value
+            guard pendingUploadRetries[jobID] == retryID,
+                  records.contains(where: { $0.jobID == jobID }) else {
+                if pendingUploadRetries[jobID] == retryID { pendingUploadRetries.removeValue(forKey: jobID) }
+                var outcome = UploadActivity.Outcome()
+                outcome.cancelled = 1
+                activity.finish(outcome)
+                return
+            }
+            pendingUploadRetries.removeValue(forKey: jobID)
+            store.prepareTransferRetry(jobID)
+            update(jobID: jobID, state: .queued, finishedAt: nil)
+            let scoped = item.localURL.startAccessingSecurityScopedResource()
+            defer { if scoped { item.localURL.stopAccessingSecurityScopedResource() } }
             await performUpload(
                 item: item,
                 overwrite: record.overwrite,
@@ -913,8 +935,14 @@ public final class LocalUploadCoordinator: ObservableObject {
                 operation: operation, overwrite: overwrite, thresholdBytes: thresholdBytes, workers: workers,
                 control: control, jobID: jobID, store: store, makeHandle: makeHandle)
         }
+        // A local content digest binds resumable parts even when the server
+        // has no checksum tools. Metadata alone cannot identify file contents.
+        let sourceDigest = try TransferIntegrity.optionalDigest {
+            try TransferIntegrity.localDigest(url: item.localURL, algorithm: "SHA-256", control: control)
+        }
         let localHash: String?
         if capability.algorithm.isEmpty { localHash = nil }
+        else if capability.algorithm == "SHA-256" { localHash = sourceDigest }
         else {
             await onVerification(.checking(L10n.format("源文件 %@", capability.algorithm)))
             localHash = try TransferIntegrity.optionalDigest {
@@ -925,9 +953,8 @@ public final class LocalUploadCoordinator: ObservableObject {
         let totalBytes = max(item.size, 0)
         let workerCount = workers
         let ranges = uploadRanges(totalBytes: UInt64(totalBytes), workerCount: workerCount)
-        let modified = try? item.localURL.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
-        let identity = [item.remotePath, String(item.size), String(format: "%.6f", modified?.timeIntervalSince1970 ?? 0), String(ranges.count)].joined(separator: "\u{0}")
-        let token = String(SHA256.hash(data: Data(identity.utf8)).map { String(format: "%02x", $0) }.joined().prefix(20))
+        let token = uploadToken(jobID: jobID, remotePath: item.remotePath,
+            size: item.size, workers: ranges.count, sourceDigest: sourceDigest)
         let parent = (item.remotePath as NSString).deletingLastPathComponent
         let baseName = ".snake-upload-\(token)"
         let stagingPath = (parent as NSString).appendingPathComponent("\(baseName).staging")
@@ -983,6 +1010,15 @@ public final class LocalUploadCoordinator: ObservableObject {
             for path in partPaths + [stagingPath] { try? operation.removeTransferTemporary(path: path) }
             throw error
         }
+    }
+
+    /// Retries may reuse parts only for the same job and source contents.
+    /// Without a reliable local digest every attempt gets fresh staging paths.
+    nonisolated static func uploadToken(jobID: UUID, remotePath: String, size: Int64,
+        workers: Int, sourceDigest: String?) -> String {
+        let identity = [jobID.uuidString, remotePath, String(size), String(workers),
+                        sourceDigest ?? UUID().uuidString].joined(separator: "\u{0}")
+        return SHA256.hash(data: Data(identity.utf8)).map { String(format: "%02x", $0) }.joined()
     }
 
     nonisolated static func uploadRanges(totalBytes: UInt64, workerCount: Int) -> [SFTPUploadRange] {

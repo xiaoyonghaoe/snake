@@ -62,12 +62,15 @@ final class CorePersistence {
     }
 
     func save(_ profile: SSHProfile) throws {
+        guard let port = UInt16(exactly: profile.port), port > 0 else {
+            throw ApplicationStoreError.invalidProfile
+        }
         try database.saveProfile(profile: CoreSshProfile(
             id: profile.id.uuidString,
             groupId: profile.groupID?.uuidString,
             name: profile.name,
             host: profile.host,
-            port: UInt16(profile.port),
+            port: port,
             username: profile.username,
             authMethod: profile.authMethod == .privateKey ? .privateKey : .password,
             keychainAccount: profile.keychainAccount,
@@ -174,6 +177,21 @@ final class CorePersistence {
 
     func deleteMapping(id: UUID) throws {
         try database.deleteMountMapping(id: id.uuidString)
+    }
+
+    /// Insert missing legacy rows without deleting or replacing SQLite data.
+    /// A failed batch can be retried safely while its UserDefaults copy remains.
+    func importLegacy(groups: [SessionGroup], profiles: [SSHProfile], mappings: [MountMapping]) throws {
+        let existingGroupIDs = Set(try loadGroups().map(\.id))
+        let existingProfileIDs = Set(try loadProfiles().map(\.id))
+        let existingMappingIDs = Set(try loadMountMappings().map(\.id))
+        for group in groups where !existingGroupIDs.contains(group.id) { try save(group) }
+        for profile in profiles where !existingProfileIDs.contains(profile.id) { try save(profile) }
+        let allProfiles = try loadProfiles()
+        for mapping in mappings where !existingMappingIDs.contains(mapping.id) {
+            let snapshot = allProfiles.first { $0.id == mapping.profileID }?.name ?? L10n.text("已删除会话")
+            try save(mapping, profileSnapshot: snapshot)
+        }
     }
 
     func synchronize(groups: [SessionGroup], profiles: [SSHProfile]) throws {

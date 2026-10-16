@@ -21,6 +21,7 @@ use zeroize::Zeroizing;
 uniffi::setup_scaffolding!("snake_core");
 
 mod transfer_integrity;
+mod sftp_publish;
 pub use transfer_integrity::*;
 
 #[derive(Debug, Error)]
@@ -945,6 +946,7 @@ pub struct CoreRemoteEntry {
 pub struct CoreSftpHandle {
     _session: Session,
     sftp: Sftp,
+    server_address: std::net::SocketAddr,
 }
 
 #[uniffi::export(callback_interface)]
@@ -1096,6 +1098,7 @@ impl CoreSftpHandle {
         destination_path: String,
         is_directory: bool,
     ) -> Result<(), CoreError> {
+        ensure_copy_destination_outside_source(&source, self, &source_path, &destination_path, is_directory)?;
         ensure_destination_absent(&self.sftp, Path::new(&destination_path))?;
         copy_remote_entry(
             &source.sftp,
@@ -1117,6 +1120,8 @@ impl CoreSftpHandle {
         control: Arc<CoreTransferControl>,
         observer: Box<dyn CoreTransferObserver>,
     ) -> Result<(), CoreError> {
+        control.wait_if_paused()?;
+        ensure_copy_destination_outside_source(&source, self, &source_path, &destination_path, is_directory)?;
         ensure_destination_absent(&self.sftp, Path::new(&destination_path))?;
         let mut completed = 0_u64;
         let result = copy_remote_entry_controlled(
@@ -1320,9 +1325,9 @@ impl CoreSftpHandle {
         self.sftp.stat(Path::new(&path)).is_ok()
     }
 
-    /// Concatenates completed part files into a staging file and then moves
-    /// that staging file into place. `mv -f` is deliberately the final step:
-    /// an interrupted upload never truncates the user's existing target.
+    /// Concatenates completed parts, then atomically renames the staging file
+    /// to the exact target. A directory target is never interpreted as a folder
+    /// into which the staging file should be moved.
     pub fn finalize_resumable_upload(
         &self,
         remote_part_paths: Vec<String>,
@@ -1345,19 +1350,9 @@ impl CoreSftpHandle {
             ensure_destination_absent(&self.sftp, Path::new(&target))?;
         }
 
-        let quoted_parts = parts
-            .iter()
-            .map(|path| shell_single_quote(path))
-            .collect::<Vec<_>>()
-            .join(" ");
-        let move_flag = if overwrite { "-f" } else { "-n" };
-        let command = format!(
-            "cat -- {quoted_parts} > {} && mv {move_flag} -- {} {} && rm -f -- {quoted_parts}",
-            shell_single_quote(&staging),
-            shell_single_quote(&staging),
-            shell_single_quote(&target),
-        );
-        run_remote_command(&self._session, &command, "finalize upload")
+        let control = CoreTransferControl::new();
+        self.assemble_upload(parts.clone(), staging.clone(), Arc::clone(&control))?;
+        self.publish_upload(staging, target, parts, overwrite, control)
     }
 
     pub fn download(&self, remote_path: String, local_path: String) -> Result<(), CoreError> {
@@ -1649,7 +1644,8 @@ pub fn open_sftp_password(
     known_hosts_path: String,
     accept_fingerprint: Option<String>,
 ) -> Result<Arc<CoreSftpHandle>, CoreError> {
-    let (session, key, kind, _) = handshake(&host, port)?;
+    let (session, key, kind, stream) = handshake(&host, port)?;
+    let server_address = stream.peer_addr().map_err(io_error)?;
     verify_host_key(
         &session,
         &host,
@@ -1669,7 +1665,7 @@ pub fn open_sftp_password(
     session
         .userauth_password(&username, password.as_str())
         .map_err(authentication_error)?;
-    finish_sftp(session)
+    finish_sftp(session, server_address)
 }
 
 #[uniffi::export]
@@ -1682,7 +1678,8 @@ pub fn open_sftp_private_key(
     known_hosts_path: String,
     accept_fingerprint: Option<String>,
 ) -> Result<Arc<CoreSftpHandle>, CoreError> {
-    let (session, key, kind, _) = handshake(&host, port)?;
+    let (session, key, kind, stream) = handshake(&host, port)?;
+    let server_address = stream.peer_addr().map_err(io_error)?;
     verify_host_key(
         &session,
         &host,
@@ -1707,7 +1704,7 @@ pub fn open_sftp_private_key(
             passphrase.as_deref().map(String::as_str),
         )
         .map_err(authentication_error)?;
-    finish_sftp(session)
+    finish_sftp(session, server_address)
 }
 
 fn handshake(
@@ -1870,7 +1867,7 @@ fn persist_known_hosts(hosts: &ssh2::KnownHosts, file: &Path) -> Result<(), Core
     result
 }
 
-fn finish_sftp(session: Session) -> Result<Arc<CoreSftpHandle>, CoreError> {
+fn finish_sftp(session: Session, server_address: std::net::SocketAddr) -> Result<Arc<CoreSftpHandle>, CoreError> {
     if !session.authenticated() {
         return Err(CoreError::Authentication {
             message: "server rejected the supplied credential".to_owned(),
@@ -1881,6 +1878,7 @@ fn finish_sftp(session: Session) -> Result<Arc<CoreSftpHandle>, CoreError> {
     Ok(Arc::new(CoreSftpHandle {
         _session: session,
         sftp,
+        server_address,
     }))
 }
 
@@ -2246,6 +2244,37 @@ fn ensure_destination_absent(sftp: &Sftp, path: &Path) -> Result<(), CoreError> 
     Ok(())
 }
 
+fn ensure_copy_destination_outside_source(
+    source: &CoreSftpHandle,
+    destination: &CoreSftpHandle,
+    source_path: &str,
+    destination_path: &str,
+    is_directory: bool,
+) -> Result<(), CoreError> {
+    if !is_directory || source.server_address != destination.server_address {
+        return Ok(());
+    }
+    let source_root = source.sftp.realpath(Path::new(source_path)).map_err(connection_error)?;
+    let target = Path::new(destination_path);
+    let parent = target.parent().filter(|path| !path.as_os_str().is_empty()).unwrap_or(Path::new("."));
+    let name = target.file_name().ok_or_else(|| CoreError::InvalidInput {
+        message: "copy destination requires a file name".to_owned(),
+    })?;
+    // Resolve aliases and symlink parents before creating anything. Checking
+    // the UI's profile ID or lexical path misses two tabs on the same server.
+    let target = destination.sftp.realpath(parent).map_err(connection_error)?.join(name);
+    validate_copy_destination(&source_root, &target)
+}
+
+fn validate_copy_destination(source: &Path, destination: &Path) -> Result<(), CoreError> {
+    if destination.starts_with(source) {
+        return Err(CoreError::InvalidInput {
+            message: "cannot copy a directory into itself or one of its descendants".to_owned(),
+        });
+    }
+    Ok(())
+}
+
 #[allow(clippy::too_many_arguments)]
 fn copy_remote_entry_controlled(
     source: &Sftp,
@@ -2417,6 +2446,18 @@ fn parse_identifier(value: &str) -> Result<Uuid, CoreError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn directory_copy_rejects_self_and_descendants_but_allows_siblings() {
+        let source = Path::new("/srv/data");
+        for target in ["/srv/data", "/srv/data/child", "/srv/data/child/data"] {
+            assert!(matches!(validate_copy_destination(source, Path::new(target)), Err(CoreError::InvalidInput { .. })));
+        }
+        for target in ["/srv/data2", "/srv/other/data", "/srv"] {
+            assert!(validate_copy_destination(source, Path::new(target)).is_ok());
+        }
+        assert!(validate_copy_destination(Path::new("/"), Path::new("/child")).is_err());
+    }
 
     struct RecordingObserver {
         updates: Mutex<Vec<(u64, u64)>>,
