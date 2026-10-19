@@ -2,7 +2,7 @@
 
 # Tokyo Night and Terminal Color Hints
 
-> Historical 1.1.0 implementation record. Remote `ls/ll` injection has since been removed; see the [current terminal color guide](../TERMINAL_COLOR_SCHEMES.md).
+> Historical 1.1.0 implementation record. Remote `ls/ll` injection has since been removed; see the [current terminal color guide](TERMINAL_COLOR_SCHEMES.md).
 
 ## Appearance and Settings
 
