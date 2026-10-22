@@ -11,6 +11,7 @@ Package.swift[FV9T]: F:定义macOS 15+ SwiftPM产品、Snake应用与挂载Helpe
 README.en.md[SB7S]: F:面向英文用户说明Snake安装、SSH/SFTP、凭据安全、开发与发布状态 | R:code:README.md,code:docs/en/INSTALL.md,code:docs/en/RELEASING.md,code:THIRD_PARTY_NOTICES.md | A:记录Ghostty默认与迁移、独立Pure White固定白底、导入原色及连接缓冲保持 | S:当前发行包仅Apple Silicon、ad-hoc且未公证；测试与人工验收边界不能描述为全部通过
 README.md[SB8S]: F:项目中文总览，说明安装、会话工作区、传输、映射、配色和凭据安全 | R:code:README.en.md,code:docs/TERMINAL_COLOR_SCHEMES.md,code:docs/RELEASING.md,code:docs/RELEASE_NOTES_1.1.3.md | A:说明Ghostty清晰默认配色与一次性迁移、纯白独立主题及导入原色 | S:纯白终端不随应用深色外观变暗；不得宣称全量测试通过或将ad-hoc发行包描述为已公证
 THIRD_PARTY_NOTICES.md[SV8T]: F:登记终端组件、Ghostty及其他主题、Rust核心依赖的来源和许可证 | R:code:LICENSE,code:NOTICE,code:Vendor/TerminalThemes/README.md,code:Vendor/TerminalThemes/LICENSE,code:scripts/collect-release-licenses.py | A:固定Ghostty默认配色提交与MIT归属，区分Snake高对比适配和上游原值 | S:二进制须携带实际依赖许可和版权；主题配色引用不表示引入Ghostty渲染器；禁止夹带凭据或签名材料
+.mcp.json[XE5T]: F:为Claude Code注册项目级AOCI MCP服务，供Agent直接调用认知读取与维护工具 | R:code:AGENTS.md | A:- | S:command与--repo是本机绝对路径，换机或换用户需改写后才能加载
 
 ===/Users/xiaoyong/IdeaProjects/snake/Generated/SnakeCoreBindings/===
 snake_core.swift[LI9L]: F:UniFFI生成的Swift绑定，桥接Rust数据库、连接、传输及密码库元数据接口 | R:code:Rust/snake_core/src/lib.rs,code:Generated/SnakeCoreFFI/snake_coreFFI.h,code:Sources/SnakeApp/CorePersistence.swift | A:暴露CoreSavedPassword、CoreSshProfile.savedPasswordId及数据库批量同步、删除接口 | S:密码库接口只传名称、用户名和关联ID，不传密码明文；生成代码与Rust动态库必须同版

@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "aoci": {
+      "command": "/Users/xiaoyong/bin/aoci",
+      "args": ["--repo", "/Users/xiaoyong/IdeaProjects/snake", "mcp"]
+    }
+  }
+}
