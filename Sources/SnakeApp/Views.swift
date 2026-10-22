@@ -746,6 +746,10 @@ private struct TerminalTabView: View {
                     fontName: store.terminalFontName,
                     fontSize: store.terminalFontSize
                 )
+                    // Keep text off the window edges; the inset uses the theme background.
+                    .padding(.leading, 12)
+                    .padding(.trailing, 4)
+                    .padding(.vertical, 8)
                     .background(terminalBackground)
                     .background(FinderUploadArea())
             } else {

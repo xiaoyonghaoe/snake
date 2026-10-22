@@ -46,6 +46,36 @@ final class TerminalShellStartupTests: XCTestCase {
         XCTAssertEqual(redrawn.consume(raw), report)
     }
 
+    func testSlowShellShowsBannerButNeverTheHookEcho() throws {
+        var startup = try XCTUnwrap(TerminalShellStartup(shellName: "zsh"))
+        let banner = Data("Welcome to Ubuntu\r\nLast login: test\r\n".utf8)
+        let prompt = Data("user@server ~ % ".utf8)
+        XCTAssertTrue(startup.consume(banner + prompt + startup.command).isEmpty)
+        XCTAssertEqual(startup.releaseBanner(), banner, "Soft timeout reveals only complete banner lines")
+        XCTAssertFalse(startup.isComplete)
+        XCTAssertTrue(startup.releaseBanner().isEmpty, "Released text is never repeated")
+        let report = Data("\u{1b}]7;file://server/home/user\u{1b}\\".utf8)
+        let visible = startup.consume(Data("\r\n".utf8) + report + startup.completionMarker + prompt)
+        XCTAssertTrue(startup.isComplete)
+        XCTAssertEqual(visible, report + prompt)
+
+        var silent = try XCTUnwrap(TerminalShellStartup(shellName: "bash"))
+        let menu = Data("Select an option: ".utf8)
+        XCTAssertTrue(silent.consume(menu).isEmpty)
+        XCTAssertEqual(silent.releaseBanner(), menu, "Without an echo the shell is not cooperating")
+        XCTAssertTrue(silent.isComplete)
+    }
+
+    func testHighlightedZshEchoIsStillHidden() throws {
+        var startup = try XCTUnwrap(TerminalShellStartup(shellName: "zsh"))
+        let command = String(decoding: startup.command, as: UTF8.self)
+        let highlighted = command.replacingOccurrences(of: " function ", with: " \u{1b}[32mfunction\u{1b}[39m ")
+        let raw = Data("Last login: test\r\nuser@server ~ % ".utf8) + Data(highlighted.utf8)
+            + startup.completionMarker + Data("user@server ~ % ".utf8)
+        let visible = String(decoding: startup.consume(raw), as: UTF8.self)
+        XCTAssertEqual(visible, "Last login: test\r\nuser@server ~ % ")
+    }
+
     @MainActor
     func testVisibleTerminalRetainsBannerPathAndOnePrompt() throws {
         var startup = try XCTUnwrap(TerminalShellStartup(shellName: "bash"))

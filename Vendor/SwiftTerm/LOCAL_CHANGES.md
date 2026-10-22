@@ -2,6 +2,12 @@
 
 上游与 MIT 许可见 `README.md`、`LICENSE` 及项目根目录 `THIRD_PARTY_NOTICES.md`。
 
+## 2026-10-22：可调行高
+
+- macOS/iOS `TerminalView.lineHeightScale`（默认 1，限制在 1...2）按字体自然行高放大单元格高度；改变时走 `resetFont()` 重新计算行列数。
+- 新增共享 `textBaselineOffset()`，把额外行距平均分配在字形上下并对齐像素。CoreGraphics 绘制、Metal 渲染与光标共用该基线，避免三处偏移不一致。
+- 默认值下单元格高度与基线和上游完全一致；Snake 终端使用 1.15。
+
 ## 2026-09-23：显式文本粘贴入口
 
 - macOS `TerminalView.pasteText(_:)` 允许应用将已确认的文件名文本通过原生粘贴路径发送，不替换系统剪贴板；保留 bracketed paste 与 Kitty 键盘处理。

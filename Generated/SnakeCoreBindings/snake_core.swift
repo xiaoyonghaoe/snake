@@ -855,9 +855,9 @@ public protocol CoreSftpHandleProtocol: AnyObject, Sendable {
     func fileMetadata(path: String) throws  -> CoreFileMetadata
 
     /**
-     * Concatenates completed part files into a staging file and then moves
-     * that staging file into place. `mv -f` is deliberately the final step:
-     * an interrupted upload never truncates the user's existing target.
+     * Concatenates completed parts, then atomically renames the staging file
+     * to the exact target. A directory target is never interpreted as a folder
+     * into which the staging file should be moved.
      */
     func finalizeResumableUpload(remotePartPaths: [String], remoteStagingPath: String, remoteTargetPath: String, overwrite: Bool) throws
 
@@ -1055,9 +1055,9 @@ open func fileMetadata(path: String)throws  -> CoreFileMetadata  {
 }
 
     /**
-     * Concatenates completed part files into a staging file and then moves
-     * that staging file into place. `mv -f` is deliberately the final step:
-     * an interrupted upload never truncates the user's existing target.
+     * Concatenates completed parts, then atomically renames the staging file
+     * to the exact target. A directory target is never interpreted as a folder
+     * into which the staging file should be moved.
      */
 open func finalizeResumableUpload(remotePartPaths: [String], remoteStagingPath: String, remoteTargetPath: String, overwrite: Bool)throws   {try rustCallWithError(FfiConverterTypeCoreError_lift) {
     uniffi_snake_core_fn_method_coresftphandle_finalize_resumable_upload(self.uniffiClonePointer(),
@@ -3572,7 +3572,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_snake_core_checksum_method_coresftphandle_file_metadata() != 11062) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_snake_core_checksum_method_coresftphandle_finalize_resumable_upload() != 43866) {
+    if (uniffi_snake_core_checksum_method_coresftphandle_finalize_resumable_upload() != 6977) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_snake_core_checksum_method_coresftphandle_home_directory() != 30653) {

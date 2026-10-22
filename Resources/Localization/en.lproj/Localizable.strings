@@ -560,6 +560,8 @@
 "隐藏" = "Hide";
 "首次连接 %@:%@\n%@\n%@\n\n请在可信渠道核对指纹后再信任。" = "First connection to %@:%@\n%@\n%@\n\nVerify the fingerprint through a trusted channel before trusting it.";
 "首次连接未完成，正在自动重试…" = "First connection not completed; retrying automatically…";
+"连接已中断" = "Connection lost";
+"连接已中断，正在自动重连（%@/%@）…" = "Connection lost; reconnecting automatically (%@/%@)…";
 "编辑窗口尚未获得焦点。请回到原窗口后重新查看。" = "The edit window is not active. Return to it and try again.";
 "验证身份以查看 Snake 中已保存的密码或私钥口令" = "Authenticate to view passwords or private key passphrases saved in Snake";
 "验证身份后在原输入框显示并编辑；30 秒后恢复隐藏，保留草稿" = "After authentication, the value is shown and can be edited in the original field; it is hidden again after 30 seconds, and the draft is kept";

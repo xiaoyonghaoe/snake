@@ -180,6 +180,12 @@ open class TerminalView: NSView, NSTextInputClient, NSUserInterfaceValidations, 
     /// For more details on this see:
     /// https://gist.github.com/lukaskubanek/9a61ac71dc0db8bb04db2028f2635779
     /// https://developer.apple.com/forums/thread/663256?answerId=646653022#646653022
+    /// Multiplier applied to the font's natural line height (clamped to 1...2).
+    /// Extra space is distributed evenly above and below each row of text.
+    public var lineHeightScale: CGFloat = 1 {
+        didSet { if oldValue != lineHeightScale { resetFont() } }
+    }
+
     public var disableFullRedrawOnAnyChanges = false
     var fontSet: FontSet
 

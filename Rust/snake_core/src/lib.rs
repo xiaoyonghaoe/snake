@@ -1716,31 +1716,7 @@ fn handshake(
             message: "host and port are required".to_owned(),
         });
     }
-    let addresses = (host, port)
-        .to_socket_addrs()
-        .map_err(|error| io_connection_stage_error("tcp_resolve", error))?;
-    let mut last_error = None;
-    let mut stream = None;
-    for address in addresses {
-        match TcpStream::connect_timeout(&address, std::time::Duration::from_secs(15)) {
-            Ok(candidate) => {
-                stream = Some(candidate);
-                break;
-            }
-            Err(error) => last_error = Some(error),
-        }
-    }
-    let stream = stream.ok_or_else(|| {
-        io_connection_stage_error(
-            "tcp_connect",
-            last_error.unwrap_or_else(|| {
-                std::io::Error::new(
-                    std::io::ErrorKind::NotFound,
-                    "host resolved to no addresses",
-                )
-            }),
-        )
-    })?;
+    let stream = connect_tcp(host, port)?;
     let session_stream = stream
         .try_clone()
         .map_err(|error| io_connection_stage_error("tcp_stream", error))?;
@@ -1760,6 +1736,103 @@ fn handshake(
     };
     Ok((session, key, kind, session_stream))
 }
+
+const TCP_CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+const TCP_ATTEMPT_STAGGER: std::time::Duration = std::time::Duration::from_millis(250);
+const TCP_MAX_ATTEMPTS: usize = 6;
+
+/// Races resolved addresses with a short stagger (RFC 8305 style), alternating
+/// address families, so an unreachable IPv6 route or a dead DNS entry cannot
+/// delay a working address by a full connect timeout.
+fn connect_tcp(host: &str, port: u16) -> Result<TcpStream, CoreError> {
+    let resolved = (host, port)
+        .to_socket_addrs()
+        .map_err(|error| io_connection_stage_error("tcp_resolve", error))?
+        .collect::<Vec<_>>();
+    let (v6, v4): (Vec<std::net::SocketAddr>, Vec<_>) = resolved.iter().partition(|address| address.is_ipv6());
+    let (mut first, mut second) = match resolved.first() {
+        Some(address) if address.is_ipv6() => (v6.into_iter(), v4.into_iter()),
+        _ => (v4.into_iter(), v6.into_iter()),
+    };
+    let mut candidates = Vec::new();
+    while candidates.len() < TCP_MAX_ATTEMPTS {
+        let (a, b) = (first.next(), second.next());
+        if a.is_none() && b.is_none() {
+            break;
+        }
+        candidates.extend(a.into_iter().chain(b));
+    }
+    candidates.truncate(TCP_MAX_ATTEMPTS);
+    if candidates.is_empty() {
+        return Err(io_connection_stage_error(
+            "tcp_connect",
+            std::io::Error::new(std::io::ErrorKind::NotFound, "host resolved to no addresses"),
+        ));
+    }
+
+    let connected = Arc::new(AtomicBool::new(false));
+    let (sender, receiver) = mpsc::channel();
+    for (index, address) in candidates.into_iter().enumerate() {
+        let sender = sender.clone();
+        let connected = Arc::clone(&connected);
+        std::thread::Builder::new()
+            .name("snake-tcp-connect".to_owned())
+            .spawn(move || {
+                std::thread::sleep(TCP_ATTEMPT_STAGGER * index as u32);
+                if connected.load(Ordering::Acquire) {
+                    return;
+                }
+                let _ = sender.send(TcpStream::connect_timeout(&address, TCP_CONNECT_TIMEOUT));
+            })
+            .map_err(|error| io_connection_stage_error("tcp_connect", error))?;
+    }
+    drop(sender);
+    let mut last_error = None;
+    for result in receiver {
+        match result {
+            Ok(stream) => {
+                connected.store(true, Ordering::Release);
+                let _ = stream.set_nodelay(true);
+                return Ok(stream);
+            }
+            Err(error) => last_error = Some(error),
+        }
+    }
+    Err(io_connection_stage_error(
+        "tcp_connect",
+        last_error.unwrap_or_else(|| {
+            std::io::Error::new(std::io::ErrorKind::NotFound, "host resolved to no addresses")
+        }),
+    ))
+}
+
+/// Terminal sessions are mostly idle, so a vanished peer (sleep, Wi-Fi change,
+/// NAT expiry) would otherwise only surface after minutes of TCP retransmission.
+/// Probe idle sockets quickly and drop unacknowledged ones after a bounded time.
+#[cfg(target_vendor = "apple")]
+fn tune_terminal_socket(stream: &TcpStream) {
+    use std::os::fd::AsRawFd;
+    // <netinet/tcp.h>: stop retransmitting and drop the connection after N seconds.
+    const TCP_RXT_CONNDROPTIME: libc::c_int = 0x80;
+    let fd = stream.as_raw_fd();
+    let set = |level: libc::c_int, name: libc::c_int, value: libc::c_int| unsafe {
+        libc::setsockopt(
+            fd,
+            level,
+            name,
+            (&value as *const libc::c_int).cast(),
+            std::mem::size_of::<libc::c_int>() as libc::socklen_t,
+        );
+    };
+    set(libc::SOL_SOCKET, libc::SO_KEEPALIVE, 1);
+    set(libc::IPPROTO_TCP, libc::TCP_KEEPALIVE, 15);
+    set(libc::IPPROTO_TCP, libc::TCP_KEEPINTVL, 5);
+    set(libc::IPPROTO_TCP, libc::TCP_KEEPCNT, 3);
+    set(libc::IPPROTO_TCP, TCP_RXT_CONNDROPTIME, 20);
+}
+
+#[cfg(not(target_vendor = "apple"))]
+fn tune_terminal_socket(_stream: &TcpStream) {}
 
 // Serialize read/modify/write across simultaneous terminal and SFTP connections.
 static KNOWN_HOSTS_LOCK: Mutex<()> = Mutex::new(());
@@ -1882,6 +1955,8 @@ fn finish_sftp(session: Session, server_address: std::net::SocketAddr) -> Result
     }))
 }
 
+const TERMINAL_KEEPALIVE_SECONDS: u32 = 10;
+
 fn finish_terminal(
     session: Session,
     stream: TcpStream,
@@ -1902,8 +1977,9 @@ fn finish_terminal(
         });
     }
 
+    tune_terminal_socket(&stream);
     let shell_name = detect_remote_shell(&session);
-    session.set_keepalive(true, 30);
+    session.set_keepalive(true, TERMINAL_KEEPALIVE_SECONDS);
     let mut channel = session
         .channel_session()
         .map_err(|error| ssh_connection_stage_error("ssh_channel", error))?;
@@ -1970,7 +2046,8 @@ fn terminal_io_loop(
     let mut pending_writes = std::collections::VecDeque::<(Vec<u8>, usize)>::new();
     let mut pending_resize = None;
     let mut needs_flush = false;
-    let mut next_keepalive = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    let mut next_keepalive = std::time::Instant::now()
+        + std::time::Duration::from_secs(u64::from(TERMINAL_KEEPALIVE_SECONDS));
     let mut failure = None;
     let mut should_close = false;
 
@@ -2747,6 +2824,24 @@ mod tests {
             file.to_str().unwrap(), None);
         assert!(matches!(result, Err(CoreError::HostKeyUnknown { .. })));
         assert!(!file.exists());
+    }
+
+    #[test]
+    fn tcp_connect_falls_through_refused_addresses_and_disables_nagle() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        // "localhost" usually resolves ::1 first; nothing listens there, so the
+        // race must still settle on the IPv4 listener without a long timeout.
+        let started = std::time::Instant::now();
+        let stream = connect_tcp("localhost", port).unwrap();
+        assert!(started.elapsed() < std::time::Duration::from_secs(2));
+        assert!(stream.nodelay().unwrap());
+        tune_terminal_socket(&stream);
+        drop(listener);
+        assert!(matches!(
+            connect_tcp("127.0.0.1", port),
+            Err(CoreError::Connection { stage: Some(stage), .. }) if stage == "tcp_connect"
+        ));
     }
 
     #[test]
