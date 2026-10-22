@@ -1,7 +1,7 @@
 {
   "version": 1,
   "created_at": "2026-09-15T08:15:17Z",
-  "updated_at": "2026-10-16T04:24:49Z",
+  "updated_at": "2026-10-22T10:27:42Z",
   "files": {
     ".gitattributes": {
       "role": "index",
@@ -22,9 +22,9 @@
       "normalized_sha256": "ddb50101a5be7eb54bde0bdccb2ce15fbac13a0efed1b2851adc248c7a39bcb7"
     },
     "Generated/SnakeCoreBindings/snake_core.swift": {
-      "sha256": "003c359bd8ef2516768d6af1626cec550aa559482dca1f4fcc60f6235b6fabae",
-      "size": 128564,
-      "normalized_sha256": "003c359bd8ef2516768d6af1626cec550aa559482dca1f4fcc60f6235b6fabae"
+      "sha256": "f17df8e1237d67446d208695e25a93361909d9b907ee982e356dc54009cf0edc",
+      "size": 128531,
+      "normalized_sha256": "f17df8e1237d67446d208695e25a93361909d9b907ee982e356dc54009cf0edc"
     },
     "Generated/SnakeCoreFFI/module.modulemap": {
       "role": "index",
@@ -101,9 +101,9 @@
       "normalized_sha256": "0335849866dec9e43e65fc8617b9868137267b938a53d794740e9ed38c0f9406"
     },
     "Resources/Localization/en.lproj/Localizable.strings": {
-      "sha256": "046c9dfffe16d8eb8e24a09fcbde1aae842a316073415476d6e08d884d94454b",
-      "size": 45832,
-      "normalized_sha256": "046c9dfffe16d8eb8e24a09fcbde1aae842a316073415476d6e08d884d94454b"
+      "sha256": "e40883ee14f35e9d94dc5ecc7b63043f33a9c8af46f443287f7da297a0d52563",
+      "size": 45984,
+      "normalized_sha256": "e40883ee14f35e9d94dc5ecc7b63043f33a9c8af46f443287f7da297a0d52563"
     },
     "Resources/Localization/zh-Hans.lproj/InfoPlist.strings": {
       "role": "index",
@@ -118,16 +118,14 @@
       "normalized_sha256": "a388219ef4b98089bebb1b7e8b438d9603064827a1d580c555ffa96dfd898b8b"
     },
     "Rust/snake_core/Cargo.lock": {
-      "role": "index",
-      "sha256": "5043acbf2ed1d83056179bcb0cd591207e379d776f3162b695ab3899ce320fc1",
-      "size": 28681,
-      "normalized_sha256": "5043acbf2ed1d83056179bcb0cd591207e379d776f3162b695ab3899ce320fc1"
+      "sha256": "171925644372779e7f589c09096a9d51b5fcc1591d415ec778106a9c97b53572",
+      "size": 28690,
+      "normalized_sha256": "171925644372779e7f589c09096a9d51b5fcc1591d415ec778106a9c97b53572"
     },
     "Rust/snake_core/Cargo.toml": {
-      "role": "index",
-      "sha256": "fb8ff349f4e0bdbb4916c44871c52d40512d1defeca57ecfdd860a6168689e46",
-      "size": 601,
-      "normalized_sha256": "fb8ff349f4e0bdbb4916c44871c52d40512d1defeca57ecfdd860a6168689e46"
+      "sha256": "95431f45ad08d28b858dbbb615be90fb42a89e49e11d24d8063b41e77c091edb",
+      "size": 614,
+      "normalized_sha256": "95431f45ad08d28b858dbbb615be90fb42a89e49e11d24d8063b41e77c091edb"
     },
     "Rust/snake_core/examples/sftp_smoke.rs": {
       "role": "index",
@@ -148,9 +146,9 @@
       "normalized_sha256": "3126094bda55df048f682c39ffedf911a6579c3af0b172b86422edc66319e73c"
     },
     "Rust/snake_core/src/lib.rs": {
-      "sha256": "9b990491dfe2c5f8a6c878c7a1bcc8d23313618d0ec576ecc09daa468c5f1d28",
-      "size": 107781,
-      "normalized_sha256": "9b990491dfe2c5f8a6c878c7a1bcc8d23313618d0ec576ecc09daa468c5f1d28"
+      "sha256": "f78e75aa9f5a41fc8063f1d16374092258ea906f3032e3ca55ebab64c4b3df39",
+      "size": 111951,
+      "normalized_sha256": "f78e75aa9f5a41fc8063f1d16374092258ea906f3032e3ca55ebab64c4b3df39"
     },
     "Rust/snake_core/src/sftp_publish.rs": {
       "sha256": "3cd81464196df63aaf0c33c3249761f7c714a3cfaac405c3873f20241c941108",
@@ -336,9 +334,9 @@
       "normalized_sha256": "aa3d79f301d4d6463ad836b6ca78bbbba439478a390de7dd1814fec7ac3d1616"
     },
     "Sources/SnakeApp/TerminalShellStartup.swift": {
-      "sha256": "2b5f568ffb721e106c6df27f7d2b5792abe0971561c0fc21de263481167dd8d2",
-      "size": 3042,
-      "normalized_sha256": "2b5f568ffb721e106c6df27f7d2b5792abe0971561c0fc21de263481167dd8d2"
+      "sha256": "30c8258f076b888204f7152f4d102a7e07a8b9848d0ddf174e528241fab3ab5b",
+      "size": 3927,
+      "normalized_sha256": "30c8258f076b888204f7152f4d102a7e07a8b9848d0ddf174e528241fab3ab5b"
     },
     "Sources/SnakeApp/TerminalTheme.swift": {
       "sha256": "54961810de8f8fc913fe9da20ff806e70aa37570959baac4b64d7002d5afcbf1",
@@ -363,14 +361,14 @@
       "normalized_sha256": "1c4d0d5acd4f1195f9e1b8717097dbd3e9019cee635e486d3a1df8222b8878b5"
     },
     "Sources/SnakeApp/Views.swift": {
-      "sha256": "a7b699fd917f985ce7b6c86a9b601cd26cbf842195eadd8ac1ba24fa1d3100e0",
-      "size": 179629,
-      "normalized_sha256": "a7b699fd917f985ce7b6c86a9b601cd26cbf842195eadd8ac1ba24fa1d3100e0"
+      "sha256": "047e76d055511fff547f4accf350ba17a284d69d7b63ec5a5ec489175d1d2852",
+      "size": 179850,
+      "normalized_sha256": "047e76d055511fff547f4accf350ba17a284d69d7b63ec5a5ec489175d1d2852"
     },
     "Sources/SnakeApp/Workspace.swift": {
-      "sha256": "707736c430e1b5d970976d63ae492ab59d63390fdce009de9aa232ead7d70271",
-      "size": 136852,
-      "normalized_sha256": "707736c430e1b5d970976d63ae492ab59d63390fdce009de9aa232ead7d70271"
+      "sha256": "9ecaf3276e5eff258ae7224d42f9d596eb3498e1de2b6272dbd21c4ec3a9f2e1",
+      "size": 143268,
+      "normalized_sha256": "9ecaf3276e5eff258ae7224d42f9d596eb3498e1de2b6272dbd21c4ec3a9f2e1"
     },
     "Sources/SnakeApp/WorkspaceDragging.swift": {
       "role": "index",
@@ -488,9 +486,9 @@
       "normalized_sha256": "7cc91f0938c8d711b82b81dec9242d7137ded122f78b09f6b6cbbcdcdddeda1e"
     },
     "Tests/SnakeAppTests/TerminalShellStartupTests.swift": {
-      "sha256": "b98763b7dcdca2970f45070f8d72b78d4a5ec136ccb0a22b9a7cae5034759777",
-      "size": 7863,
-      "normalized_sha256": "b98763b7dcdca2970f45070f8d72b78d4a5ec136ccb0a22b9a7cae5034759777"
+      "sha256": "2230b79a8ceb843fb9b32a8739418acf13a10cefaccefc32cb19e88428d18689",
+      "size": 9684,
+      "normalized_sha256": "2230b79a8ceb843fb9b32a8739418acf13a10cefaccefc32cb19e88428d18689"
     },
     "Tests/SnakeAppTests/TerminalThemeImportTests.swift": {
       "sha256": "82dc613032da1f52ccd00d077ce79cbec3b76529c584cd9bd604a9579a8c604d",
@@ -519,9 +517,9 @@
       "normalized_sha256": "261de76480bbc4f5ceace9118a365c651ced313f57f2ebca964a0519468fcc97"
     },
     "aoci.code.txt": {
-      "sha256": "d9d801670c53e999a38c02e49a7a5bd79dce7957809660389fd9b06e04ebd8b9",
-      "size": 60623,
-      "normalized_sha256": "d9d801670c53e999a38c02e49a7a5bd79dce7957809660389fd9b06e04ebd8b9"
+      "sha256": "c5ce881b758fe6a6c4fc046880ea4b5c9c82972dd19092823b80902ce245ceab",
+      "size": 61266,
+      "normalized_sha256": "c5ce881b758fe6a6c4fc046880ea4b5c9c82972dd19092823b80902ce245ceab"
     },
     "aoci.meta.txt": {
       "role": "index",
