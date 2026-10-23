@@ -3255,7 +3255,7 @@ private struct MountDependencyStatus {
 /// A bare `Form` neither scrolls nor aligns to the top inside a fixed window,
 /// so each pane scrolls, keeps the same outer padding and starts at the top
 /// instead of being vertically centred with large empty margins.
-private struct SettingsPane<Content: View>: View {
+struct SettingsPane<Content: View>: View {
     private let content: Content
 
     init(@ViewBuilder content: () -> Content) {
@@ -3276,7 +3276,7 @@ private struct SettingsPane<Content: View>: View {
 ///
 /// A grouped `Form` inside a `ScrollView` lays its footers out with trailing
 /// alignment; pinning the text to the leading edge matches the rest of macOS.
-private struct SettingsFooter: View {
+struct SettingsFooter: View {
     private let key: LocalizedStringKey
 
     init(_ key: LocalizedStringKey) {
@@ -3550,6 +3550,9 @@ public struct SnakeSettingsView: View {
                 // 「格式」whenever the bundle resolves to Chinese; `terminal`
                 // is a pictogram and reads the same in every language.
                 .tabItem { Label("终端", systemImage: "terminal") }
+
+            McpSettingsPane(mcp: store.mcp)
+                .tabItem { Label("MCP", systemImage: "point.3.connected.trianglepath.dotted") }
         }
         .frame(minWidth: 560, idealWidth: 640, minHeight: 460, idealHeight: 560)
         .environment(\.locale, store.appLanguage.locale)

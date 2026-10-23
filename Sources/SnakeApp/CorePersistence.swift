@@ -220,3 +220,58 @@ final class CorePersistence {
         }
     }
 }
+
+// MARK: - MCP tokens and command audit
+
+extension CorePersistence {
+    func mcpTokens() throws -> [CoreMcpToken] { try database.mcpTokens() }
+
+    func mcpToken(hash: String) throws -> CoreMcpToken? { try database.mcpTokenByHash(tokenHash: hash) }
+
+    func createMcpToken(_ token: CoreMcpToken, hash: String) throws {
+        try database.createMcpToken(token: token, tokenHash: hash)
+    }
+
+    func updateMcpToken(id: UUID, name: String, expiresAt: Int64?, profileIDs: [UUID]) throws {
+        try database.updateMcpToken(
+            id: id.uuidString, name: name, expiresAt: expiresAt,
+            profileIds: profileIDs.map(\.uuidString)
+        )
+    }
+
+    func setMcpToken(id: UUID, revokedAt: Int64?) throws {
+        try database.setMcpTokenRevoked(id: id.uuidString, revokedAt: revokedAt)
+    }
+
+    func touchMcpToken(id: String, usedAt: Int64) throws { try database.touchMcpToken(id: id, usedAt: usedAt) }
+
+    func deleteMcpToken(id: UUID) throws { try database.deleteMcpToken(id: id.uuidString) }
+
+    func insertMcpAudit(_ record: CoreMcpAuditRecord) throws { try database.insertMcpAudit(record: record) }
+
+    func finishMcpAudit(id: String, result: CoreMcpAuditResult) throws {
+        try database.finishMcpAudit(id: id, result: result)
+    }
+
+    func mcpAudit(filter: CoreMcpAuditFilter, limit: Int, offset: Int) throws -> [CoreMcpAuditRecord] {
+        try database.mcpAudit(filter: filter, limit: UInt32(clamping: limit), offset: UInt32(clamping: offset))
+    }
+
+    func mcpAuditCount(filter: CoreMcpAuditFilter) throws -> Int {
+        Int(try database.mcpAuditCount(filter: filter))
+    }
+
+    @discardableResult
+    func deleteMcpAudit(filter: CoreMcpAuditFilter) throws -> Int {
+        Int(try database.deleteMcpAudit(filter: filter))
+    }
+
+    @discardableResult
+    func pruneMcpAudit(nowMilliseconds: Int64, retentionDays: Int, maxRecords: Int) throws -> Int {
+        Int(try database.pruneMcpAudit(
+            nowMs: nowMilliseconds,
+            retentionDays: UInt32(clamping: retentionDays),
+            maxRecords: UInt32(clamping: maxRecords)
+        ))
+    }
+}

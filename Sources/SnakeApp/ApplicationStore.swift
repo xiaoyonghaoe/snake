@@ -100,6 +100,13 @@ public final class ApplicationStore: ObservableObject {
     }
 
     weak var workspaceCoordinator: WorkspaceWindowCoordinator?
+    /// Local MCP server, tokens and command audit. Its listener only starts after `activate()`.
+    private(set) lazy var mcp = McpController(
+        persistence: corePersistence,
+        defaults: defaults,
+        profiles: { [unowned self] in self.profiles },
+        groupName: { [unowned self] id in self.groups.first { $0.id == id }?.name }
+    )
 
     private let defaults: UserDefaults
     private let corePersistence: CorePersistence?

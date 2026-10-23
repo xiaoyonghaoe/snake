@@ -571,7 +571,13 @@ fileprivate struct FfiConverterData: FfiConverterRustBuffer {
 
 public protocol CoreDatabaseProtocol: AnyObject, Sendable {
 
+    func createMcpToken(token: CoreMcpToken, tokenHash: String) throws
+
     func deleteGroup(id: String) throws
+
+    func deleteMcpAudit(filter: CoreMcpAuditFilter) throws  -> UInt64
+
+    func deleteMcpToken(id: String) throws
 
     func deleteMountMapping(id: String) throws
 
@@ -581,11 +587,25 @@ public protocol CoreDatabaseProtocol: AnyObject, Sendable {
 
     func deleteTransferJob(id: String) throws
 
+    func finishMcpAudit(id: String, result: CoreMcpAuditResult) throws
+
     func groups() throws  -> [CoreSessionGroup]
+
+    func insertMcpAudit(record: CoreMcpAuditRecord) throws
+
+    func mcpAudit(filter: CoreMcpAuditFilter, limit: UInt32, offset: UInt32) throws  -> [CoreMcpAuditRecord]
+
+    func mcpAuditCount(filter: CoreMcpAuditFilter) throws  -> Int64
+
+    func mcpTokenByHash(tokenHash: String) throws  -> CoreMcpToken?
+
+    func mcpTokens() throws  -> [CoreMcpToken]
 
     func mountMappings() throws  -> [CoreMountMapping]
 
     func profiles() throws  -> [CoreSshProfile]
+
+    func pruneMcpAudit(nowMs: Int64, retentionDays: UInt32, maxRecords: UInt32) throws  -> UInt64
 
     func saveGroup(group: CoreSessionGroup) throws
 
@@ -599,7 +619,13 @@ public protocol CoreDatabaseProtocol: AnyObject, Sendable {
 
     func savedPasswords() throws  -> [CoreSavedPassword]
 
+    func setMcpTokenRevoked(id: String, revokedAt: Int64?) throws
+
+    func touchMcpToken(id: String, usedAt: Int64) throws
+
     func transferJobs() throws  -> [CoreTransferJob]
+
+    func updateMcpToken(id: String, name: String, expiresAt: Int64?, profileIds: [String]) throws
 
 }
 open class CoreDatabase: CoreDatabaseProtocol, @unchecked Sendable {
@@ -662,8 +688,31 @@ public static func `open`(path: String)throws  -> CoreDatabase  {
 
 
 
+open func createMcpToken(token: CoreMcpToken, tokenHash: String)throws   {try rustCallWithError(FfiConverterTypeCoreError_lift) {
+    uniffi_snake_core_fn_method_coredatabase_create_mcp_token(self.uniffiClonePointer(),
+        FfiConverterTypeCoreMcpToken_lower(token),
+        FfiConverterString.lower(tokenHash),$0
+    )
+}
+}
+
 open func deleteGroup(id: String)throws   {try rustCallWithError(FfiConverterTypeCoreError_lift) {
     uniffi_snake_core_fn_method_coredatabase_delete_group(self.uniffiClonePointer(),
+        FfiConverterString.lower(id),$0
+    )
+}
+}
+
+open func deleteMcpAudit(filter: CoreMcpAuditFilter)throws  -> UInt64  {
+    return try  FfiConverterUInt64.lift(try rustCallWithError(FfiConverterTypeCoreError_lift) {
+    uniffi_snake_core_fn_method_coredatabase_delete_mcp_audit(self.uniffiClonePointer(),
+        FfiConverterTypeCoreMcpAuditFilter_lower(filter),$0
+    )
+})
+}
+
+open func deleteMcpToken(id: String)throws   {try rustCallWithError(FfiConverterTypeCoreError_lift) {
+    uniffi_snake_core_fn_method_coredatabase_delete_mcp_token(self.uniffiClonePointer(),
         FfiConverterString.lower(id),$0
     )
 }
@@ -697,9 +746,57 @@ open func deleteTransferJob(id: String)throws   {try rustCallWithError(FfiConver
 }
 }
 
+open func finishMcpAudit(id: String, result: CoreMcpAuditResult)throws   {try rustCallWithError(FfiConverterTypeCoreError_lift) {
+    uniffi_snake_core_fn_method_coredatabase_finish_mcp_audit(self.uniffiClonePointer(),
+        FfiConverterString.lower(id),
+        FfiConverterTypeCoreMcpAuditResult_lower(result),$0
+    )
+}
+}
+
 open func groups()throws  -> [CoreSessionGroup]  {
     return try  FfiConverterSequenceTypeCoreSessionGroup.lift(try rustCallWithError(FfiConverterTypeCoreError_lift) {
     uniffi_snake_core_fn_method_coredatabase_groups(self.uniffiClonePointer(),$0
+    )
+})
+}
+
+open func insertMcpAudit(record: CoreMcpAuditRecord)throws   {try rustCallWithError(FfiConverterTypeCoreError_lift) {
+    uniffi_snake_core_fn_method_coredatabase_insert_mcp_audit(self.uniffiClonePointer(),
+        FfiConverterTypeCoreMcpAuditRecord_lower(record),$0
+    )
+}
+}
+
+open func mcpAudit(filter: CoreMcpAuditFilter, limit: UInt32, offset: UInt32)throws  -> [CoreMcpAuditRecord]  {
+    return try  FfiConverterSequenceTypeCoreMcpAuditRecord.lift(try rustCallWithError(FfiConverterTypeCoreError_lift) {
+    uniffi_snake_core_fn_method_coredatabase_mcp_audit(self.uniffiClonePointer(),
+        FfiConverterTypeCoreMcpAuditFilter_lower(filter),
+        FfiConverterUInt32.lower(limit),
+        FfiConverterUInt32.lower(offset),$0
+    )
+})
+}
+
+open func mcpAuditCount(filter: CoreMcpAuditFilter)throws  -> Int64  {
+    return try  FfiConverterInt64.lift(try rustCallWithError(FfiConverterTypeCoreError_lift) {
+    uniffi_snake_core_fn_method_coredatabase_mcp_audit_count(self.uniffiClonePointer(),
+        FfiConverterTypeCoreMcpAuditFilter_lower(filter),$0
+    )
+})
+}
+
+open func mcpTokenByHash(tokenHash: String)throws  -> CoreMcpToken?  {
+    return try  FfiConverterOptionTypeCoreMcpToken.lift(try rustCallWithError(FfiConverterTypeCoreError_lift) {
+    uniffi_snake_core_fn_method_coredatabase_mcp_token_by_hash(self.uniffiClonePointer(),
+        FfiConverterString.lower(tokenHash),$0
+    )
+})
+}
+
+open func mcpTokens()throws  -> [CoreMcpToken]  {
+    return try  FfiConverterSequenceTypeCoreMcpToken.lift(try rustCallWithError(FfiConverterTypeCoreError_lift) {
+    uniffi_snake_core_fn_method_coredatabase_mcp_tokens(self.uniffiClonePointer(),$0
     )
 })
 }
@@ -714,6 +811,16 @@ open func mountMappings()throws  -> [CoreMountMapping]  {
 open func profiles()throws  -> [CoreSshProfile]  {
     return try  FfiConverterSequenceTypeCoreSshProfile.lift(try rustCallWithError(FfiConverterTypeCoreError_lift) {
     uniffi_snake_core_fn_method_coredatabase_profiles(self.uniffiClonePointer(),$0
+    )
+})
+}
+
+open func pruneMcpAudit(nowMs: Int64, retentionDays: UInt32, maxRecords: UInt32)throws  -> UInt64  {
+    return try  FfiConverterUInt64.lift(try rustCallWithError(FfiConverterTypeCoreError_lift) {
+    uniffi_snake_core_fn_method_coredatabase_prune_mcp_audit(self.uniffiClonePointer(),
+        FfiConverterInt64.lower(nowMs),
+        FfiConverterUInt32.lower(retentionDays),
+        FfiConverterUInt32.lower(maxRecords),$0
     )
 })
 }
@@ -763,11 +870,37 @@ open func savedPasswords()throws  -> [CoreSavedPassword]  {
 })
 }
 
+open func setMcpTokenRevoked(id: String, revokedAt: Int64?)throws   {try rustCallWithError(FfiConverterTypeCoreError_lift) {
+    uniffi_snake_core_fn_method_coredatabase_set_mcp_token_revoked(self.uniffiClonePointer(),
+        FfiConverterString.lower(id),
+        FfiConverterOptionInt64.lower(revokedAt),$0
+    )
+}
+}
+
+open func touchMcpToken(id: String, usedAt: Int64)throws   {try rustCallWithError(FfiConverterTypeCoreError_lift) {
+    uniffi_snake_core_fn_method_coredatabase_touch_mcp_token(self.uniffiClonePointer(),
+        FfiConverterString.lower(id),
+        FfiConverterInt64.lower(usedAt),$0
+    )
+}
+}
+
 open func transferJobs()throws  -> [CoreTransferJob]  {
     return try  FfiConverterSequenceTypeCoreTransferJob.lift(try rustCallWithError(FfiConverterTypeCoreError_lift) {
     uniffi_snake_core_fn_method_coredatabase_transfer_jobs(self.uniffiClonePointer(),$0
     )
 })
+}
+
+open func updateMcpToken(id: String, name: String, expiresAt: Int64?, profileIds: [String])throws   {try rustCallWithError(FfiConverterTypeCoreError_lift) {
+    uniffi_snake_core_fn_method_coredatabase_update_mcp_token(self.uniffiClonePointer(),
+        FfiConverterString.lower(id),
+        FfiConverterString.lower(name),
+        FfiConverterOptionInt64.lower(expiresAt),
+        FfiConverterSequenceString.lower(profileIds),$0
+    )
+}
 }
 
 
@@ -1680,6 +1813,116 @@ public func FfiConverterTypeCoreChecksumCapability_lower(_ value: CoreChecksumCa
 }
 
 
+public struct CoreCommandOutput {
+    public var exitStatus: Int32?
+    public var stdout: Data
+    public var stderr: Data
+    public var stdoutTotalBytes: UInt64
+    public var stderrTotalBytes: UInt64
+    public var timedOut: Bool
+    public var durationMs: UInt64
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(exitStatus: Int32?, stdout: Data, stderr: Data, stdoutTotalBytes: UInt64, stderrTotalBytes: UInt64, timedOut: Bool, durationMs: UInt64) {
+        self.exitStatus = exitStatus
+        self.stdout = stdout
+        self.stderr = stderr
+        self.stdoutTotalBytes = stdoutTotalBytes
+        self.stderrTotalBytes = stderrTotalBytes
+        self.timedOut = timedOut
+        self.durationMs = durationMs
+    }
+}
+
+#if compiler(>=6)
+extension CoreCommandOutput: Sendable {}
+#endif
+
+
+extension CoreCommandOutput: Equatable, Hashable {
+    public static func ==(lhs: CoreCommandOutput, rhs: CoreCommandOutput) -> Bool {
+        if lhs.exitStatus != rhs.exitStatus {
+            return false
+        }
+        if lhs.stdout != rhs.stdout {
+            return false
+        }
+        if lhs.stderr != rhs.stderr {
+            return false
+        }
+        if lhs.stdoutTotalBytes != rhs.stdoutTotalBytes {
+            return false
+        }
+        if lhs.stderrTotalBytes != rhs.stderrTotalBytes {
+            return false
+        }
+        if lhs.timedOut != rhs.timedOut {
+            return false
+        }
+        if lhs.durationMs != rhs.durationMs {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(exitStatus)
+        hasher.combine(stdout)
+        hasher.combine(stderr)
+        hasher.combine(stdoutTotalBytes)
+        hasher.combine(stderrTotalBytes)
+        hasher.combine(timedOut)
+        hasher.combine(durationMs)
+    }
+}
+
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeCoreCommandOutput: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> CoreCommandOutput {
+        return
+            try CoreCommandOutput(
+                exitStatus: FfiConverterOptionInt32.read(from: &buf),
+                stdout: FfiConverterData.read(from: &buf),
+                stderr: FfiConverterData.read(from: &buf),
+                stdoutTotalBytes: FfiConverterUInt64.read(from: &buf),
+                stderrTotalBytes: FfiConverterUInt64.read(from: &buf),
+                timedOut: FfiConverterBool.read(from: &buf),
+                durationMs: FfiConverterUInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: CoreCommandOutput, into buf: inout [UInt8]) {
+        FfiConverterOptionInt32.write(value.exitStatus, into: &buf)
+        FfiConverterData.write(value.stdout, into: &buf)
+        FfiConverterData.write(value.stderr, into: &buf)
+        FfiConverterUInt64.write(value.stdoutTotalBytes, into: &buf)
+        FfiConverterUInt64.write(value.stderrTotalBytes, into: &buf)
+        FfiConverterBool.write(value.timedOut, into: &buf)
+        FfiConverterUInt64.write(value.durationMs, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCoreCommandOutput_lift(_ buf: RustBuffer) throws -> CoreCommandOutput {
+    return try FfiConverterTypeCoreCommandOutput.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCoreCommandOutput_lower(_ value: CoreCommandOutput) -> RustBuffer {
+    return FfiConverterTypeCoreCommandOutput.lower(value)
+}
+
+
 public struct CoreConnectionSecurity {
     public var hostKeyAlgorithm: String
     public var hostKeyFingerprint: String
@@ -1959,6 +2202,565 @@ public func FfiConverterTypeCoreHostKey_lift(_ buf: RustBuffer) throws -> CoreHo
 #endif
 public func FfiConverterTypeCoreHostKey_lower(_ value: CoreHostKey) -> RustBuffer {
     return FfiConverterTypeCoreHostKey.lower(value)
+}
+
+
+/**
+ * Every field narrows the selection; an empty filter selects everything.
+ */
+public struct CoreMcpAuditFilter {
+    public var tokenId: String?
+    public var profileId: String?
+    public var status: String?
+    public var since: Int64?
+    public var until: Int64?
+    public var ids: [String]?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(tokenId: String?, profileId: String?, status: String?, since: Int64?, until: Int64?, ids: [String]?) {
+        self.tokenId = tokenId
+        self.profileId = profileId
+        self.status = status
+        self.since = since
+        self.until = until
+        self.ids = ids
+    }
+}
+
+#if compiler(>=6)
+extension CoreMcpAuditFilter: Sendable {}
+#endif
+
+
+extension CoreMcpAuditFilter: Equatable, Hashable {
+    public static func ==(lhs: CoreMcpAuditFilter, rhs: CoreMcpAuditFilter) -> Bool {
+        if lhs.tokenId != rhs.tokenId {
+            return false
+        }
+        if lhs.profileId != rhs.profileId {
+            return false
+        }
+        if lhs.status != rhs.status {
+            return false
+        }
+        if lhs.since != rhs.since {
+            return false
+        }
+        if lhs.until != rhs.until {
+            return false
+        }
+        if lhs.ids != rhs.ids {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(tokenId)
+        hasher.combine(profileId)
+        hasher.combine(status)
+        hasher.combine(since)
+        hasher.combine(until)
+        hasher.combine(ids)
+    }
+}
+
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeCoreMcpAuditFilter: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> CoreMcpAuditFilter {
+        return
+            try CoreMcpAuditFilter(
+                tokenId: FfiConverterOptionString.read(from: &buf),
+                profileId: FfiConverterOptionString.read(from: &buf),
+                status: FfiConverterOptionString.read(from: &buf),
+                since: FfiConverterOptionInt64.read(from: &buf),
+                until: FfiConverterOptionInt64.read(from: &buf),
+                ids: FfiConverterOptionSequenceString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: CoreMcpAuditFilter, into buf: inout [UInt8]) {
+        FfiConverterOptionString.write(value.tokenId, into: &buf)
+        FfiConverterOptionString.write(value.profileId, into: &buf)
+        FfiConverterOptionString.write(value.status, into: &buf)
+        FfiConverterOptionInt64.write(value.since, into: &buf)
+        FfiConverterOptionInt64.write(value.until, into: &buf)
+        FfiConverterOptionSequenceString.write(value.ids, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCoreMcpAuditFilter_lift(_ buf: RustBuffer) throws -> CoreMcpAuditFilter {
+    return try FfiConverterTypeCoreMcpAuditFilter.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCoreMcpAuditFilter_lower(_ value: CoreMcpAuditFilter) -> RustBuffer {
+    return FfiConverterTypeCoreMcpAuditFilter.lower(value)
+}
+
+
+public struct CoreMcpAuditRecord {
+    public var id: String
+    public var tokenId: String?
+    public var tokenName: String
+    public var profileId: String?
+    public var profileLabel: String
+    public var clientName: String
+    public var command: String
+    public var cwd: String?
+    /**
+     * Milliseconds since the Unix epoch.
+     */
+    public var startedAt: Int64
+    public var finishedAt: Int64?
+    public var durationMs: Int64?
+    /**
+     * running, succeeded, failed, timeout, error or denied.
+     */
+    public var status: String
+    public var exitStatus: Int32?
+    public var errorMessage: String?
+    public var stdoutExcerpt: String
+    public var stderrExcerpt: String
+    public var stdoutBytes: Int64
+    public var stderrBytes: Int64
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, tokenId: String?, tokenName: String, profileId: String?, profileLabel: String, clientName: String, command: String, cwd: String?,
+        /**
+         * Milliseconds since the Unix epoch.
+         */startedAt: Int64, finishedAt: Int64?, durationMs: Int64?,
+        /**
+         * running, succeeded, failed, timeout, error or denied.
+         */status: String, exitStatus: Int32?, errorMessage: String?, stdoutExcerpt: String, stderrExcerpt: String, stdoutBytes: Int64, stderrBytes: Int64) {
+        self.id = id
+        self.tokenId = tokenId
+        self.tokenName = tokenName
+        self.profileId = profileId
+        self.profileLabel = profileLabel
+        self.clientName = clientName
+        self.command = command
+        self.cwd = cwd
+        self.startedAt = startedAt
+        self.finishedAt = finishedAt
+        self.durationMs = durationMs
+        self.status = status
+        self.exitStatus = exitStatus
+        self.errorMessage = errorMessage
+        self.stdoutExcerpt = stdoutExcerpt
+        self.stderrExcerpt = stderrExcerpt
+        self.stdoutBytes = stdoutBytes
+        self.stderrBytes = stderrBytes
+    }
+}
+
+#if compiler(>=6)
+extension CoreMcpAuditRecord: Sendable {}
+#endif
+
+
+extension CoreMcpAuditRecord: Equatable, Hashable {
+    public static func ==(lhs: CoreMcpAuditRecord, rhs: CoreMcpAuditRecord) -> Bool {
+        if lhs.id != rhs.id {
+            return false
+        }
+        if lhs.tokenId != rhs.tokenId {
+            return false
+        }
+        if lhs.tokenName != rhs.tokenName {
+            return false
+        }
+        if lhs.profileId != rhs.profileId {
+            return false
+        }
+        if lhs.profileLabel != rhs.profileLabel {
+            return false
+        }
+        if lhs.clientName != rhs.clientName {
+            return false
+        }
+        if lhs.command != rhs.command {
+            return false
+        }
+        if lhs.cwd != rhs.cwd {
+            return false
+        }
+        if lhs.startedAt != rhs.startedAt {
+            return false
+        }
+        if lhs.finishedAt != rhs.finishedAt {
+            return false
+        }
+        if lhs.durationMs != rhs.durationMs {
+            return false
+        }
+        if lhs.status != rhs.status {
+            return false
+        }
+        if lhs.exitStatus != rhs.exitStatus {
+            return false
+        }
+        if lhs.errorMessage != rhs.errorMessage {
+            return false
+        }
+        if lhs.stdoutExcerpt != rhs.stdoutExcerpt {
+            return false
+        }
+        if lhs.stderrExcerpt != rhs.stderrExcerpt {
+            return false
+        }
+        if lhs.stdoutBytes != rhs.stdoutBytes {
+            return false
+        }
+        if lhs.stderrBytes != rhs.stderrBytes {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(tokenId)
+        hasher.combine(tokenName)
+        hasher.combine(profileId)
+        hasher.combine(profileLabel)
+        hasher.combine(clientName)
+        hasher.combine(command)
+        hasher.combine(cwd)
+        hasher.combine(startedAt)
+        hasher.combine(finishedAt)
+        hasher.combine(durationMs)
+        hasher.combine(status)
+        hasher.combine(exitStatus)
+        hasher.combine(errorMessage)
+        hasher.combine(stdoutExcerpt)
+        hasher.combine(stderrExcerpt)
+        hasher.combine(stdoutBytes)
+        hasher.combine(stderrBytes)
+    }
+}
+
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeCoreMcpAuditRecord: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> CoreMcpAuditRecord {
+        return
+            try CoreMcpAuditRecord(
+                id: FfiConverterString.read(from: &buf),
+                tokenId: FfiConverterOptionString.read(from: &buf),
+                tokenName: FfiConverterString.read(from: &buf),
+                profileId: FfiConverterOptionString.read(from: &buf),
+                profileLabel: FfiConverterString.read(from: &buf),
+                clientName: FfiConverterString.read(from: &buf),
+                command: FfiConverterString.read(from: &buf),
+                cwd: FfiConverterOptionString.read(from: &buf),
+                startedAt: FfiConverterInt64.read(from: &buf),
+                finishedAt: FfiConverterOptionInt64.read(from: &buf),
+                durationMs: FfiConverterOptionInt64.read(from: &buf),
+                status: FfiConverterString.read(from: &buf),
+                exitStatus: FfiConverterOptionInt32.read(from: &buf),
+                errorMessage: FfiConverterOptionString.read(from: &buf),
+                stdoutExcerpt: FfiConverterString.read(from: &buf),
+                stderrExcerpt: FfiConverterString.read(from: &buf),
+                stdoutBytes: FfiConverterInt64.read(from: &buf),
+                stderrBytes: FfiConverterInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: CoreMcpAuditRecord, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterOptionString.write(value.tokenId, into: &buf)
+        FfiConverterString.write(value.tokenName, into: &buf)
+        FfiConverterOptionString.write(value.profileId, into: &buf)
+        FfiConverterString.write(value.profileLabel, into: &buf)
+        FfiConverterString.write(value.clientName, into: &buf)
+        FfiConverterString.write(value.command, into: &buf)
+        FfiConverterOptionString.write(value.cwd, into: &buf)
+        FfiConverterInt64.write(value.startedAt, into: &buf)
+        FfiConverterOptionInt64.write(value.finishedAt, into: &buf)
+        FfiConverterOptionInt64.write(value.durationMs, into: &buf)
+        FfiConverterString.write(value.status, into: &buf)
+        FfiConverterOptionInt32.write(value.exitStatus, into: &buf)
+        FfiConverterOptionString.write(value.errorMessage, into: &buf)
+        FfiConverterString.write(value.stdoutExcerpt, into: &buf)
+        FfiConverterString.write(value.stderrExcerpt, into: &buf)
+        FfiConverterInt64.write(value.stdoutBytes, into: &buf)
+        FfiConverterInt64.write(value.stderrBytes, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCoreMcpAuditRecord_lift(_ buf: RustBuffer) throws -> CoreMcpAuditRecord {
+    return try FfiConverterTypeCoreMcpAuditRecord.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCoreMcpAuditRecord_lower(_ value: CoreMcpAuditRecord) -> RustBuffer {
+    return FfiConverterTypeCoreMcpAuditRecord.lower(value)
+}
+
+
+public struct CoreMcpAuditResult {
+    public var finishedAt: Int64
+    public var durationMs: Int64
+    public var status: String
+    public var exitStatus: Int32?
+    public var errorMessage: String?
+    public var stdout: Data
+    public var stderr: Data
+    public var stdoutBytes: Int64
+    public var stderrBytes: Int64
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(finishedAt: Int64, durationMs: Int64, status: String, exitStatus: Int32?, errorMessage: String?, stdout: Data, stderr: Data, stdoutBytes: Int64, stderrBytes: Int64) {
+        self.finishedAt = finishedAt
+        self.durationMs = durationMs
+        self.status = status
+        self.exitStatus = exitStatus
+        self.errorMessage = errorMessage
+        self.stdout = stdout
+        self.stderr = stderr
+        self.stdoutBytes = stdoutBytes
+        self.stderrBytes = stderrBytes
+    }
+}
+
+#if compiler(>=6)
+extension CoreMcpAuditResult: Sendable {}
+#endif
+
+
+extension CoreMcpAuditResult: Equatable, Hashable {
+    public static func ==(lhs: CoreMcpAuditResult, rhs: CoreMcpAuditResult) -> Bool {
+        if lhs.finishedAt != rhs.finishedAt {
+            return false
+        }
+        if lhs.durationMs != rhs.durationMs {
+            return false
+        }
+        if lhs.status != rhs.status {
+            return false
+        }
+        if lhs.exitStatus != rhs.exitStatus {
+            return false
+        }
+        if lhs.errorMessage != rhs.errorMessage {
+            return false
+        }
+        if lhs.stdout != rhs.stdout {
+            return false
+        }
+        if lhs.stderr != rhs.stderr {
+            return false
+        }
+        if lhs.stdoutBytes != rhs.stdoutBytes {
+            return false
+        }
+        if lhs.stderrBytes != rhs.stderrBytes {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(finishedAt)
+        hasher.combine(durationMs)
+        hasher.combine(status)
+        hasher.combine(exitStatus)
+        hasher.combine(errorMessage)
+        hasher.combine(stdout)
+        hasher.combine(stderr)
+        hasher.combine(stdoutBytes)
+        hasher.combine(stderrBytes)
+    }
+}
+
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeCoreMcpAuditResult: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> CoreMcpAuditResult {
+        return
+            try CoreMcpAuditResult(
+                finishedAt: FfiConverterInt64.read(from: &buf),
+                durationMs: FfiConverterInt64.read(from: &buf),
+                status: FfiConverterString.read(from: &buf),
+                exitStatus: FfiConverterOptionInt32.read(from: &buf),
+                errorMessage: FfiConverterOptionString.read(from: &buf),
+                stdout: FfiConverterData.read(from: &buf),
+                stderr: FfiConverterData.read(from: &buf),
+                stdoutBytes: FfiConverterInt64.read(from: &buf),
+                stderrBytes: FfiConverterInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: CoreMcpAuditResult, into buf: inout [UInt8]) {
+        FfiConverterInt64.write(value.finishedAt, into: &buf)
+        FfiConverterInt64.write(value.durationMs, into: &buf)
+        FfiConverterString.write(value.status, into: &buf)
+        FfiConverterOptionInt32.write(value.exitStatus, into: &buf)
+        FfiConverterOptionString.write(value.errorMessage, into: &buf)
+        FfiConverterData.write(value.stdout, into: &buf)
+        FfiConverterData.write(value.stderr, into: &buf)
+        FfiConverterInt64.write(value.stdoutBytes, into: &buf)
+        FfiConverterInt64.write(value.stderrBytes, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCoreMcpAuditResult_lift(_ buf: RustBuffer) throws -> CoreMcpAuditResult {
+    return try FfiConverterTypeCoreMcpAuditResult.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCoreMcpAuditResult_lower(_ value: CoreMcpAuditResult) -> RustBuffer {
+    return FfiConverterTypeCoreMcpAuditResult.lower(value)
+}
+
+
+public struct CoreMcpToken {
+    public var id: String
+    public var name: String
+    public var tokenPrefix: String
+    public var createdAt: Int64
+    public var expiresAt: Int64?
+    public var lastUsedAt: Int64?
+    public var revokedAt: Int64?
+    public var profileIds: [String]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, name: String, tokenPrefix: String, createdAt: Int64, expiresAt: Int64?, lastUsedAt: Int64?, revokedAt: Int64?, profileIds: [String]) {
+        self.id = id
+        self.name = name
+        self.tokenPrefix = tokenPrefix
+        self.createdAt = createdAt
+        self.expiresAt = expiresAt
+        self.lastUsedAt = lastUsedAt
+        self.revokedAt = revokedAt
+        self.profileIds = profileIds
+    }
+}
+
+#if compiler(>=6)
+extension CoreMcpToken: Sendable {}
+#endif
+
+
+extension CoreMcpToken: Equatable, Hashable {
+    public static func ==(lhs: CoreMcpToken, rhs: CoreMcpToken) -> Bool {
+        if lhs.id != rhs.id {
+            return false
+        }
+        if lhs.name != rhs.name {
+            return false
+        }
+        if lhs.tokenPrefix != rhs.tokenPrefix {
+            return false
+        }
+        if lhs.createdAt != rhs.createdAt {
+            return false
+        }
+        if lhs.expiresAt != rhs.expiresAt {
+            return false
+        }
+        if lhs.lastUsedAt != rhs.lastUsedAt {
+            return false
+        }
+        if lhs.revokedAt != rhs.revokedAt {
+            return false
+        }
+        if lhs.profileIds != rhs.profileIds {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(name)
+        hasher.combine(tokenPrefix)
+        hasher.combine(createdAt)
+        hasher.combine(expiresAt)
+        hasher.combine(lastUsedAt)
+        hasher.combine(revokedAt)
+        hasher.combine(profileIds)
+    }
+}
+
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeCoreMcpToken: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> CoreMcpToken {
+        return
+            try CoreMcpToken(
+                id: FfiConverterString.read(from: &buf),
+                name: FfiConverterString.read(from: &buf),
+                tokenPrefix: FfiConverterString.read(from: &buf),
+                createdAt: FfiConverterInt64.read(from: &buf),
+                expiresAt: FfiConverterOptionInt64.read(from: &buf),
+                lastUsedAt: FfiConverterOptionInt64.read(from: &buf),
+                revokedAt: FfiConverterOptionInt64.read(from: &buf),
+                profileIds: FfiConverterSequenceString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: CoreMcpToken, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterString.write(value.name, into: &buf)
+        FfiConverterString.write(value.tokenPrefix, into: &buf)
+        FfiConverterInt64.write(value.createdAt, into: &buf)
+        FfiConverterOptionInt64.write(value.expiresAt, into: &buf)
+        FfiConverterOptionInt64.write(value.lastUsedAt, into: &buf)
+        FfiConverterOptionInt64.write(value.revokedAt, into: &buf)
+        FfiConverterSequenceString.write(value.profileIds, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCoreMcpToken_lift(_ buf: RustBuffer) throws -> CoreMcpToken {
+    return try FfiConverterTypeCoreMcpToken.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCoreMcpToken_lower(_ value: CoreMcpToken) -> RustBuffer {
+    return FfiConverterTypeCoreMcpToken.lower(value)
 }
 
 
@@ -3183,6 +3985,54 @@ public func FfiConverterCallbackInterfaceCoreTransferObserver_lower(_ v: CoreTra
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionInt32: FfiConverterRustBuffer {
+    typealias SwiftType = Int32?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterInt32.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterInt32.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionInt64: FfiConverterRustBuffer {
+    typealias SwiftType = Int64?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterInt64.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterInt64.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionString: FfiConverterRustBuffer {
     typealias SwiftType = String?
 
@@ -3231,6 +4081,54 @@ fileprivate struct FfiConverterOptionData: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionTypeCoreMcpToken: FfiConverterRustBuffer {
+    typealias SwiftType = CoreMcpToken?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeCoreMcpToken.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeCoreMcpToken.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionSequenceString: FfiConverterRustBuffer {
+    typealias SwiftType = [String]?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterSequenceString.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterSequenceString.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceString: FfiConverterRustBuffer {
     typealias SwiftType = [String]
 
@@ -3248,6 +4146,56 @@ fileprivate struct FfiConverterSequenceString: FfiConverterRustBuffer {
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterString.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeCoreMcpAuditRecord: FfiConverterRustBuffer {
+    typealias SwiftType = [CoreMcpAuditRecord]
+
+    public static func write(_ value: [CoreMcpAuditRecord], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeCoreMcpAuditRecord.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [CoreMcpAuditRecord] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [CoreMcpAuditRecord]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeCoreMcpAuditRecord.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeCoreMcpToken: FfiConverterRustBuffer {
+    typealias SwiftType = [CoreMcpToken]
+
+    public static func write(_ value: [CoreMcpToken], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeCoreMcpToken.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [CoreMcpToken] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [CoreMcpToken]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeCoreMcpToken.read(from: &buf))
         }
         return seq
     }
@@ -3466,6 +4414,42 @@ public func probeHostKey(host: String, port: UInt16)throws  -> CoreHostKey  {
     )
 })
 }
+/**
+ * Runs `command` once over a fresh connection authenticated with a password.
+ * The host key must already be trusted; an unknown key fails rather than
+ * prompting, because no person is present to compare fingerprints.
+ */
+public func runCommandPassword(host: String, port: UInt16, username: String, password: Data, knownHostsPath: String, command: String, cwd: String?, timeoutMs: UInt64, maxOutputBytes: UInt64)throws  -> CoreCommandOutput  {
+    return try  FfiConverterTypeCoreCommandOutput_lift(try rustCallWithError(FfiConverterTypeCoreError_lift) {
+    uniffi_snake_core_fn_func_run_command_password(
+        FfiConverterString.lower(host),
+        FfiConverterUInt16.lower(port),
+        FfiConverterString.lower(username),
+        FfiConverterData.lower(password),
+        FfiConverterString.lower(knownHostsPath),
+        FfiConverterString.lower(command),
+        FfiConverterOptionString.lower(cwd),
+        FfiConverterUInt64.lower(timeoutMs),
+        FfiConverterUInt64.lower(maxOutputBytes),$0
+    )
+})
+}
+public func runCommandPrivateKey(host: String, port: UInt16, username: String, privateKeyPath: String, passphrase: Data?, knownHostsPath: String, command: String, cwd: String?, timeoutMs: UInt64, maxOutputBytes: UInt64)throws  -> CoreCommandOutput  {
+    return try  FfiConverterTypeCoreCommandOutput_lift(try rustCallWithError(FfiConverterTypeCoreError_lift) {
+    uniffi_snake_core_fn_func_run_command_private_key(
+        FfiConverterString.lower(host),
+        FfiConverterUInt16.lower(port),
+        FfiConverterString.lower(username),
+        FfiConverterString.lower(privateKeyPath),
+        FfiConverterOptionData.lower(passphrase),
+        FfiConverterString.lower(knownHostsPath),
+        FfiConverterString.lower(command),
+        FfiConverterOptionString.lower(cwd),
+        FfiConverterUInt64.lower(timeoutMs),
+        FfiConverterUInt64.lower(maxOutputBytes),$0
+    )
+})
+}
 
 private enum InitializationResult {
     case ok
@@ -3497,7 +4481,22 @@ private let initializationResult: InitializationResult = {
     if (uniffi_snake_core_checksum_func_probe_host_key() != 54009) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_snake_core_checksum_func_run_command_password() != 8127) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_snake_core_checksum_func_run_command_private_key() != 62835) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_snake_core_checksum_method_coredatabase_create_mcp_token() != 45191) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_snake_core_checksum_method_coredatabase_delete_group() != 19141) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_snake_core_checksum_method_coredatabase_delete_mcp_audit() != 41808) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_snake_core_checksum_method_coredatabase_delete_mcp_token() != 9478) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_snake_core_checksum_method_coredatabase_delete_mount_mapping() != 12733) {
@@ -3512,13 +4511,34 @@ private let initializationResult: InitializationResult = {
     if (uniffi_snake_core_checksum_method_coredatabase_delete_transfer_job() != 56295) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_snake_core_checksum_method_coredatabase_finish_mcp_audit() != 56229) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_snake_core_checksum_method_coredatabase_groups() != 39260) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_snake_core_checksum_method_coredatabase_insert_mcp_audit() != 44440) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_snake_core_checksum_method_coredatabase_mcp_audit() != 58541) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_snake_core_checksum_method_coredatabase_mcp_audit_count() != 44858) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_snake_core_checksum_method_coredatabase_mcp_token_by_hash() != 1480) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_snake_core_checksum_method_coredatabase_mcp_tokens() != 61533) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_snake_core_checksum_method_coredatabase_mount_mappings() != 48194) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_snake_core_checksum_method_coredatabase_profiles() != 8051) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_snake_core_checksum_method_coredatabase_prune_mcp_audit() != 56577) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_snake_core_checksum_method_coredatabase_save_group() != 22761) {
@@ -3539,7 +4559,16 @@ private let initializationResult: InitializationResult = {
     if (uniffi_snake_core_checksum_method_coredatabase_saved_passwords() != 44641) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_snake_core_checksum_method_coredatabase_set_mcp_token_revoked() != 58755) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_snake_core_checksum_method_coredatabase_touch_mcp_token() != 48718) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_snake_core_checksum_method_coredatabase_transfer_jobs() != 63195) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_snake_core_checksum_method_coredatabase_update_mcp_token() != 18226) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_snake_core_checksum_method_coresftphandle_assemble_upload() != 11972) {

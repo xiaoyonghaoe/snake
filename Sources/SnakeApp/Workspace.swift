@@ -409,7 +409,8 @@ public final class TerminalRuntime: ObservableObject, Identifiable {
         }
     }
 
-    private nonisolated static func authentication(for profile: SSHProfile) throws -> TerminalAuthentication {
+    /// Shared with the MCP command runner, which authenticates the same way.
+    nonisolated static func authentication(for profile: SSHProfile) throws -> TerminalAuthentication {
         switch profile.authMethod {
         case .password:
             guard let account = profile.keychainAccount,
@@ -592,7 +593,7 @@ public final class TerminalRuntime: ObservableObject, Identifiable {
         if let handle, !input.isEmpty { write(input, to: handle) }
     }
 
-    nonisolated private static var knownHostsPath: String {
+    nonisolated static var knownHostsPath: String {
         let support = (try? FileManager.default.url(
             for: .applicationSupportDirectory,
             in: .userDomainMask,
@@ -603,12 +604,12 @@ public final class TerminalRuntime: ObservableObject, Identifiable {
     }
 }
 
-private enum TerminalAuthentication: Sendable {
+enum TerminalAuthentication: Sendable {
     case password(Data)
     case privateKey(path: String, passphrase: Data?, scopedURL: URL)
 }
 
-private enum TerminalRuntimeError: LocalizedError {
+enum TerminalRuntimeError: LocalizedError {
     case missingPassword
     case missingPrivateKey
     case stalePrivateKey
@@ -3230,6 +3231,7 @@ public final class SnakeAppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         pruneRemoteOpenCacheOnLaunch()
+        store.mcp.activate()
     }
 
     public func applicationDidBecomeActive(_ notification: Notification) {

@@ -22,6 +22,8 @@ uniffi::setup_scaffolding!("snake_core");
 
 mod transfer_integrity;
 mod sftp_publish;
+mod mcp;
+pub use mcp::*;
 pub use transfer_integrity::*;
 
 #[derive(Debug, Error)]
@@ -235,6 +237,7 @@ impl SnakeStore {
             self.connection.execute_batch("ALTER TABLE ssh_profiles ADD COLUMN saved_password_id TEXT REFERENCES saved_passwords(id) ON DELETE SET NULL")?;
         }
         self.connection.execute("INSERT OR IGNORE INTO schema_migrations(version) VALUES (2)", [])?;
+        self.migrate_mcp()?;
         Ok(())
     }
 
