@@ -192,12 +192,26 @@ extension TerminalView {
     }
     
     // Computes the font dimensions once font.normal has been set
+    var clampedLineHeightScale: CGFloat { min(max(lineHeightScale, 1), 2) }
+
+    /// Distance from the bottom of a cell to the text baseline. Extra line spacing
+    /// from ``lineHeightScale`` is split evenly above and below the glyphs.
+    func textBaselineOffset () -> CGFloat
+    {
+        let lineAscent = CTFontGetAscent (fontSet.normal)
+        let lineDescent = CTFontGetDescent (fontSet.normal)
+        let lineLeading = CTFontGetLeading (fontSet.normal)
+        let extra = max(0, cellDimension.height - ceil(lineAscent + lineDescent + lineLeading))
+        let scale = backingScaleFactor()
+        return ceil(lineDescent + lineLeading) + floor(extra / 2 * scale) / scale
+    }
+
     func computeFontDimensions () -> CellDimension
     {
         let lineAscent = CTFontGetAscent (fontSet.normal)
         let lineDescent = CTFontGetDescent (fontSet.normal)
         let lineLeading = CTFontGetLeading (fontSet.normal)
-        let cellHeight = ceil(lineAscent + lineDescent + lineLeading)
+        let cellHeight = ceil((lineAscent + lineDescent + lineLeading) * clampedLineHeightScale)
         #if os(macOS)
         // The following is a more robust way of getting the largest ascii character width, but comes with a performance hit.
         // See: https://github.com/migueldeicaza/SwiftTerm/issues/286
@@ -1154,9 +1168,7 @@ extension TerminalView {
     // TODO: this should not render any lines outside the dirtyRect
     func drawTerminalContents (dirtyRect: TTRect, context: CGContext, bufferOffset: Int)
     {
-        let lineDescent = CTFontGetDescent(fontSet.normal)
-        let lineLeading = CTFontGetLeading(fontSet.normal)
-        let yOffset = ceil(lineDescent+lineLeading)
+        let yOffset = textBaselineOffset()
         let displayBuffer = terminal.displayBuffer
 
         func calcLineOffset (forRow: Int) -> CGFloat {

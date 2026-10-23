@@ -560,9 +560,7 @@ final class MetalTerminalRenderer: NSObject, MTKViewDelegate {
         let buffer = terminalView.terminal.displayBuffer
         let cellWidth = terminalView.cellDimension.width
         let cellHeight = terminalView.cellDimension.height
-        let lineDescent = CTFontGetDescent(terminalView.fontSet.normal)
-        let lineLeading = CTFontGetLeading(terminalView.fontSet.normal)
-        let yOffset = ceil(lineDescent + lineLeading)
+        let yOffset = terminalView.textBaselineOffset()
         let viewWidthPx = terminalView.bounds.width * scale
 
         let rowInfo = visibleRowRange(buffer: buffer, cellHeight: cellHeight, terminalView: terminalView)
@@ -734,8 +732,7 @@ final class MetalTerminalRenderer: NSObject, MTKViewDelegate {
         let cursorData = buildCursorDrawData(scale: scale,
                                              cellWidth: cellWidth,
                                              cellHeight: cellHeight,
-                                             lineDescent: lineDescent,
-                                             lineLeading: lineLeading,
+                                             yOffset: yOffset,
                                              yDisp: visibleDisp,
                                              firstRow: firstRow,
                                              lastRow: lastRow)
@@ -2037,8 +2034,7 @@ final class MetalTerminalRenderer: NSObject, MTKViewDelegate {
     private func buildCursorDrawData(scale: CGFloat,
                                      cellWidth: CGFloat,
                                      cellHeight: CGFloat,
-                                     lineDescent: CGFloat,
-                                     lineLeading: CGFloat,
+                                     yOffset: CGFloat,
                                      yDisp: Int,
                                      firstRow: Int,
                                      lastRow: Int) -> (colorVertices: [ColorVertex],
@@ -2145,7 +2141,6 @@ final class MetalTerminalRenderer: NSObject, MTKViewDelegate {
         guard let runs = CTLineGetGlyphRuns(ctline) as? [CTRun] else {
             return (colorVertices, [], [])
         }
-        let yOffset = ceil(lineDescent + lineLeading)
         let textColorSIMD = colorToSIMD(caretTextColor)
         let baseX = lineOrigin.x + cellWidth * doublePosition * CGFloat(buffer.x)
 

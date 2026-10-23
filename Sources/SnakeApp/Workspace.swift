@@ -62,8 +62,16 @@ public final class TerminalRuntime: ObservableObject, Identifiable {
     private var connectionAttemptID = UUID()
     private var shellStartup: TerminalShellStartup?
     private var shellStartupTimeout: Task<Void, Never>?
+    private var startupInputReleased = false
     private var pendingStartupInput = Data()
     private var pendingLoginOutput = Data()
+    private var lastOutputAt: ContinuousClock.Instant?
+    private var sizeFallback: Task<Void, Never>?
+    private var autoReconnect: Task<Void, Never>?
+    private var autoReconnectAttempts = 0
+    private var connectedAt: ContinuousClock.Instant?
+    /// Pauses before each automatic reconnection after an unexpected drop.
+    static let autoReconnectDelays: [Duration] = [.milliseconds(500), .seconds(2), .seconds(5)]
     private var uploaderCancellable: AnyCancellable?
 
     init(profile: SSHProfile) {
@@ -75,6 +83,7 @@ public final class TerminalRuntime: ObservableObject, Identifiable {
 
     public func requestConnection() {
         guard state != .connecting, state != .connected else { return }
+        autoReconnectAttempts = 0
         uploader.canPresentTransferConflicts = true
         launchRequested = true
         state = .connecting
@@ -110,6 +119,7 @@ public final class TerminalRuntime: ObservableObject, Identifiable {
     public func stop() {
         connectionAttemptID = UUID()
         isStarting = false
+        autoReconnectAttempts = 0
         stopHandle()
         state = .disconnected
         securityInfo = nil
@@ -120,6 +130,7 @@ public final class TerminalRuntime: ObservableObject, Identifiable {
     func terminalSurface() -> TerminalView {
         if let terminalView { return terminalView }
         let terminalView = TerminalView(frame: .zero)
+        terminalView.lineHeightScale = Self.lineHeightScale
         terminalView.font = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
         TerminalTheme.dark.apply(to: terminalView)
         appliedTheme = .dark
@@ -131,6 +142,9 @@ public final class TerminalRuntime: ObservableObject, Identifiable {
     }
 
     var existingTerminalSurface: TerminalView? { terminalView }
+
+    /// A little air between rows keeps dense output legible without wasting space.
+    static let lineHeightScale: CGFloat = 1.15
 
     func pasteFileNames(_ text: String) {
         guard state == .connected else { return }
@@ -152,18 +166,35 @@ public final class TerminalRuntime: ObservableObject, Identifiable {
         appliedFontSize = size
     }
 
-    func startIfNeeded(_ view: TerminalView) {
+    /// The remote PTY is opened at the view's size. Before the first layout the
+    /// view is only a couple of columns wide, which would make the shell render
+    /// its first prompt for that width, so wait briefly for a real size.
+    func startIfNeeded(_ view: TerminalView, allowDefaultSize: Bool = false) {
         guard launchRequested, state == .connecting, !isStarting, handle == nil else { return }
+        let terminal = view.getTerminal()
+        let hasLayout = terminal.cols > 2 && terminal.rows > 1
+        guard hasLayout || allowDefaultSize else {
+            guard sizeFallback == nil else { return }
+            sizeFallback = Task { @MainActor [weak self, weak view] in
+                try? await Task.sleep(for: .milliseconds(300))
+                guard !Task.isCancelled, let self else { return }
+                self.sizeFallback = nil
+                if let view { self.startIfNeeded(view, allowDefaultSize: true) }
+            }
+            return
+        }
+        sizeFallback?.cancel()
+        sizeFallback = nil
         connect(
             accepting: nil,
-            columns: UInt32(clamping: view.getTerminal().cols),
-            rows: UInt32(clamping: view.getTerminal().rows)
+            columns: UInt32(clamping: hasLayout ? terminal.cols : 80),
+            rows: UInt32(clamping: hasLayout ? terminal.rows : 24)
         )
     }
 
     func send(_ data: Data) {
         guard let handle, !data.isEmpty else { return }
-        if shellStartup != nil {
+        if shellStartup != nil, !startupInputReleased {
             pendingStartupInput.append(data)
             return
         }
@@ -233,6 +264,7 @@ public final class TerminalRuntime: ObservableObject, Identifiable {
 
     func feed(_ data: Data, attemptID: UUID) {
         guard attemptID == connectionAttemptID else { return }
+        lastOutputAt = .now
         if state == .connecting, handle == nil {
             pendingLoginOutput.append(data)
             if pendingLoginOutput.count >= TerminalShellStartup.bufferLimit {
@@ -264,6 +296,12 @@ public final class TerminalRuntime: ObservableObject, Identifiable {
         securityInfo = nil
         currentRemoteDirectory = nil
         if let message, !message.isEmpty {
+            // A full-screen program may have been cut off mid-session; restore a
+            // plain screen so the notice and the next login stay readable.
+            display(Data(Self.terminalModeReset.utf8))
+            display(Data("\r\n\u{1b}[2m── \(L10n.text("连接已中断")) ──\u{1b}[0m\r\n".utf8))
+            if let connectedAt, connectedAt.duration(to: .now) >= .seconds(30) { autoReconnectAttempts = 0 }
+            if scheduleAutoReconnect() { return }
             state = .failed
             errorMessage = L10n.format("终端连接中断：%@", message)
         } else {
@@ -281,6 +319,7 @@ public final class TerminalRuntime: ObservableObject, Identifiable {
         let attemptID = UUID()
         connectionAttemptID = attemptID
         pendingLoginOutput.removeAll()
+        lastOutputAt = nil
         let observer = RustTerminalObserver(runtime: self, attemptID: attemptID)
         let profile = profile
         let knownHostsPath = Self.knownHostsPath
@@ -336,6 +375,14 @@ public final class TerminalRuntime: ObservableObject, Identifiable {
                     connectionStatusText = L10n.text("正在建立 Rust SSH PTY 连接…")
                     isStarting = false
                     state = .connected
+                    connectedAt = .now
+                    if let terminal = terminalView?.getTerminal(),
+                       terminal.cols > 2, terminal.rows > 1,
+                       UInt32(clamping: terminal.cols) != initialColumns || UInt32(clamping: terminal.rows) != initialRows,
+                       let view = terminalView {
+                        // Layout finished while connecting; the PTY must match the view.
+                        terminalDelegate?.sizeChanged(source: view, newCols: terminal.cols, newRows: terminal.rows)
+                    }
                     installDirectoryHook(shellName: shellName)
                     terminalView?.window?.makeFirstResponder(terminalView)
                     return
@@ -348,6 +395,7 @@ public final class TerminalRuntime: ObservableObject, Identifiable {
                         continue
                     }
                     isStarting = false
+                    if case .Connection = error, autoReconnectAttempts > 0, scheduleAutoReconnect() { return }
                     handleCoreError(error)
                     return
                 } catch {
@@ -428,9 +476,47 @@ public final class TerminalRuntime: ObservableObject, Identifiable {
         errorMessage = L10n.format("终端输入失败：%@", error.localizedDescription)
     }
 
+    /// Reconnects after the network dropped an established session. Returns false
+    /// once the attempts are used up so the caller reports the failure instead.
+    private func scheduleAutoReconnect() -> Bool {
+        guard launchRequested, autoReconnectAttempts < Self.autoReconnectDelays.count else { return false }
+        let delay = Self.autoReconnectDelays[autoReconnectAttempts]
+        autoReconnectAttempts += 1
+        state = .connecting
+        errorMessage = nil
+        connectionStatusText = L10n.format(
+            "连接已中断，正在自动重连（%@/%@）…",
+            autoReconnectAttempts, Self.autoReconnectDelays.count
+        )
+        // Holding isStarting keeps view updates from connecting before the pause ends.
+        isStarting = true
+        let token = UUID()
+        connectionAttemptID = token
+        autoReconnect?.cancel()
+        autoReconnect = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: delay)
+            guard !Task.isCancelled, let self, self.connectionAttemptID == token,
+                  self.launchRequested, self.state == .connecting else { return }
+            self.autoReconnect = nil
+            self.isStarting = false
+            self.connect(accepting: nil)
+        }
+        return true
+    }
+
+    /// Leaves the alternate screen, mouse reporting and other modes a dropped
+    /// full-screen program may have left enabled.
+    static let terminalModeReset = "\u{1b}[0m\u{1b}[?1049l\u{1b}[?1000l\u{1b}[?1002l\u{1b}[?1003l"
+        + "\u{1b}[?1006l\u{1b}[?2004l\u{1b}[?25h"
+
     private func stopHandle() {
         shellStartupTimeout?.cancel()
         shellStartupTimeout = nil
+        sizeFallback?.cancel()
+        sizeFallback = nil
+        autoReconnect?.cancel()
+        autoReconnect = nil
+        startupInputReleased = false
         shellStartup = nil
         pendingStartupInput.removeAll()
         pendingLoginOutput.removeAll()
@@ -450,13 +536,47 @@ public final class TerminalRuntime: ObservableObject, Identifiable {
             pendingLoginOutput.removeAll()
         }
         shellStartup = startup
+        startupInputReleased = false
         let attemptID = connectionAttemptID
+        let command = startup.command
         shellStartupTimeout = Task { @MainActor [weak self] in
+            // sshd prints the last-login line and MOTD as the shell starts. Typing the
+            // hook before they arrive would echo it above the banner and hide it.
+            let start = ContinuousClock.now
+            while !Task.isCancelled, start.duration(to: .now) < Self.bannerSettleLimit {
+                guard let self, self.connectionAttemptID == attemptID else { return }
+                if let last = self.lastOutputAt, last.duration(to: .now) >= Self.bannerQuietPeriod { break }
+                try? await Task.sleep(for: .milliseconds(30))
+            }
+            guard !Task.isCancelled, let self, self.connectionAttemptID == attemptID,
+                  let handle = self.handle else { return }
+            self.write(command, to: handle)
             try? await Task.sleep(for: .seconds(3))
-            guard !Task.isCancelled, let self, self.connectionAttemptID == attemptID else { return }
+            guard !Task.isCancelled, self.connectionAttemptID == attemptID else { return }
+            self.releaseSlowShellStartup()
+            try? await Task.sleep(for: .seconds(9))
+            guard !Task.isCancelled, self.connectionAttemptID == attemptID else { return }
             self.finishShellStartup()
         }
-        write(startup.command, to: handle)
+    }
+
+    static let bannerQuietPeriod: Duration = .milliseconds(120)
+    static let bannerSettleLimit: Duration = .milliseconds(800)
+
+    /// A slow rc file must not block typing or hide the banner, but the hook's echo
+    /// stays hidden until the shell acknowledges it or the final timeout passes.
+    private func releaseSlowShellStartup() {
+        guard var startup = shellStartup else { return }
+        display(startup.releaseBanner())
+        shellStartup = startup
+        guard !startup.isComplete else {
+            finishShellStartup()
+            return
+        }
+        startupInputReleased = true
+        let input = pendingStartupInput
+        pendingStartupInput.removeAll()
+        if let handle, !input.isEmpty { write(input, to: handle) }
     }
 
     private func finishShellStartup() {
@@ -464,6 +584,7 @@ public final class TerminalRuntime: ObservableObject, Identifiable {
         pendingLoginOutput.removeAll()
         if var startup = shellStartup { display(startup.finish()) }
         shellStartup = nil
+        startupInputReleased = false
         shellStartupTimeout?.cancel()
         shellStartupTimeout = nil
         let input = pendingStartupInput
@@ -547,6 +668,7 @@ private final class RustTerminalViewBridge: NSObject, @preconcurrency TerminalVi
             pixelWidth: Int(source.bounds.width * scale),
             pixelHeight: Int(source.bounds.height * scale)
         )
+        runtime?.startIfNeeded(source)
     }
 
     func setTerminalTitle(source: TerminalView, title: String) {

@@ -252,6 +252,12 @@ open class TerminalView: UIScrollView, UITextInputTraits, UIKeyInput, UIScrollVi
     // Used for the keyboard long-press gesture that works as a cursor
     var lastFloatingCursorLocation: CGPoint?
     
+    /// Multiplier applied to the font's natural line height (clamped to 1...2).
+    /// Extra space is distributed evenly above and below each row of text.
+    public var lineHeightScale: CGFloat = 1 {
+        didSet { if oldValue != lineHeightScale { resetFont() } }
+    }
+
     var fontSet: FontSet
     
     /// The font to use to render the terminal, this attempts to derive the bold, italic and italic/bold variants from

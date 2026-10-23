@@ -758,6 +758,7 @@ name = "snake_core"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "libc",
  "rusqlite",
  "serde",
  "serde_json",

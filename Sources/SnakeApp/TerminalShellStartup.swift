@@ -5,8 +5,11 @@ import Foundation
 struct TerminalShellStartup {
     let command: Data
     let completionMarker: Data
-    private let echoPrefix: Data
+    /// The hook's function name. Matching only this word still finds the echo when
+    /// zsh syntax highlighting colors the `function` keyword in front of it.
+    private let echoToken = Data("__snake_cwd".utf8)
     private var buffered = Data()
+    private var releasedCount = 0
     private(set) var isComplete = false
     static let bufferLimit = 64 * 1_024
 
@@ -16,8 +19,6 @@ struct TerminalShellStartup {
         command = Data((hook.trimmingCharacters(in: .newlines)
             + "; printf '\\033]\(marker)\\007'\n").utf8)
         completionMarker = Data("\u{1b}]\(marker)\u{7}".utf8)
-        let prefix = shellName.lowercased() == "bash" ? " __snake_cwd" : " function __snake_cwd"
-        echoPrefix = Data(prefix.utf8)
     }
 
     mutating func consume(_ data: Data) -> Data {
@@ -25,12 +26,11 @@ struct TerminalShellStartup {
         buffered.append(data)
         if let ready = buffered.range(of: completionMarker) {
             let setup = Data(buffered[..<ready.lowerBound])
-            let echo = setup.range(of: echoPrefix)
-            let beforeEcho = echo.map { Data(setup[..<$0.lowerBound]) } ?? Data()
+            let echo = setup.range(of: echoToken)
             // The initial prompt has not been rendered yet. Keep complete login
             // banner lines, then let the next prompt appear once, even when a
             // long hostname would have wrapped across several terminal rows.
-            var output = beforeEcho.lastIndex(of: 10).map { Data(beforeEcho[...$0]) } ?? Data()
+            var output = Data(Self.banner(in: setup, echo: echo).dropFirst(releasedCount))
             output.append(Self.directoryReports(in: echo.map { Data(setup[$0.lowerBound...]) } ?? setup))
             output.append(buffered[ready.upperBound...])
             buffered.removeAll()
@@ -42,11 +42,29 @@ struct TerminalShellStartup {
         return Data()
     }
 
+    /// Called when a slow login shell has not acknowledged the hook yet. Shows the
+    /// banner received so far but keeps hiding the echoed hook until the shell
+    /// runs it. Without any echo the shell is not cooperating, so stop filtering.
+    mutating func releaseBanner() -> Data {
+        guard !isComplete else { return Data() }
+        guard let echo = buffered.range(of: echoToken) else { return finish() }
+        let banner = Self.banner(in: buffered, echo: echo)
+        let output = Data(banner.dropFirst(releasedCount))
+        releasedCount = banner.count
+        return output
+    }
+
     mutating func finish() -> Data {
-        let output = buffered
+        let output = Data(buffered.dropFirst(releasedCount))
         buffered.removeAll()
+        releasedCount = 0
         isComplete = true
         return output
+    }
+
+    private static func banner(in setup: Data, echo: Range<Data.Index>?) -> Data {
+        guard let echo else { return Data() }
+        return setup[..<echo.lowerBound].lastIndex(of: 10).map { Data(setup[...$0]) } ?? Data()
     }
 
     private static func directoryReports(in data: Data) -> Data {
