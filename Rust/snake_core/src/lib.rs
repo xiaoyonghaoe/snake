@@ -4,10 +4,8 @@ use base64::{engine::general_purpose::STANDARD, Engine};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use ssh2::{
-    Channel, CheckResult, ErrorCode, ExtendedData, FileStat, HostKeyType, KnownHostFileKind,
-    MethodType, OpenFlags, OpenType, Session, Sftp,
-};
+use sftp_client::{FileStat, OpenFlags, OpenType, Sftp};
+use ssh::SshError;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::net::{TcpStream, ToSocketAddrs};
 use std::path::{Component, Path, PathBuf};
@@ -23,6 +21,9 @@ uniffi::setup_scaffolding!("snake_core");
 mod transfer_integrity;
 mod sftp_publish;
 mod mcp;
+mod known_hosts;
+mod sftp_client;
+mod ssh;
 pub use mcp::*;
 pub use transfer_integrity::*;
 
@@ -947,7 +948,7 @@ pub struct CoreRemoteEntry {
 
 #[derive(uniffi::Object)]
 pub struct CoreSftpHandle {
-    _session: Session,
+    connection: Arc<ssh::Connection>,
     sftp: Sftp,
     server_address: std::net::SocketAddr,
 }
@@ -960,7 +961,7 @@ pub trait CoreTerminalObserver: Send + Sync {
 
 #[derive(uniffi::Object)]
 pub struct CoreTerminalHandle {
-    commands: Mutex<mpsc::Sender<TerminalCommand>>,
+    commands: tokio::sync::mpsc::UnboundedSender<TerminalCommand>,
     closed: Arc<AtomicBool>,
     security: CoreConnectionSecurity,
     shell_name: String,
@@ -992,8 +993,6 @@ impl CoreTerminalHandle {
             return Err(CoreError::TerminalClosed);
         }
         self.commands
-            .lock()
-            .map_err(|_| CoreError::StorageLock)?
             .send(TerminalCommand::Write(data))
             .map_err(|_| CoreError::TerminalClosed)
     }
@@ -1014,8 +1013,6 @@ impl CoreTerminalHandle {
             return Err(CoreError::TerminalClosed);
         }
         self.commands
-            .lock()
-            .map_err(|_| CoreError::StorageLock)?
             .send(TerminalCommand::Resize {
                 columns,
                 rows,
@@ -1029,18 +1026,14 @@ impl CoreTerminalHandle {
         if self.closed.swap(true, Ordering::AcqRel) {
             return;
         }
-        if let Ok(commands) = self.commands.lock() {
-            let _ = commands.send(TerminalCommand::Close);
-        }
+        let _ = self.commands.send(TerminalCommand::Close);
     }
 }
 
 impl Drop for CoreTerminalHandle {
     fn drop(&mut self) {
         self.closed.store(true, Ordering::Release);
-        if let Ok(commands) = self.commands.get_mut() {
-            let _ = commands.send(TerminalCommand::Close);
-        }
+        let _ = self.commands.send(TerminalCommand::Close);
     }
 }
 
@@ -1403,7 +1396,7 @@ impl CoreSftpHandle {
 
     pub fn set_permissions_recursive(&self, path: String, mode: u32) -> Result<(), CoreError> {
         let command = recursive_chmod_command(&path, mode)?;
-        run_remote_command(&self._session, &command, "chmod -R")
+        run_remote_command(&self.connection, &command, "chmod -R")
     }
 
     pub fn copy_symbolic_link_from(
@@ -1424,7 +1417,7 @@ impl CoreSftpHandle {
 
     pub fn rename(&self, source: String, destination: String) -> Result<(), CoreError> {
         self.sftp
-            .rename(Path::new(&source), Path::new(&destination), None)
+            .rename(Path::new(&source), Path::new(&destination))
             .map_err(connection_error)
     }
 
@@ -1439,7 +1432,7 @@ impl CoreSftpHandle {
     pub fn remove_directory_recursive(&self, path: String) -> Result<(), CoreError> {
         let path = validated_recursive_delete_path(&path)?;
         let command = format!("rm -rf -- {}", shell_single_quote(&path));
-        run_remote_command(&self._session, &command, "rm -rf")
+        run_remote_command(&self.connection, &command, "rm -rf")
     }
 }
 
@@ -1526,19 +1519,14 @@ fn validated_remote_upload_path(value: &str) -> Result<String, CoreError> {
     Ok(value.to_owned())
 }
 
-fn run_remote_command(session: &Session, command: &str, operation: &str) -> Result<(), CoreError> {
-    let mut channel = session.channel_session().map_err(connection_error)?;
-    channel.exec(command).map_err(connection_error)?;
-    let mut stdout = Vec::new();
-    channel.read_to_end(&mut stdout).map_err(io_error)?;
-    let mut stderr = String::new();
-    channel
-        .stderr()
-        .read_to_string(&mut stderr)
-        .map_err(io_error)?;
-    channel.wait_close().map_err(connection_error)?;
-    let exit_status = channel.exit_status().map_err(connection_error)?;
+fn run_remote_command(connection: &ssh::Connection, command: &str, operation: &str) -> Result<(), CoreError> {
+    let output = ssh::block_on(ssh::exec(connection, command, ssh::ExecOptions::default()))?;
+    if output.denied {
+        return Err(CoreError::Connection { message: format!("{operation} was refused by the server"), stage: None });
+    }
+    let exit_status = output.exit_status.unwrap_or(255);
     if exit_status != 0 {
+        let stderr = String::from_utf8_lossy(&output.stderr);
         let detail = stderr.trim();
         return Err(CoreError::Connection {
             message: if detail.is_empty() {
@@ -1554,8 +1542,7 @@ fn run_remote_command(session: &Session, command: &str, operation: &str) -> Resu
 
 #[uniffi::export]
 pub fn probe_host_key(host: String, port: u16) -> Result<CoreHostKey, CoreError> {
-    let (_, key, kind, _) = handshake(&host, port)?;
-    Ok(host_key_record(&host, port, &key, kind))
+    ssh::probe(&host, port)
 }
 
 #[uniffi::export]
@@ -1571,28 +1558,9 @@ pub fn open_terminal_password(
     rows: u32,
     observer: Box<dyn CoreTerminalObserver>,
 ) -> Result<Arc<CoreTerminalHandle>, CoreError> {
-    let (session, key, kind, stream) = handshake(&host, port)?;
-    verify_host_key(
-        &session,
-        &host,
-        port,
-        &key,
-        kind,
-        &known_hosts_path,
-        accept_fingerprint.as_deref(),
-    )?;
-    let password =
-        Zeroizing::new(
-            String::from_utf8(password).map_err(|_| CoreError::Authentication {
-                message: String::new(),
-                stage: Some("auth_password_encoding_invalid".to_owned()),
-            })?,
-        );
-    session
-        .userauth_password(&username, password.as_str())
-        .map_err(|error| authentication_stage_error("auth_password", error))?;
-    let security = connection_security(&session, &key, kind);
-    finish_terminal(session, stream, columns, rows, observer, security)
+    let credential = ssh::Credential::password(password)?;
+    let connection = ssh::shared(&host, port, &username, &credential, &known_hosts_path, accept_fingerprint.as_deref())?;
+    start_terminal(connection, columns, rows, observer)
 }
 
 #[uniffi::export]
@@ -1609,36 +1577,16 @@ pub fn open_terminal_private_key(
     rows: u32,
     observer: Box<dyn CoreTerminalObserver>,
 ) -> Result<Arc<CoreTerminalHandle>, CoreError> {
-    let (session, key, kind, stream) = handshake(&host, port)?;
-    verify_host_key(
-        &session,
-        &host,
-        port,
-        &key,
-        kind,
-        &known_hosts_path,
-        accept_fingerprint.as_deref(),
-    )?;
-    let passphrase = passphrase
-        .map(|bytes| String::from_utf8(bytes).map(Zeroizing::new))
-        .transpose()
-        .map_err(|_| CoreError::Authentication {
-            message: String::new(),
-            stage: Some("auth_private_key_passphrase_invalid".to_owned()),
-        })?;
-    session
-        .userauth_pubkey_file(
-            &username,
-            None,
-            Path::new(&private_key_path),
-            passphrase.as_deref().map(String::as_str),
-        )
-        .map_err(|error| authentication_stage_error("auth_private_key", error))?;
-    let security = connection_security(&session, &key, kind);
-    finish_terminal(session, stream, columns, rows, observer, security)
+    let credential = ssh::Credential::private_key(private_key_path, passphrase)?;
+    let connection = ssh::shared(&host, port, &username, &credential, &known_hosts_path, accept_fingerprint.as_deref())?;
+    start_terminal(connection, columns, rows, observer)
 }
 
+/// Opens an SFTP handle. Browsing shares the pooled connection; `dedicated`
+/// handles (parallel transfer workers) get their own TCP connection so bulk
+/// data never queues behind, or in front of, interactive traffic.
 #[uniffi::export]
+#[allow(clippy::too_many_arguments)]
 pub fn open_sftp_password(
     host: String,
     port: u16,
@@ -1646,32 +1594,14 @@ pub fn open_sftp_password(
     password: Vec<u8>,
     known_hosts_path: String,
     accept_fingerprint: Option<String>,
+    dedicated: bool,
 ) -> Result<Arc<CoreSftpHandle>, CoreError> {
-    let (session, key, kind, stream) = handshake(&host, port)?;
-    let server_address = stream.peer_addr().map_err(io_error)?;
-    verify_host_key(
-        &session,
-        &host,
-        port,
-        &key,
-        kind,
-        &known_hosts_path,
-        accept_fingerprint.as_deref(),
-    )?;
-    let password =
-        Zeroizing::new(
-            String::from_utf8(password).map_err(|_| CoreError::Authentication {
-                message: "password is not valid UTF-8".to_owned(),
-                stage: None,
-            })?,
-        );
-    session
-        .userauth_password(&username, password.as_str())
-        .map_err(authentication_error)?;
-    finish_sftp(session, server_address)
+    let credential = ssh::Credential::password(password)?;
+    open_sftp(&host, port, &username, &credential, &known_hosts_path, accept_fingerprint.as_deref(), dedicated)
 }
 
 #[uniffi::export]
+#[allow(clippy::too_many_arguments)]
 pub fn open_sftp_private_key(
     host: String,
     port: u16,
@@ -1680,64 +1610,28 @@ pub fn open_sftp_private_key(
     passphrase: Option<Vec<u8>>,
     known_hosts_path: String,
     accept_fingerprint: Option<String>,
+    dedicated: bool,
 ) -> Result<Arc<CoreSftpHandle>, CoreError> {
-    let (session, key, kind, stream) = handshake(&host, port)?;
-    let server_address = stream.peer_addr().map_err(io_error)?;
-    verify_host_key(
-        &session,
-        &host,
-        port,
-        &key,
-        kind,
-        &known_hosts_path,
-        accept_fingerprint.as_deref(),
-    )?;
-    let passphrase = passphrase
-        .map(|bytes| String::from_utf8(bytes).map(Zeroizing::new))
-        .transpose()
-        .map_err(|_| CoreError::Authentication {
-            message: "key passphrase is not valid UTF-8".to_owned(),
-            stage: None,
-        })?;
-    session
-        .userauth_pubkey_file(
-            &username,
-            None,
-            Path::new(&private_key_path),
-            passphrase.as_deref().map(String::as_str),
-        )
-        .map_err(authentication_error)?;
-    finish_sftp(session, server_address)
+    let credential = ssh::Credential::private_key(private_key_path, passphrase)?;
+    open_sftp(&host, port, &username, &credential, &known_hosts_path, accept_fingerprint.as_deref(), dedicated)
 }
 
-fn handshake(
+fn open_sftp(
     host: &str,
     port: u16,
-) -> Result<(Session, Vec<u8>, HostKeyType, TcpStream), CoreError> {
-    if host.trim().is_empty() || port == 0 {
-        return Err(CoreError::InvalidInput {
-            message: "host and port are required".to_owned(),
-        });
-    }
-    let stream = connect_tcp(host, port)?;
-    let session_stream = stream
-        .try_clone()
-        .map_err(|error| io_connection_stage_error("tcp_stream", error))?;
-    let mut session =
-        Session::new().map_err(|error| ssh_connection_stage_error("ssh_session_init", error))?;
-    session.set_timeout(15_000);
-    session.set_tcp_stream(stream);
-    session
-        .handshake()
-        .map_err(|error| ssh_connection_stage_error("ssh_handshake", error))?;
-    let (key, kind) = {
-        let (key, kind) = session.host_key().ok_or_else(|| CoreError::Connection {
-            message: String::new(),
-            stage: Some("ssh_host_key_missing".to_owned()),
-        })?;
-        (key.to_vec(), kind)
+    username: &str,
+    credential: &ssh::Credential,
+    known_hosts_path: &str,
+    accept_fingerprint: Option<&str>,
+    dedicated: bool,
+) -> Result<Arc<CoreSftpHandle>, CoreError> {
+    let connection = if dedicated {
+        ssh::connect(host, port, username, credential, known_hosts_path, accept_fingerprint)?
+    } else {
+        ssh::shared(host, port, username, credential, known_hosts_path, accept_fingerprint)?
     };
-    Ok((session, key, kind, session_stream))
+    let sftp = Sftp::start(Arc::clone(&connection))?;
+    Ok(Arc::new(CoreSftpHandle { server_address: connection.server_address, connection, sftp }))
 }
 
 const TCP_CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
@@ -1837,200 +1731,80 @@ fn tune_terminal_socket(stream: &TcpStream) {
 #[cfg(not(target_vendor = "apple"))]
 fn tune_terminal_socket(_stream: &TcpStream) {}
 
-// Serialize read/modify/write across simultaneous terminal and SFTP connections.
-static KNOWN_HOSTS_LOCK: Mutex<()> = Mutex::new(());
-
-fn verify_host_key(
-    session: &Session,
-    host: &str,
-    port: u16,
-    key: &[u8],
-    kind: HostKeyType,
-    known_hosts_path: &str,
-    accept_fingerprint: Option<&str>,
-) -> Result<(), CoreError> {
-    let _guard = KNOWN_HOSTS_LOCK.lock().map_err(|_| CoreError::StorageLock)?;
-    let record = host_key_record(host, port, key, kind);
-    let label = if port == 22 { host.to_owned() } else { format!("[{host}]:{port}") };
-    let file = PathBuf::from(known_hosts_path);
-    if let Some(parent) = file.parent() {
-        std::fs::create_dir_all(parent).map_err(io_error)?;
-    }
-    let mut known_hosts = session.known_hosts().map_err(connection_error)?;
-    if file.exists() {
-        known_hosts
-            .read_file(&file, KnownHostFileKind::OpenSSH)
-            .map_err(connection_error)?;
-    }
-    // Use the exact endpoint so trusting a non-default port never alters port 22.
-    match known_hosts.check(&label, key) {
-        CheckResult::Match => Ok(()),
-        result @ (CheckResult::Mismatch | CheckResult::NotFound) => {
-            let mut previous_fingerprints = Vec::new();
-            let mut retained = session.known_hosts().map_err(connection_error)?;
-            for entry in known_hosts.hosts().map_err(connection_error)? {
-                let line = known_hosts.write_string(&entry, KnownHostFileKind::OpenSSH)
-                    .map_err(connection_error)?;
-                let mut single = session.known_hosts().map_err(connection_error)?;
-                single.read_str(&line, KnownHostFileKind::OpenSSH).map_err(connection_error)?;
-                match single.check(&label, key) {
-                    CheckResult::Match | CheckResult::Mismatch => {
-                        let old_key = STANDARD.decode(entry.key()).map_err(|_| CoreError::Connection {
-                            message: "invalid stored host key".to_owned(),
-                            stage: None,
-                        })?;
-                        previous_fingerprints.push(host_key_fingerprint(&old_key));
-                    }
-                    CheckResult::NotFound => {
-                        retained.read_str(&line, KnownHostFileKind::OpenSSH).map_err(connection_error)?;
-                    }
-                    CheckResult::Failure => return Err(CoreError::Connection {
-                        message: "unable to evaluate stored host key".to_owned(),
-                        stage: None,
-                    }),
-                }
-            }
-            if accept_fingerprint != Some(record.fingerprint.as_str()) {
-                if matches!(result, CheckResult::Mismatch) {
-                    return Err(CoreError::HostKeyMismatch {
-                        host: record.host,
-                        port: record.port,
-                        algorithm: record.algorithm,
-                        fingerprint: record.fingerprint,
-                        previous_fingerprints,
-                    });
-                }
-                return Err(CoreError::HostKeyUnknown {
-                    host: record.host,
-                    port: record.port,
-                    algorithm: record.algorithm,
-                    fingerprint: record.fingerprint,
-                });
-            }
-            retained
-                .add(&label, key, "Snake", kind.into())
-                .map_err(connection_error)?;
-            persist_known_hosts(&retained, &file)
-        }
-        CheckResult::Failure => Err(CoreError::Connection {
-            message: "unable to evaluate known_hosts".to_owned(),
-            stage: None,
-        }),
-    }
-}
-
-fn persist_known_hosts(hosts: &ssh2::KnownHosts, file: &Path) -> Result<(), CoreError> {
-    let temporary = file.with_extension(format!("{}.tmp", Uuid::new_v4()));
-    let mut options = std::fs::OpenOptions::new();
-    options.write(true).create_new(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600);
-    }
-    let mut output = options.open(&temporary).map_err(io_error)?;
-    let result = (|| {
-        for entry in hosts.hosts().map_err(connection_error)? {
-            let line = hosts.write_string(&entry, KnownHostFileKind::OpenSSH).map_err(connection_error)?;
-            output.write_all(line.as_bytes()).map_err(io_error)?;
-        }
-        output.sync_all().map_err(io_error)?;
-        std::fs::rename(&temporary, file).map_err(io_error)
-    })();
-    if result.is_err() {
-        let _ = std::fs::remove_file(&temporary);
-    }
-    result
-}
-
-fn finish_sftp(session: Session, server_address: std::net::SocketAddr) -> Result<Arc<CoreSftpHandle>, CoreError> {
-    if !session.authenticated() {
-        return Err(CoreError::Authentication {
-            message: "server rejected the supplied credential".to_owned(),
-            stage: None,
-        });
-    }
-    let sftp = session.sftp().map_err(connection_error)?;
-    Ok(Arc::new(CoreSftpHandle {
-        _session: session,
-        sftp,
-        server_address,
-    }))
-}
-
-const TERMINAL_KEEPALIVE_SECONDS: u32 = 10;
-
-fn finish_terminal(
-    session: Session,
-    stream: TcpStream,
+fn start_terminal(
+    connection: Arc<ssh::Connection>,
     columns: u32,
     rows: u32,
     observer: Box<dyn CoreTerminalObserver>,
-    security: CoreConnectionSecurity,
 ) -> Result<Arc<CoreTerminalHandle>, CoreError> {
-    if !session.authenticated() {
-        return Err(CoreError::Authentication {
-            message: "server rejected the supplied credential".to_owned(),
-            stage: None,
-        });
-    }
     if columns == 0 || rows == 0 {
         return Err(CoreError::InvalidInput {
             message: "terminal dimensions must be positive".to_owned(),
         });
     }
+    let (channel, shell_name, early_output) = ssh::block_on(async {
+        let shell_name = detect_remote_shell(&connection).await;
+        let mut channel = connection.open_session().await?;
+        let mut early_output = Vec::new();
+        channel
+            .request_pty(true, "xterm-256color", columns, rows, 0, 0, &[])
+            .await
+            .map_err(|error| ssh_connection_stage_error("ssh_pty", error.into()))?;
+        await_request_reply(&mut channel, &mut early_output, "ssh_pty").await?;
+        channel
+            .request_shell(true)
+            .await
+            .map_err(|error| ssh_connection_stage_error("ssh_shell", error.into()))?;
+        await_request_reply(&mut channel, &mut early_output, "ssh_shell").await?;
+        Ok::<_, CoreError>((channel, shell_name, early_output))
+    })?;
 
-    tune_terminal_socket(&stream);
-    let shell_name = detect_remote_shell(&session);
-    session.set_keepalive(true, TERMINAL_KEEPALIVE_SECONDS);
-    let mut channel = session
-        .channel_session()
-        .map_err(|error| ssh_connection_stage_error("ssh_channel", error))?;
-    channel
-        .request_pty("xterm-256color", None, Some((columns, rows, 0, 0)))
-        .map_err(|error| ssh_connection_stage_error("ssh_pty", error))?;
-    channel
-        .handle_extended_data(ExtendedData::Merge)
-        .map_err(|error| ssh_connection_stage_error("ssh_output", error))?;
-    channel
-        .shell()
-        .map_err(|error| ssh_connection_stage_error("ssh_shell", error))?;
-    stream
-        .set_nonblocking(true)
-        .map_err(|error| io_connection_stage_error("ssh_net_stream", error))?;
-    session.set_blocking(false);
-
-    let (command_sender, command_receiver) = mpsc::channel();
+    let (commands, receiver) = tokio::sync::mpsc::unbounded_channel();
     let closed = Arc::new(AtomicBool::new(false));
-    let worker_closed = Arc::clone(&closed);
-    std::thread::Builder::new()
-        .name("snake-terminal-io".to_owned())
-        .spawn(move || {
-            terminal_io_loop(session, channel, command_receiver, worker_closed, observer)
-        })
-        .map_err(io_error)?;
-
+    let security = connection.security.clone();
+    ssh::runtime().spawn(terminal_io(connection, channel, receiver, Arc::clone(&closed), observer, early_output));
     Ok(Arc::new(CoreTerminalHandle {
-        commands: Mutex::new(command_sender),
+        commands,
         closed,
         security,
         shell_name,
     }))
 }
 
-fn detect_remote_shell(session: &Session) -> String {
-    let result = (|| -> Option<String> {
-        let mut channel = session.channel_session().ok()?;
-        channel.exec("printf '%s' \"${SHELL:-}\"").ok()?;
-        let mut output = String::new();
-        channel.read_to_string(&mut output).ok()?;
-        channel.wait_close().ok()?;
-        Some(output)
-    })();
+async fn await_request_reply(
+    channel: &mut russh::Channel<russh::client::Msg>,
+    early_output: &mut Vec<u8>,
+    stage: &str,
+) -> Result<(), CoreError> {
+    loop {
+        match channel.wait().await {
+            Some(russh::ChannelMsg::Success) => return Ok(()),
+            Some(russh::ChannelMsg::Data { data }) | Some(russh::ChannelMsg::ExtendedData { data, .. }) => {
+                early_output.extend_from_slice(&data);
+            }
+            Some(russh::ChannelMsg::Failure) | Some(russh::ChannelMsg::Close) | None => {
+                return Err(CoreError::Connection {
+                    message: "server refused the request".to_owned(),
+                    stage: Some(stage.to_owned()),
+                });
+            }
+            Some(_) => {}
+        }
+    }
+}
 
-    result
-        .and_then(|value| {
-            Path::new(value.trim())
+async fn detect_remote_shell(connection: &ssh::Connection) -> String {
+    let options = ssh::ExecOptions {
+        limit: 4096,
+        deadline: Some(std::time::Instant::now() + std::time::Duration::from_secs(5)),
+        ..Default::default()
+    };
+    ssh::exec(connection, "printf '%s' \"${SHELL:-}\"", options)
+        .await
+        .ok()
+        .and_then(|output| {
+            let value = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+            Path::new(&value)
                 .file_name()
                 .map(|name| name.to_string_lossy().to_lowercase())
         })
@@ -2038,176 +1812,66 @@ fn detect_remote_shell(session: &Session) -> String {
         .unwrap_or_else(|| "sh".to_owned())
 }
 
-fn terminal_io_loop(
-    session: Session,
-    mut channel: Channel,
-    commands: mpsc::Receiver<TerminalCommand>,
+/// Event-driven terminal pump: wakes only for server output or a command from
+/// Swift. Server output is delivered as it arrives; Swift coalesces it per frame.
+async fn terminal_io(
+    connection: Arc<ssh::Connection>,
+    mut channel: russh::Channel<russh::client::Msg>,
+    mut commands: tokio::sync::mpsc::UnboundedReceiver<TerminalCommand>,
     closed: Arc<AtomicBool>,
     observer: Box<dyn CoreTerminalObserver>,
+    early_output: Vec<u8>,
 ) {
-    let mut buffer = vec![0_u8; 32 * 1024];
-    let mut pending_writes = std::collections::VecDeque::<(Vec<u8>, usize)>::new();
-    let mut pending_resize = None;
-    let mut needs_flush = false;
-    let mut next_keepalive = std::time::Instant::now()
-        + std::time::Duration::from_secs(u64::from(TERMINAL_KEEPALIVE_SECONDS));
+    if !early_output.is_empty() {
+        observer.on_output(early_output);
+    }
+    let mut exit_status = None;
     let mut failure = None;
-    let mut should_close = false;
-
+    let mut connection_lost = false;
     loop {
-        let mut progressed = false;
-        loop {
-            match commands.try_recv() {
-                Ok(TerminalCommand::Write(data)) => {
-                    if !data.is_empty() {
-                        pending_writes.push_back((data, 0));
-                    }
-                    progressed = true;
+        tokio::select! {
+            message = channel.wait() => match message {
+                Some(russh::ChannelMsg::Data { data }) | Some(russh::ChannelMsg::ExtendedData { data, .. }) => {
+                    observer.on_output(data.to_vec());
                 }
-                Ok(TerminalCommand::Resize {
-                    columns,
-                    rows,
-                    pixel_width,
-                    pixel_height,
-                }) => {
-                    pending_resize = Some((columns, rows, pixel_width, pixel_height));
-                    progressed = true;
-                }
-                Ok(TerminalCommand::Close) | Err(mpsc::TryRecvError::Disconnected) => {
-                    should_close = true;
+                Some(russh::ChannelMsg::ExitStatus { exit_status: status }) => exit_status = Some(status as i32),
+                Some(russh::ChannelMsg::ExitSignal { .. }) => exit_status = exit_status.or(Some(255)),
+                Some(russh::ChannelMsg::Close) => break,
+                // The session task ended: the TCP connection itself is gone.
+                None => {
+                    connection_lost = true;
                     break;
                 }
-                Err(mpsc::TryRecvError::Empty) => break,
-            }
-        }
-
-        if should_close {
-            let _ = channel.send_eof();
-            let _ = channel.close();
-            break;
-        }
-
-        if let Some((columns, rows, pixel_width, pixel_height)) = pending_resize {
-            match channel.request_pty_size(columns, rows, Some(pixel_width), Some(pixel_height)) {
-                Ok(()) => {
-                    pending_resize = None;
-                    progressed = true;
-                }
-                Err(error) if error.code() == ErrorCode::Session(-37) => {}
-                Err(error) => {
-                    failure = Some(format!("PTY resize failed: {}", error.message()));
-                    break;
-                }
-            }
-        }
-
-        if let Some((data, offset)) = pending_writes.front_mut() {
-            match channel.write(&data[*offset..]) {
-                Ok(0) => {}
-                Ok(count) => {
-                    *offset += count;
-                    progressed = true;
-                    needs_flush = true;
-                    if *offset == data.len() {
-                        pending_writes.pop_front();
+                Some(_) => {}
+            },
+            command = commands.recv() => match command {
+                Some(TerminalCommand::Write(data)) => {
+                    if let Err(error) = channel.data_bytes(data).await {
+                        failure = Some(format!("terminal write failed: {error}"));
+                        break;
                     }
                 }
-                Err(error) if terminal_io_would_block(&error) => {}
-                Err(error) => {
-                    failure = Some(format!("terminal write failed: {error}"));
+                Some(TerminalCommand::Resize { columns, rows, pixel_width, pixel_height }) => {
+                    if let Err(error) = channel.window_change(columns, rows, pixel_width, pixel_height).await {
+                        failure = Some(format!("PTY resize failed: {error}"));
+                        break;
+                    }
+                }
+                Some(TerminalCommand::Close) | None => {
+                    let _ = channel.eof().await;
+                    let _ = channel.close().await;
                     break;
                 }
-            }
-        }
-
-        if pending_writes.is_empty() && needs_flush {
-            match channel.flush() {
-                Ok(()) => {
-                    needs_flush = false;
-                    progressed = true;
-                }
-                Err(error) if terminal_io_would_block(&error) => {}
-                Err(error) => {
-                    failure = Some(format!("terminal flush failed: {error}"));
-                    break;
-                }
-            }
-        }
-
-        match channel.read(&mut buffer) {
-            Ok(0) if channel.eof() => break,
-            Ok(0) => {}
-            Ok(count) => {
-                observer.on_output(buffer[..count].to_vec());
-                progressed = true;
-            }
-            Err(error) if terminal_io_would_block(&error) => {}
-            Err(error) => {
-                failure = Some(error.to_string());
-                break;
-            }
-        }
-
-        if std::time::Instant::now() >= next_keepalive {
-            match session.keepalive_send() {
-                Ok(seconds) => {
-                    next_keepalive = std::time::Instant::now()
-                        + std::time::Duration::from_secs(u64::from(seconds.max(1)));
-                    progressed = true;
-                }
-                Err(error) if error.code() == ErrorCode::Session(-37) => {}
-                Err(error) => {
-                    failure = Some(format!("SSH keepalive failed: {}", error.message()));
-                    break;
-                }
-            }
-        }
-
-        if !progressed {
-            std::thread::sleep(std::time::Duration::from_millis(4));
+            },
         }
     }
-    let exit_status = channel.exit_status().unwrap_or_default();
+    // Losing the connection (sleep, network change) is a failure so Swift can
+    // reconnect; a shell that closes its channel is an ordinary exit.
+    if failure.is_none() && (connection_lost || (exit_status.is_none() && connection.is_closed())) {
+        failure = Some("SSH connection lost".to_owned());
+    }
     closed.store(true, Ordering::Release);
-    observer.on_closed(exit_status, failure);
-}
-
-fn terminal_io_would_block(error: &std::io::Error) -> bool {
-    if error.kind() == std::io::ErrorKind::WouldBlock {
-        return true;
-    }
-    let message = error.to_string().to_ascii_lowercase();
-    message.contains("would block")
-        || message.contains("session(-37)")
-        || message.contains("failure while draining incoming flow")
-        || message == "transport read"
-}
-
-fn host_key_record(host: &str, port: u16, key: &[u8], kind: HostKeyType) -> CoreHostKey {
-    CoreHostKey {
-        host: host.to_owned(),
-        port,
-        algorithm: host_key_algorithm(kind).to_owned(),
-        fingerprint: host_key_fingerprint(key),
-    }
-}
-
-fn connection_security(
-    session: &Session,
-    host_key: &[u8],
-    host_key_type: HostKeyType,
-) -> CoreConnectionSecurity {
-    connection_security_from_methods(
-        session
-            .methods(MethodType::HostKey)
-            .unwrap_or_else(|| host_key_algorithm(host_key_type)),
-        &host_key_fingerprint(host_key),
-        session.methods(MethodType::Kex),
-        session.methods(MethodType::CryptCs),
-        session.methods(MethodType::CryptSc),
-        session.methods(MethodType::MacCs),
-        session.methods(MethodType::MacSc),
-    )
+    observer.on_closed(exit_status.unwrap_or(0), failure);
 }
 
 fn connection_security_from_methods(
@@ -2242,27 +1906,6 @@ fn optional_method(value: Option<&str>) -> Option<String> {
 
 fn nonempty_method(value: &str) -> String {
     optional_method(Some(value)).unwrap_or_else(|| "unknown".to_owned())
-}
-
-fn host_key_fingerprint(key: &[u8]) -> String {
-    let fingerprint = Sha256::digest(key)
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect::<Vec<_>>()
-        .join(":");
-    format!("SHA256 {fingerprint}")
-}
-
-fn host_key_algorithm(kind: HostKeyType) -> &'static str {
-    match kind {
-        HostKeyType::Rsa => "RSA",
-        HostKeyType::Dss => "DSA",
-        HostKeyType::Ecdsa256 => "ECDSA-256",
-        HostKeyType::Ecdsa384 => "ECDSA-384",
-        HostKeyType::Ecdsa521 => "ECDSA-521",
-        HostKeyType::Ed25519 => "ED25519",
-        HostKeyType::Unknown => "UNKNOWN",
-    }
 }
 
 fn copy_with_fixed_buffer(
@@ -2475,14 +2118,14 @@ fn copy_exact_range_with_control(
     destination.flush().map_err(io_error)
 }
 
-fn connection_error(error: ssh2::Error) -> CoreError {
+fn connection_error(error: SshError) -> CoreError {
     CoreError::Connection {
         message: error.message().to_owned(),
         stage: None,
     }
 }
 
-fn ssh_connection_stage_error(stage: &str, error: ssh2::Error) -> CoreError {
+fn ssh_connection_stage_error(stage: &str, error: SshError) -> CoreError {
     CoreError::Connection {
         message: error.message().to_owned(),
         stage: Some(stage.to_owned()),
@@ -2492,20 +2135,6 @@ fn ssh_connection_stage_error(stage: &str, error: ssh2::Error) -> CoreError {
 fn io_connection_stage_error(stage: &str, error: std::io::Error) -> CoreError {
     CoreError::Connection {
         message: error.to_string(),
-        stage: Some(stage.to_owned()),
-    }
-}
-
-fn authentication_error(error: ssh2::Error) -> CoreError {
-    CoreError::Authentication {
-        message: error.message().to_owned(),
-        stage: None,
-    }
-}
-
-fn authentication_stage_error(stage: &str, error: ssh2::Error) -> CoreError {
-    CoreError::Authentication {
-        message: error.message().to_owned(),
         stage: Some(stage.to_owned()),
     }
 }
@@ -2757,79 +2386,6 @@ mod tests {
     }
 
     #[test]
-    fn host_key_fingerprint_is_stable_and_algorithm_labeled() {
-        let record = host_key_record(
-            "host.example",
-            2222,
-            b"server-public-key",
-            HostKeyType::Ed25519,
-        );
-        assert_eq!(record.host, "host.example");
-        assert_eq!(record.port, 2222);
-        assert_eq!(record.algorithm, "ED25519");
-        assert!(record.fingerprint.starts_with("SHA256 "));
-        assert_eq!(record.fingerprint.matches(':').count(), 31);
-    }
-
-    #[test]
-    fn changed_host_key_requires_exact_confirmation_and_preserves_other_endpoints() {
-        let directory = tempfile::tempdir().unwrap();
-        let file = directory.path().join("known_hosts");
-        let path = file.to_str().unwrap();
-        let session = Session::new().unwrap();
-        let verify = |host, port, key: &[u8], accepted: Option<&str>| {
-            verify_host_key(&session, host, port, key, HostKeyType::Ed25519, path, accepted)
-        };
-        for (host, port) in [("127.0.0.1", 49326), ("127.0.0.1", 22), ("other.example", 49326)] {
-            verify(host, port, b"old-key", Some(&host_key_fingerprint(b"old-key"))).unwrap();
-        }
-        let original = std::fs::read(&file).unwrap();
-        for accepted in [None, Some(host_key_fingerprint(b"old-key")), Some(host_key_fingerprint(b"another-key"))] {
-            let error = verify("127.0.0.1", 49326, b"new-key", accepted.as_deref()).unwrap_err();
-            match error {
-                CoreError::HostKeyMismatch { previous_fingerprints, fingerprint, .. } => {
-                    assert_eq!(previous_fingerprints, vec![host_key_fingerprint(b"old-key")]);
-                    assert_eq!(fingerprint, host_key_fingerprint(b"new-key"));
-                }
-                error => panic!("unexpected error: {error:?}"),
-            }
-            assert_eq!(std::fs::read(&file).unwrap(), original);
-        }
-        // A server changing again between prompt and reconnect must be rejected.
-        assert!(matches!(
-            verify("127.0.0.1", 49326, b"third-key", Some(&host_key_fingerprint(b"new-key"))),
-            Err(CoreError::HostKeyMismatch { .. })
-        ));
-        assert_eq!(std::fs::read(&file).unwrap(), original);
-
-        verify("127.0.0.1", 49326, b"new-key", Some(&host_key_fingerprint(b"new-key"))).unwrap();
-        verify("127.0.0.1", 49326, b"new-key", None).unwrap();
-        verify("127.0.0.1", 22, b"old-key", None).unwrap();
-        verify("other.example", 49326, b"old-key", None).unwrap();
-        assert!(matches!(verify("127.0.0.1", 49326, b"old-key", None), Err(CoreError::HostKeyMismatch { .. })));
-
-        let mut stored = session.known_hosts().unwrap();
-        stored.read_file(&file, KnownHostFileKind::OpenSSH).unwrap();
-        assert_eq!(stored.hosts().unwrap().len(), 3);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            assert_eq!(std::fs::metadata(file).unwrap().permissions().mode() & 0o777, 0o600);
-        }
-    }
-
-    #[test]
-    fn unknown_host_key_is_not_saved_without_confirmation() {
-        let directory = tempfile::tempdir().unwrap();
-        let file = directory.path().join("known_hosts");
-        let session = Session::new().unwrap();
-        let result = verify_host_key(&session, "test.example", 22, b"new-key", HostKeyType::Ed25519,
-            file.to_str().unwrap(), None);
-        assert!(matches!(result, Err(CoreError::HostKeyUnknown { .. })));
-        assert!(!file.exists());
-    }
-
-    #[test]
     fn tcp_connect_falls_through_refused_addresses_and_disables_nagle() {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
@@ -2893,33 +2449,12 @@ mod tests {
         assert!(message.contains("connection reset"));
         assert!(!message.contains("secret-password"));
 
-        let ssh = ssh_connection_stage_error(
-            "ssh_pty",
-            ssh2::Error::from_errno(ssh2::ErrorCode::Session(-1)),
-        );
+        let ssh = ssh_connection_stage_error("ssh_pty", SshError("channel request failed".to_owned()));
         let CoreError::Connection { message, stage } = ssh else {
             panic!("expected a connection error");
         };
         assert_eq!(stage.as_deref(), Some("ssh_pty"));
         assert!(!message.contains("/Users/example/.ssh/id_ed25519"));
-    }
-
-    #[test]
-    fn terminal_io_treats_libssh2_incoming_drain_as_transient() {
-        assert!(terminal_io_would_block(&std::io::Error::new(
-            std::io::ErrorKind::WouldBlock,
-            "operation would block",
-        )));
-        assert!(terminal_io_would_block(&std::io::Error::other(
-            "Failure while draining incoming flow",
-        )));
-        assert!(terminal_io_would_block(&std::io::Error::other(
-            "transport read"
-        )));
-        assert!(!terminal_io_would_block(&std::io::Error::new(
-            std::io::ErrorKind::ConnectionReset,
-            "connection reset",
-        )));
     }
 
     #[test]

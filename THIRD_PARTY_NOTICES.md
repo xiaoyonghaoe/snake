@@ -29,8 +29,10 @@ libraries, and their license obligations must accompany any distributed binary:
 | Component | Version/source | License |
 | --- | --- | --- |
 | rusqlite / libsqlite3-sys / SQLite | `rusqlite 0.32.1`, bundled SQLite | MIT for the Rust bindings; SQLite is public domain |
-| ssh2 / libssh2-sys / libssh2 | `ssh2 0.9.6` | MIT OR Apache-2.0 |
-| OpenSSL / openssl-sys | vendored through `ssh2` | Apache-2.0 |
+| russh / russh-cryptovec / russh-util | `russh 0.64.1` | Apache-2.0 (crates omit the text; Snake ships it from `Resources/Licenses/Apache-2.0`) |
+| russh-sftp | `russh-sftp 3.0.1` | Apache-2.0 |
+| AWS-LC / aws-lc-rs / aws-lc-sys | `aws-lc-rs 1.18.2`, `aws-lc-sys 0.46.0` | ISC, Apache-2.0, MIT and BSD-3-Clause components as declared by the crates; the native `aws-lc/LICENSE` notices are collected |
+| tokio, futures, hmac, sha1 and the RustCrypto stack | pinned in `Cargo.lock` | MIT OR Apache-2.0 unless their package metadata states otherwise |
 | serde, serde_json, sha2, thiserror, uuid, zeroize and normal dependencies | pinned in `Cargo.lock` | MIT OR Apache-2.0 unless their package metadata states otherwise |
 | UniFFI family | `uniffi 0.29.5` | Mozilla Public License 2.0 |
 

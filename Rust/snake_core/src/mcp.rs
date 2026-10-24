@@ -555,9 +555,9 @@ impl CoreDatabase {
     }
 }
 
-/// Runs `command` once over a fresh connection authenticated with a password.
-/// The host key must already be trusted; an unknown key fails rather than
-/// prompting, because no person is present to compare fingerprints.
+/// Runs `command` once on a new exec channel of the pooled connection for this
+/// session. The host key must already be trusted; an unknown key fails rather
+/// than prompting, because no person is present to compare fingerprints.
 #[uniffi::export]
 #[allow(clippy::too_many_arguments)]
 pub fn run_command_password(
@@ -572,15 +572,9 @@ pub fn run_command_password(
     max_output_bytes: u64,
 ) -> Result<CoreCommandOutput, CoreError> {
     let started = std::time::Instant::now();
-    let session = trusted_session(&host, port, &known_hosts_path)?;
-    let password = Zeroizing::new(String::from_utf8(password).map_err(|_| CoreError::Authentication {
-        message: String::new(),
-        stage: Some("auth_password_encoding_invalid".to_owned()),
-    })?);
-    session
-        .userauth_password(&username, password.as_str())
-        .map_err(|error| authentication_stage_error("auth_password", error))?;
-    execute_command(session, &command, cwd.as_deref(), started, timeout_ms, max_output_bytes)
+    let credential = ssh::Credential::password(password)?;
+    let connection = ssh::shared(&host, port, &username, &credential, &known_hosts_path, None)?;
+    execute_command(&connection, &command, cwd.as_deref(), started, timeout_ms, max_output_bytes)
 }
 
 #[uniffi::export]
@@ -598,24 +592,9 @@ pub fn run_command_private_key(
     max_output_bytes: u64,
 ) -> Result<CoreCommandOutput, CoreError> {
     let started = std::time::Instant::now();
-    let session = trusted_session(&host, port, &known_hosts_path)?;
-    let passphrase = passphrase
-        .map(|bytes| String::from_utf8(bytes).map(Zeroizing::new))
-        .transpose()
-        .map_err(|_| CoreError::Authentication {
-            message: String::new(),
-            stage: Some("auth_private_key_passphrase_invalid".to_owned()),
-        })?;
-    session
-        .userauth_pubkey_file(&username, None, Path::new(&private_key_path), passphrase.as_deref().map(String::as_str))
-        .map_err(|error| authentication_stage_error("auth_private_key", error))?;
-    execute_command(session, &command, cwd.as_deref(), started, timeout_ms, max_output_bytes)
-}
-
-fn trusted_session(host: &str, port: u16, known_hosts_path: &str) -> Result<Session, CoreError> {
-    let (session, key, kind, _stream) = handshake(host, port)?;
-    verify_host_key(&session, host, port, &key, kind, known_hosts_path, None)?;
-    Ok(session)
+    let credential = ssh::Credential::private_key(private_key_path, passphrase)?;
+    let connection = ssh::shared(&host, port, &username, &credential, &known_hosts_path, None)?;
+    execute_command(&connection, &command, cwd.as_deref(), started, timeout_ms, max_output_bytes)
 }
 
 /// The script runs in the remote `/bin/sh` rather than the login shell, so
@@ -640,109 +619,59 @@ fn command_script(command: &str, cwd: Option<&str>) -> Result<String, CoreError>
     Ok(script)
 }
 
+/// The first stdout line of the script is the remote shell's PID, used to stop
+/// it on timeout.
+const PID_LINE_LIMIT: usize = 32;
+
 fn execute_command(
-    session: Session,
+    connection: &ssh::Connection,
     command: &str,
     cwd: Option<&str>,
     started: std::time::Instant,
     timeout_ms: u64,
     max_output_bytes: u64,
 ) -> Result<CoreCommandOutput, CoreError> {
-    if !session.authenticated() {
-        return Err(CoreError::Authentication {
-            message: "server rejected the supplied credential".to_owned(),
-            stage: None,
-        });
-    }
     let script = command_script(command, cwd)?;
     let deadline = started + std::time::Duration::from_millis(timeout_ms.max(1));
     let limit = usize::try_from(max_output_bytes).unwrap_or(usize::MAX);
-    let mut channel = session
-        .channel_session()
-        .map_err(|error| ssh_connection_stage_error("ssh_channel", error))?;
-    channel
-        .exec("exec /bin/sh -s")
-        .map_err(|error| ssh_connection_stage_error("ssh_exec", error))?;
-    channel.write_all(script.as_bytes()).map_err(io_error)?;
-    channel.send_eof().map_err(|error| ssh_connection_stage_error("ssh_exec", error))?;
-    session.set_blocking(false);
-
-    // The first stdout line is the remote shell's PID, used to stop it on timeout.
-    let mut pid_line = Vec::new();
-    let mut pid_complete = false;
-    let mut stdout = Vec::new();
-    let mut stderr = Vec::new();
-    let (mut stdout_total, mut stderr_total) = (0_u64, 0_u64);
-    let mut buffer = vec![0_u8; 32 * 1024];
-    let mut timed_out = false;
-    loop {
-        let mut progressed = false;
-        for is_stderr in [false, true] {
-            let read = if is_stderr { channel.stderr().read(&mut buffer) } else { channel.read(&mut buffer) };
-            let mut data = match read {
-                Ok(0) => continue,
-                Ok(count) => &buffer[..count],
-                Err(error) if terminal_io_would_block(&error) => continue,
-                Err(error) => return Err(io_error(error)),
-            };
-            progressed = true;
-            if !is_stderr && !pid_complete {
-                match data.iter().position(|byte| *byte == b'\n') {
-                    Some(end) => {
-                        pid_line.extend_from_slice(&data[..end]);
-                        pid_complete = true;
-                        data = &data[end + 1..];
-                    }
-                    None => {
-                        pid_line.extend_from_slice(data);
-                        continue;
-                    }
-                }
-            }
-            let (kept, total) = if is_stderr { (&mut stderr, &mut stderr_total) } else { (&mut stdout, &mut stdout_total) };
-            *total += data.len() as u64;
-            let room = limit.saturating_sub(kept.len());
-            kept.extend_from_slice(&data[..data.len().min(room)]);
+    ssh::block_on(async {
+        let mut output = ssh::exec(connection, "exec /bin/sh -s", ssh::ExecOptions {
+            stdin: Some(script.as_bytes()),
+            limit: limit.saturating_add(PID_LINE_LIMIT),
+            deadline: Some(deadline),
+            ..Default::default()
+        })
+        .await?;
+        if output.denied {
+            return Err(CoreError::Connection { message: "server refused to run commands".to_owned(), stage: Some("ssh_exec".to_owned()) });
         }
-        if channel.eof() && !progressed {
-            break;
+        let pid_end = output.stdout.iter().position(|byte| *byte == b'\n').filter(|end| *end < PID_LINE_LIMIT);
+        let pid = pid_end.and_then(|end| std::str::from_utf8(&output.stdout[..end]).ok()?.trim().parse::<u32>().ok());
+        if let Some(end) = pid_end {
+            output.stdout.drain(..=end);
+            output.stdout_total = output.stdout_total.saturating_sub(end as u64 + 1);
         }
-        if std::time::Instant::now() >= deadline {
-            timed_out = true;
-            break;
-        }
-        if !progressed {
-            std::thread::sleep(std::time::Duration::from_millis(5));
-        }
-    }
-
-    session.set_blocking(true);
-    session.set_timeout(2_000);
-    let exit_status = if timed_out {
-        // Without a PTY sshd does not hang up the command when the channel
-        // closes, so stop the shell and its direct children explicitly.
-        let pid = std::str::from_utf8(&pid_line).ok().and_then(|value| value.trim().parse::<u32>().ok());
-        if let Some(pid) = pid.filter(|pid| *pid > 1) {
-            if let Ok(mut killer) = session.channel_session() {
-                let _ = killer.exec(&format!("pkill -TERM -P {pid} 2>/dev/null; kill -TERM {pid} 2>/dev/null"));
-                let _ = killer.wait_close();
+        output.stdout.truncate(limit);
+        if output.timed_out {
+            // Without a PTY sshd does not hang up the command when the channel
+            // closes, so stop the shell and its direct children explicitly.
+            if let Some(pid) = pid.filter(|pid| *pid > 1) {
+                let _ = ssh::exec(connection, &format!("pkill -TERM -P {pid} 2>/dev/null; kill -TERM {pid} 2>/dev/null"), ssh::ExecOptions {
+                    deadline: Some(std::time::Instant::now() + std::time::Duration::from_secs(5)),
+                    ..Default::default()
+                })
+                .await;
             }
         }
-        let _ = channel.close();
-        None
-    } else {
-        let _ = channel.wait_close();
-        channel.exit_status().ok()
-    };
-    let _ = session.disconnect(None, "done", None);
-    Ok(CoreCommandOutput {
-        exit_status,
-        stdout,
-        stderr,
-        stdout_total_bytes: stdout_total,
-        stderr_total_bytes: stderr_total,
-        timed_out,
-        duration_ms: started.elapsed().as_millis() as u64,
+        Ok(CoreCommandOutput {
+            exit_status: if output.timed_out { None } else { output.exit_status.map(|status| status as i32) },
+            stdout: output.stdout,
+            stderr: output.stderr,
+            stdout_total_bytes: output.stdout_total,
+            stderr_total_bytes: output.stderr_total,
+            timed_out: output.timed_out,
+            duration_ms: started.elapsed().as_millis() as u64,
+        })
     })
 }
 

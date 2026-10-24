@@ -682,12 +682,12 @@ void uniffi_snake_core_fn_init_callback_vtable_coretransferobserver(const Uniffi
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_FN_FUNC_OPEN_SFTP_PASSWORD
 #define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_FN_FUNC_OPEN_SFTP_PASSWORD
-void*_Nonnull uniffi_snake_core_fn_func_open_sftp_password(RustBuffer host, uint16_t port, RustBuffer username, RustBuffer password, RustBuffer known_hosts_path, RustBuffer accept_fingerprint, RustCallStatus *_Nonnull out_status
+void*_Nonnull uniffi_snake_core_fn_func_open_sftp_password(RustBuffer host, uint16_t port, RustBuffer username, RustBuffer password, RustBuffer known_hosts_path, RustBuffer accept_fingerprint, int8_t dedicated, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_FN_FUNC_OPEN_SFTP_PRIVATE_KEY
 #define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_FN_FUNC_OPEN_SFTP_PRIVATE_KEY
-void*_Nonnull uniffi_snake_core_fn_func_open_sftp_private_key(RustBuffer host, uint16_t port, RustBuffer username, RustBuffer private_key_path, RustBuffer passphrase, RustBuffer known_hosts_path, RustBuffer accept_fingerprint, RustCallStatus *_Nonnull out_status
+void*_Nonnull uniffi_snake_core_fn_func_open_sftp_private_key(RustBuffer host, uint16_t port, RustBuffer username, RustBuffer private_key_path, RustBuffer passphrase, RustBuffer known_hosts_path, RustBuffer accept_fingerprint, int8_t dedicated, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_FN_FUNC_OPEN_TERMINAL_PASSWORD

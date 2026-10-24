@@ -36,7 +36,7 @@ shasum -a 256 -c Snake-1.1.3-macos-arm64.dmg.sha256
 
 ### SSH 终端与配色
 
-- Rust/libssh2 `TerminalHandle` 提供真实 SSH PTY，SwiftTerm 负责渲染与输入。支持密码/私钥认证、主机密钥校验、真实协商算法详情、UTF-8 输入输出、PTY resize、远端退出和 30 秒 Keepalive；瞬时连接错误自动重试一次，并显示具体失败阶段。
+- Rust/russh `TerminalHandle` 提供真实 SSH PTY，SwiftTerm 负责渲染（默认 Metal GPU）与输入。支持密码/私钥认证、主机密钥校验、真实协商算法详情、UTF-8 输入输出、PTY resize、远端退出和 10 秒 Keepalive；同一会话的终端、SFTP 浏览与 MCP 命令复用一条已认证连接，传输分片使用独立连接；瞬时连接错误自动重试一次，断线后自动重连，并显示具体失败阶段。
 - 设置支持终端字体、字号及“Ghostty 清晰”“纯白”“经典”“鲜明”“Tokyo Night”“Catppuccin”“Gruvbox”“Solarized”内置主题，也可导入、删除 `.itermcolors`。默认 Ghostty 清晰，深色使用灰黑背景、白色正文和提高可读性的 ANSI 色；首次升级将原 Tokyo Night 选择迁入，其他主题保留。“纯白”在应用深色外观中也保持白底深字；其他内置浅色主题使用白底，导入主题保留原色。主题切换保留连接与输出缓冲。
 - 日志关键词和权限、时间、路径、地址等输出字段可本地高亮，不改写终端数据；尊重远端 ANSI / True Color，备用屏幕停用本地高亮。
 - Snake 不再自动改写远端 `ls/ll`、`LS_COLORS` 或 `CLICOLOR`；若服务器自身输出 ANSI 色，终端照常显示。详见 [当前终端配色说明](docs/TERMINAL_COLOR_SCHEMES.md)。
@@ -67,7 +67,7 @@ shasum -a 256 -c Snake-1.1.3-macos-arm64.dmg.sha256
 - 设置中的密码管理加密保存常用账号和密码，填入 SSH 后各会话保有独立副本；条目变更可多选关联会话同步，会话单独改账号或密码会解除关联。私钥编辑页展示书签解析出的本机路径。
 - SSH 终端、SFTP 和远程目录选择器在主机密钥变化时显示原、新指纹，只有明确确认后才更新对应地址和端口的信任记录并重连；取消保留原记录，重连时再次校验实际指纹。
 - `SnakeMountHelper` 只接受受管挂载目录与允许列表中的 sshfs 可执行路径。
-- 终端凭据以字节通过 UniFFI 传给 Rust/libssh2，认证材料在使用后清零；不会启动系统 `ssh`，也不会把密码传递给 argv、环境变量或拖放载荷。
+- 终端凭据以字节通过 UniFFI 传给 Rust/russh，认证材料在使用后清零；连接池只按凭据摘要区分，不保存明文；不会启动系统 `ssh`，也不会把密码传递给 argv、环境变量或拖放载荷。
 - 当前 SSHFS 仅对私钥会话执行真实挂载；密码型挂载会明确失败，直到受管 SSH_ASKPASS FIFO 完成，绝不降级为不安全的 argv/环境变量传密。
 
 ## 多语言

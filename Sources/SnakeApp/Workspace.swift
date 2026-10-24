@@ -1199,6 +1199,8 @@ public final class LocalUploadCoordinator: ObservableObject {
         }
     }
 
+    /// Transfer workers use their own connection so bulk data never shares a
+    /// TCP stream with interactive terminals; browsing uses the pooled one.
     nonisolated static func openTransferHandle(profile: SSHProfile) throws -> CoreSftpHandle {
         let authentication = try authentication(for: profile)
         defer {
@@ -1208,9 +1210,9 @@ public final class LocalUploadCoordinator: ObservableObject {
         }
         switch authentication {
         case .password(let password):
-            return try openSftpPassword(host: profile.host, port: UInt16(profile.port), username: profile.username, password: password, knownHostsPath: knownHostsPath, acceptFingerprint: nil)
+            return try openSftpPassword(host: profile.host, port: UInt16(profile.port), username: profile.username, password: password, knownHostsPath: knownHostsPath, acceptFingerprint: nil, dedicated: true)
         case .privateKey(let path, let passphrase, _):
-            return try openSftpPrivateKey(host: profile.host, port: UInt16(profile.port), username: profile.username, privateKeyPath: path, passphrase: passphrase, knownHostsPath: knownHostsPath, acceptFingerprint: nil)
+            return try openSftpPrivateKey(host: profile.host, port: UInt16(profile.port), username: profile.username, privateKeyPath: path, passphrase: passphrase, knownHostsPath: knownHostsPath, acceptFingerprint: nil, dedicated: true)
         }
     }
 
@@ -1385,7 +1387,8 @@ public final class SFTPRuntime: ObservableObject, Identifiable {
                             username: profile.username,
                             password: password,
                             knownHostsPath: knownHostsPath,
-                            acceptFingerprint: fingerprint
+                            acceptFingerprint: fingerprint,
+                            dedicated: false
                         )
                     case .privateKey(let path, let passphrase, _):
                         handle = try openSftpPrivateKey(
@@ -1395,7 +1398,8 @@ public final class SFTPRuntime: ObservableObject, Identifiable {
                             privateKeyPath: path,
                             passphrase: passphrase,
                             knownHostsPath: knownHostsPath,
-                            acceptFingerprint: fingerprint
+                            acceptFingerprint: fingerprint,
+                            dedicated: false
                         )
                     }
                     let home = try handle.homeDirectory()

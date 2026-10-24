@@ -4350,7 +4350,12 @@ fileprivate struct FfiConverterSequenceTypeCoreTransferJob: FfiConverterRustBuff
         return seq
     }
 }
-public func openSftpPassword(host: String, port: UInt16, username: String, password: Data, knownHostsPath: String, acceptFingerprint: String?)throws  -> CoreSftpHandle  {
+/**
+ * Opens an SFTP handle. Browsing shares the pooled connection; `dedicated`
+ * handles (parallel transfer workers) get their own TCP connection so bulk
+ * data never queues behind, or in front of, interactive traffic.
+ */
+public func openSftpPassword(host: String, port: UInt16, username: String, password: Data, knownHostsPath: String, acceptFingerprint: String?, dedicated: Bool)throws  -> CoreSftpHandle  {
     return try  FfiConverterTypeCoreSftpHandle_lift(try rustCallWithError(FfiConverterTypeCoreError_lift) {
     uniffi_snake_core_fn_func_open_sftp_password(
         FfiConverterString.lower(host),
@@ -4358,11 +4363,12 @@ public func openSftpPassword(host: String, port: UInt16, username: String, passw
         FfiConverterString.lower(username),
         FfiConverterData.lower(password),
         FfiConverterString.lower(knownHostsPath),
-        FfiConverterOptionString.lower(acceptFingerprint),$0
+        FfiConverterOptionString.lower(acceptFingerprint),
+        FfiConverterBool.lower(dedicated),$0
     )
 })
 }
-public func openSftpPrivateKey(host: String, port: UInt16, username: String, privateKeyPath: String, passphrase: Data?, knownHostsPath: String, acceptFingerprint: String?)throws  -> CoreSftpHandle  {
+public func openSftpPrivateKey(host: String, port: UInt16, username: String, privateKeyPath: String, passphrase: Data?, knownHostsPath: String, acceptFingerprint: String?, dedicated: Bool)throws  -> CoreSftpHandle  {
     return try  FfiConverterTypeCoreSftpHandle_lift(try rustCallWithError(FfiConverterTypeCoreError_lift) {
     uniffi_snake_core_fn_func_open_sftp_private_key(
         FfiConverterString.lower(host),
@@ -4371,7 +4377,8 @@ public func openSftpPrivateKey(host: String, port: UInt16, username: String, pri
         FfiConverterString.lower(privateKeyPath),
         FfiConverterOptionData.lower(passphrase),
         FfiConverterString.lower(knownHostsPath),
-        FfiConverterOptionString.lower(acceptFingerprint),$0
+        FfiConverterOptionString.lower(acceptFingerprint),
+        FfiConverterBool.lower(dedicated),$0
     )
 })
 }
@@ -4415,9 +4422,9 @@ public func probeHostKey(host: String, port: UInt16)throws  -> CoreHostKey  {
 })
 }
 /**
- * Runs `command` once over a fresh connection authenticated with a password.
- * The host key must already be trusted; an unknown key fails rather than
- * prompting, because no person is present to compare fingerprints.
+ * Runs `command` once on a new exec channel of the pooled connection for this
+ * session. The host key must already be trusted; an unknown key fails rather
+ * than prompting, because no person is present to compare fingerprints.
  */
 public func runCommandPassword(host: String, port: UInt16, username: String, password: Data, knownHostsPath: String, command: String, cwd: String?, timeoutMs: UInt64, maxOutputBytes: UInt64)throws  -> CoreCommandOutput  {
     return try  FfiConverterTypeCoreCommandOutput_lift(try rustCallWithError(FfiConverterTypeCoreError_lift) {
@@ -4466,10 +4473,10 @@ private let initializationResult: InitializationResult = {
     if bindings_contract_version != scaffolding_contract_version {
         return InitializationResult.contractVersionMismatch
     }
-    if (uniffi_snake_core_checksum_func_open_sftp_password() != 13522) {
+    if (uniffi_snake_core_checksum_func_open_sftp_password() != 2429) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_snake_core_checksum_func_open_sftp_private_key() != 41206) {
+    if (uniffi_snake_core_checksum_func_open_sftp_private_key() != 20473) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_snake_core_checksum_func_open_terminal_password() != 9232) {
@@ -4481,7 +4488,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_snake_core_checksum_func_probe_host_key() != 54009) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_snake_core_checksum_func_run_command_password() != 8127) {
+    if (uniffi_snake_core_checksum_func_run_command_password() != 8538) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_snake_core_checksum_func_run_command_private_key() != 62835) {

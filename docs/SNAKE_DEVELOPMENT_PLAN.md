@@ -10,15 +10,15 @@
 - 会话双击打开终端，右键打开终端/SFTP/修改/二次确认删除；会话可拖入同级分组。
 - 当前开发阶段会话密码/私钥口令暂存于权限为 `0600` 的明文凭据文件，SQLite 仅保存 credential reference；后续替换为外部密码工具适配器，私钥仍只保存 security-scoped bookmark。
 - Rust `snake_core` 通过 UniFFI 接入 Swift，负责 WAL SQLite 中的分组、会话、映射和传输历史；旧 JSON 配置会一次性迁移。
-- Rust/libssh2 SFTP 真实连接：密码/私钥认证、Snake 自管 `known_hosts`、首次指纹确认、指纹变化阻断、目录浏览、创建、重命名、删除、上传、缓存下载打开。
+- Rust/russh SFTP 真实连接（russh-sftp，请求流水线）：密码/私钥认证、Snake 自管 `known_hosts`、首次指纹确认、指纹变化阻断、目录浏览、创建、重命名、删除、上传、缓存下载打开。
 - Finder 文件/文件夹选择和拖入、SFTP 面板间真实 1 MiB 内存流式互传，以及由 Rust 原子控制器驱动的进度、速度、暂停、继续、取消；异常启动转 `interrupted`。
 - SFTP 本地上传支持断点续传和大文件并行分片：默认超过 50 MB 使用 4 个独立连接，阈值与并发数可在设置中调整；覆盖时先合并到远端隐藏暂存文件，再通过 `mv -f` 替换正式文件。
 - SFTP 通过 `lstat/readlink` 识别软连接：文件表展示链接目标，目录链接可进入、文件链接可打开、删除只执行 `unlink`，跨 SFTP 复制保留原始链接目标。
 - 远程权限编辑支持对真实文件夹递归应用 `chmod -R`；软连接不会开放递归选项，避免越过链接边界修改外部目录。
 - 主窗口不常驻传输条；当前 SFTP 标签有本地上传时，文件表底部项目统计左侧显示迷你确定进度，完成两秒后收为记录图标。点击后仅查看当前标签本次生命周期的上传记录和控制按钮。
 - 设置窗口已提供传输阈值、分片并发数、终端等宽字体和字号；终端字体变化会即时应用到稳定 SwiftTerm 表面，不触发 SSH 重连。
-- Rust/libssh2 `TerminalHandle` 已替换系统 `ssh`：SwiftTerm 保留稳定渲染表面，UniFFI 提供 PTY 输出回调、输入、resize 和关闭；终端与 SFTP 共用 Snake `known_hosts`、CredentialStore、15 秒超时和 30 秒 Keepalive。
-- 终端 I/O 由单一 Rust 工作线程独占 libssh2 Session/Channel，Swift 输入、resize 和关闭通过命令队列串行化；已在真实 OpenSSH 服务器验证密码认证、空闲 20 秒后输入、`stty size` resize、命令输出和状态码 0 退出。
+- Rust/russh `TerminalHandle` 已替换系统 `ssh`：SwiftTerm 保留稳定渲染表面，UniFFI 提供 PTY 输出回调、输入、resize 和关闭；终端与 SFTP 共用 Snake `known_hosts`、CredentialStore、20 秒握手超时和 10 秒 Keepalive。
+- 共享 tokio 运行时承载所有连接；同一会话按主机、端口与凭据摘要复用一条已认证连接，每个终端是一个独立通道与事件驱动任务，Swift 输入、resize 和关闭通过命令队列串行化；传输分片使用独立连接；已在真实 OpenSSH 服务器验证密码认证、空闲 20 秒后输入、`stty size` resize、命令输出和状态码 0 退出。
 - macFUSE/sshfs 检测、受管挂载路径、私钥 SSHFS、软链接、Finder 打开和安全卸载；密码不会进入 argv 或环境变量。
 - 自包含调试 App 打包：Rust dylib 使用 `@rpath` 嵌入 Frameworks，并携带 `SnakeMountHelper`。
 
@@ -133,7 +133,7 @@ Swift 侧：
 
 Rust 侧：
 
-- `ssh2`/libssh2：SSH、PTY 和 SFTP。
+- `russh` / `russh-sftp`（aws-lc-rs 加密后端）：SSH、PTY 和 SFTP。
 - `rusqlite`：SQLite 访问，使用 bundled SQLite。
 - `uniffi`：Swift 绑定。
 - `serde`：配置和内部事件序列化。
@@ -305,7 +305,7 @@ Swift 解析凭据后，以 `Data`/字节通过 UniFFI 传给 Rust。Rust 使用
 - Keepalive 间隔 30 秒
 - 支持 PTY resize、写入、关闭和状态订阅
 - 浅色/深色终端调色板跟随应用外观切换，切换时不重建 PTY、连接或滚动缓冲
-- Rust 使用 libssh2 的实际协商结果提供主机密钥、SHA256 指纹、密钥交换、双向加密与完整性算法；界面通过安全锁弹层展示，不使用静态算法文案
+- Rust 使用 russh 的实际协商结果提供主机密钥、SHA256 指纹、密钥交换、双向加密与完整性算法；界面通过安全锁弹层展示，不使用静态算法文案
 - 终端连接带不显示固定或推测的工作目录，也不向远端 shell 注入路径跟踪 Hook
 - 单次跨 FFI 输出块上限建议为 64 KiB
 - 网络错误、认证失败、主机密钥错误和远端退出使用不同错误码
@@ -806,7 +806,7 @@ Stacio 只能作为行为和架构参考：
 - 新建独立模型、API、错误码和测试数据。
 - 发布前执行人工相似性检查。
 
-Bonsplit fork 必须保留 MIT LICENSE 和版权声明。项目需要维护 `THIRD_PARTY_NOTICES.md`，登记 Bonsplit、SwiftTerm、libssh2、OpenSSL、UniFFI、SQLite 及其他发布产物包含的依赖。
+Bonsplit fork 必须保留 MIT LICENSE 和版权声明。项目需要维护 `THIRD_PARTY_NOTICES.md`，登记 Bonsplit、SwiftTerm、russh、AWS-LC、UniFFI、SQLite 及其他发布产物包含的依赖。
 
 ## 17. 第一版不包含
 

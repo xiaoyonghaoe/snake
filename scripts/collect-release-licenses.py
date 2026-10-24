@@ -8,6 +8,13 @@ import shutil
 import subprocess
 
 
+# Published crates that declare Apache-2.0 but ship no license file. Pinned by
+# version so an update forces a fresh review.
+APACHE_WITHOUT_LICENSE_FILE = {
+    ("russh", "0.64.1"), ("russh-cryptovec", "0.62.0"), ("russh-util", "0.52.0"), ("delegate", "0.13.5"),
+}
+
+
 def collect(destination: Path, target: str):
     root = Path(__file__).resolve().parent.parent
     metadata = json.loads(subprocess.check_output([
@@ -60,8 +67,8 @@ def collect(destination: Path, target: str):
                  p.name.upper().startswith(("LICENSE", "COPYING", "NOTICE", "UNLICENSE"))}
         if package.get("license_file"):
             files.add(source / package["license_file"])
-        native = {"libssh2-sys": "libssh2/COPYING", "openssl-src": "openssl/LICENSE.txt"}
-        if name in native:
+        native = {"aws-lc-sys": "aws-lc/LICENSE"}
+        if name in native and (source / native[name]).exists():
             files.add(source / native[name])
         for path in files:
             shutil.copy2(path, out / str(path.relative_to(source)).replace("/", "__"))
@@ -75,6 +82,9 @@ def collect(destination: Path, target: str):
         if not files and name.startswith("uniffi") and version == "0.29.5":
             shutil.copy2(root / "Resources/Licenses/UniFFI/LICENSE", out / "LICENSE")
             shutil.copy2(root / "Resources/Licenses/UniFFI/README.md", out / "PROVENANCE.md")
+        elif not files and (name, version) in APACHE_WITHOUT_LICENSE_FILE:
+            shutil.copy2(root / "Resources/Licenses/Apache-2.0/LICENSE", out / "LICENSE")
+            shutil.copy2(root / "Resources/Licenses/Apache-2.0/README.md", out / "PROVENANCE.md")
         elif not files:
             raise RuntimeError(f"Missing license text: {name} {version}")
         rows.append(f"| {name} {version} | {package['license']} | "
