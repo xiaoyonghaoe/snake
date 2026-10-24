@@ -79,6 +79,11 @@ public final class ApplicationStore: ObservableObject {
     @Published var terminalFieldHighlightEnabled: Bool {
         didSet { defaults.set(terminalFieldHighlightEnabled, forKey: terminalFieldHighlightKey) }
     }
+    /// GPU (Metal) drawing. CoreGraphics remains as the fallback when this is
+    /// off or no Metal device is available.
+    @Published var terminalMetalRenderingEnabled: Bool {
+        didSet { defaults.set(terminalMetalRenderingEnabled, forKey: terminalMetalRenderingKey) }
+    }
     @Published public var terminalFontSize: Double {
         didSet {
             let value = min(max(terminalFontSize, 9), 32)
@@ -121,6 +126,7 @@ public final class ApplicationStore: ObservableObject {
     private let remoteOpenSizeLimitKey = "com.snake.transfer.remote-open-size-limit"
     private let terminalFontNameKey = "com.snake.terminal.font-name"
     private let terminalFontSizeKey = "com.snake.terminal.font-size"
+    private let terminalMetalRenderingKey = "com.snake.terminal.metal-rendering"
     private let terminalThemeKey = "com.snake.terminal.theme"
     private let terminalHighlightKey = "com.snake.terminal.log-highlight"
     private let terminalFieldHighlightKey = "com.snake.terminal.field-highlight"
@@ -191,6 +197,8 @@ public final class ApplicationStore: ObservableObject {
             : (RemoteOpenSizeLimit(rawValue: defaults.integer(forKey: remoteOpenSizeLimitKey)) ?? .mb500)
         self.terminalFontName = defaults.string(forKey: terminalFontNameKey)
             ?? NSFont.monospacedSystemFont(ofSize: 13, weight: .regular).fontName
+        self.terminalMetalRenderingEnabled = defaults.object(forKey: terminalMetalRenderingKey) == nil
+            ? true : defaults.bool(forKey: terminalMetalRenderingKey)
         let savedFontSize = defaults.double(forKey: terminalFontSizeKey)
         self.terminalFontSize = savedFontSize == 0 ? 13 : min(max(savedFontSize, 9), 32)
         let loadedShortcuts = Self.loadShortcuts(

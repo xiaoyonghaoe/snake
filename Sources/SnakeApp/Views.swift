@@ -744,7 +744,8 @@ private struct TerminalTabView: View {
                     runtime: runtime,
                     theme: terminalTheme,
                     fontName: store.terminalFontName,
-                    fontSize: store.terminalFontSize
+                    fontSize: store.terminalFontSize,
+                    usesMetal: store.terminalMetalRenderingEnabled
                 )
                     // Keep text off the window edges; the inset uses the theme background.
                     .padding(.leading, 12)
@@ -3818,8 +3819,11 @@ public struct SnakeSettingsView: View {
                             .frame(width: 52, alignment: .trailing)
                     }
                 }
+                Toggle("GPU 渲染（Metal）", isOn: $store.terminalMetalRenderingEnabled)
             } header: {
                 Text("终端字体")
+            } footer: {
+                SettingsFooter("GPU 渲染在大量输出时更流畅；如遇显示异常可关闭，改用 CPU 绘制。")
             }
             Section {
                 Text("终端配色示例 · 文件颜色仅用于预览")

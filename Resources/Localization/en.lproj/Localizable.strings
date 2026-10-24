@@ -701,3 +701,7 @@
 "错误" = "Error";
 "验证身份以查看 Snake 的 MCP Token" = "authenticate to view a Snake MCP token";
 "验证身份后查看 Token 和配置" = "Authenticate to view the token and configuration";
+
+/* Terminal rendering */
+"GPU 渲染（Metal）" = "GPU rendering (Metal)";
+"GPU 渲染在大量输出时更流畅；如遇显示异常可关闭，改用 CPU 绘制。" = "GPU rendering keeps heavy output smooth. Turn it off to fall back to CPU drawing if anything looks wrong.";

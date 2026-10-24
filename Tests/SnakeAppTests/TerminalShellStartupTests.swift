@@ -1,4 +1,5 @@
 import AppKit
+import Metal
 import XCTest
 @testable import SnakeApp
 @testable import SwiftTerm
@@ -174,4 +175,38 @@ finally:
     os.waitpid(pid, 0)
     os.close(fd)
 """#
+}
+
+@MainActor
+final class TerminalOutputPipelineTests: XCTestCase {
+    func testBackgroundChunksArriveInOrderBeforeTheCloseNotice() async throws {
+        let runtime = TerminalRuntime(profile: SSHProfile(name: "t", host: "127.0.0.1", username: "u"))
+        let view = runtime.terminalSurface()
+        view.getTerminal().resize(cols: 80, rows: 24)
+        let observer = RustTerminalObserver(runtime: runtime, attemptID: runtime.connectionAttemptID)
+        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+            DispatchQueue.global().async {
+                for index in 0..<500 { observer.onOutput(data: Data("line \(index)\r\n".utf8)) }
+                observer.onClosed(exitStatus: 0, message: nil)
+                done.resume()
+            }
+        }
+        for _ in 0..<50 where runtime.state != .disconnected { try await Task.sleep(for: .milliseconds(10)) }
+        let text = String(decoding: view.getTerminal().getBufferAsData(), as: UTF8.self)
+        XCTAssertTrue(text.contains("line 0") && text.contains("line 499"), "every chunk was displayed")
+        XCTAssertEqual(runtime.state, .disconnected, "close is delivered after the output")
+    }
+
+    func testRendererSwitchKeepsBuffer() throws {
+        let runtime = TerminalRuntime(profile: SSHProfile(name: "t", host: "127.0.0.1", username: "u"))
+        let view = runtime.terminalSurface()
+        view.frame = CGRect(x: 0, y: 0, width: 600, height: 300)
+        view.feed(text: "kept across renderers")
+        runtime.applyRenderer(metal: true)
+        if MTLCreateSystemDefaultDevice() != nil { XCTAssertTrue(view.isUsingMetalRenderer) }
+        runtime.applyRenderer(metal: false)
+        XCTAssertFalse(view.isUsingMetalRenderer)
+        let text = view.getTerminal().getText(start: Position(col: 0, row: 0), end: Position(col: 30, row: 0))
+        XCTAssertTrue(text.contains("kept across renderers"))
+    }
 }
