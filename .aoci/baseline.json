@@ -1,7 +1,7 @@
 {
   "version": 1,
   "created_at": "2026-09-15T08:15:17Z",
-  "updated_at": "2026-10-24T15:28:45Z",
+  "updated_at": "2026-10-25T02:43:17Z",
   "files": {
     ".gitattributes": {
       "role": "index",
@@ -545,9 +545,9 @@
       "normalized_sha256": "7cc91f0938c8d711b82b81dec9242d7137ded122f78b09f6b6cbbcdcdddeda1e"
     },
     "Tests/SnakeAppTests/TerminalShellStartupTests.swift": {
-      "sha256": "152eca8a130dff1ca7d1ca0410279a227d637406640bb478acd4bcdf3736bfb7",
-      "size": 11617,
-      "normalized_sha256": "152eca8a130dff1ca7d1ca0410279a227d637406640bb478acd4bcdf3736bfb7"
+      "sha256": "ec11847920c74334d251cdb967ee23b21d61fa7f9a3d98ac81e445173ef1d01b",
+      "size": 12397,
+      "normalized_sha256": "ec11847920c74334d251cdb967ee23b21d61fa7f9a3d98ac81e445173ef1d01b"
     },
     "Tests/SnakeAppTests/TerminalThemeImportTests.swift": {
       "sha256": "82dc613032da1f52ccd00d077ce79cbec3b76529c584cd9bd604a9579a8c604d",
@@ -576,9 +576,9 @@
       "normalized_sha256": "261de76480bbc4f5ceace9118a365c651ced313f57f2ebca964a0519468fcc97"
     },
     "aoci.code.txt": {
-      "sha256": "66b5eb468f89c79ba2506a6e6d55aa15cfa7332111ef419ae93eac6837dc51d9",
-      "size": 70578,
-      "normalized_sha256": "66b5eb468f89c79ba2506a6e6d55aa15cfa7332111ef419ae93eac6837dc51d9"
+      "sha256": "956eea0a6084b3098410e24483ff1a81c5e2b8ba12ab4d4ce4e4695a2ec0990f",
+      "size": 70685,
+      "normalized_sha256": "956eea0a6084b3098410e24483ff1a81c5e2b8ba12ab4d4ce4e4695a2ec0990f"
     },
     "aoci.meta.txt": {
       "role": "index",

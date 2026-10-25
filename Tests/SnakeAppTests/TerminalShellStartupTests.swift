@@ -197,6 +197,20 @@ final class TerminalOutputPipelineTests: XCTestCase {
         XCTAssertEqual(runtime.state, .disconnected, "close is delivered after the output")
     }
 
+    /// The Metal surface sits on top of the terminal; clicks and drops must
+    /// still reach the TerminalView, or focus never moves to another pane.
+    func testMetalSurfaceDoesNotTakeClicks() throws {
+        guard MTLCreateSystemDefaultDevice() != nil else { throw XCTSkip("No Metal device") }
+        let runtime = TerminalRuntime(profile: SSHProfile(name: "t", host: "127.0.0.1", username: "u"))
+        let view = runtime.terminalSurface()
+        let container = NSView(frame: CGRect(x: 0, y: 0, width: 600, height: 300))
+        view.frame = container.bounds
+        container.addSubview(view)
+        runtime.applyRenderer(metal: true)
+        XCTAssertTrue(view.isUsingMetalRenderer)
+        XCTAssertTrue(container.hitTest(NSPoint(x: 300, y: 150)) === view)
+    }
+
     func testRendererSwitchKeepsBuffer() throws {
         let runtime = TerminalRuntime(profile: SSHProfile(name: "t", host: "127.0.0.1", username: "u"))
         let view = runtime.terminalSurface()

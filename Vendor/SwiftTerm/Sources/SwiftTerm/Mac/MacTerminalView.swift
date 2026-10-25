@@ -280,7 +280,7 @@ open class TerminalView: NSView, NSTextInputClient, NSUserInterfaceValidations, 
             guard let device = MTLCreateSystemDefaultDevice() else {
                 throw MetalError.deviceUnavailable
             }
-            let mtkView = MTKView(frame: bounds, device: device)
+            let mtkView = PassthroughMetalView(frame: bounds, device: device)
             mtkView.autoresizingMask = [.width, .height]
             mtkView.isPaused = true
             mtkView.enableSetNeedsDisplay = true
@@ -2450,5 +2450,14 @@ extension TerminalViewDelegate {
     
     public func iTermContent (source: TerminalView, content: ArraySlice<UInt8>) {
     }
+}
+#endif
+
+#if os(macOS) && canImport(MetalKit)
+/// The Metal surface only draws. Mouse events, focus changes and drag
+/// destinations must reach the TerminalView underneath, exactly as they do
+/// with CoreGraphics drawing; otherwise a click never moves keyboard focus.
+final class PassthroughMetalView: MTKView {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
 #endif

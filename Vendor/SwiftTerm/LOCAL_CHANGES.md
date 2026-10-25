@@ -2,6 +2,11 @@
 
 上游与 MIT 许可见 `README.md`、`LICENSE` 及项目根目录 `THIRD_PARTY_NOTICES.md`。
 
+## 2026-10-25：Metal 视图不拦截点击
+
+- macOS 的 Metal 渲染视图改为 `PassthroughMetalView`（`hitTest` 返回 nil）。此前 `MTKView` 覆盖在终端上并接收点击，又不接受第一响应者，导致点击其他分屏无法转移键盘焦点，拖放落点判断也会命中该视图。
+- 与 `CaretView` 的处理方式一致；绘制行为不变。
+
 ## 2026-10-22：可调行高
 
 - macOS/iOS `TerminalView.lineHeightScale`（默认 1，限制在 1...2）按字体自然行高放大单元格高度；改变时走 `resetFont()` 重新计算行列数。
