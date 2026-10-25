@@ -4,11 +4,11 @@
 
 Snake is a native SSH workbench for macOS 15+: session management, terminal, SFTP file transfer, and SSHFS disk mapping share a single multi-window workspace.
 
-## Installing 1.1.3
+## Installing 1.2.0
 
 The current installer package is the **Apple Silicon (M-series) build**, requires **macOS 15 or later**, and there is no Intel / Universal 2 build.
 
-1. Open `Snake-1.1.3-macos-arm64.dmg`.
+1. Open `Snake-1.2.0-macos-arm64.dmg`.
 2. Drag **Snake.app into Applications** and wait for the copy to finish.
 3. Eject the disk image and launch Snake from Applications. Quit the old version before updating, and choose Replace when copying.
 
@@ -19,10 +19,10 @@ A local installer package has been generated and uploaded to GitHub Releases. Bu
 Place the DMG and the checksum file in the same directory and run the following in that directory:
 
 ```sh
-shasum -a 256 -c Snake-1.1.3-macos-arm64.dmg.sha256
+shasum -a 256 -c Snake-1.2.0-macos-arm64.dmg.sha256
 ```
 
-See the [1.1.3 release notes](docs/RELEASE_NOTES_1.1.3.md) for this update, and the [release process](docs/en/RELEASING.md) for build, signing, and notarization steps.
+See the [1.2.0 release notes](docs/RELEASE_NOTES_1.2.0.md) for this update, and the [release process](docs/en/RELEASING.md) for build, signing, and notarization steps.
 
 ## Current features
 
@@ -36,7 +36,7 @@ See the [1.1.3 release notes](docs/RELEASE_NOTES_1.1.3.md) for this update, and 
 
 ### SSH terminal and color themes
 
-- The Rust/libssh2 `TerminalHandle` provides a real SSH PTY, while SwiftTerm handles rendering and input. Supports password/private-key authentication, host key verification, details of the actually negotiated algorithms, UTF-8 input and output, PTY resize, remote exit, and a 30-second keepalive; transient connection errors are retried once automatically, and the specific failure stage is displayed.
+- The Rust/russh `TerminalHandle` provides a real SSH PTY, while SwiftTerm handles rendering (Metal GPU by default) and input. Supports password/private-key authentication, host key verification, details of the actually negotiated algorithms, UTF-8 input and output, PTY resize, remote exit, and a 10-second keepalive. Terminals, SFTP browsing and MCP commands for the same session share one authenticated connection, while transfer workers use their own; transient connection errors are retried once automatically, dropped sessions reconnect automatically, and the specific failure stage is displayed.
 - Settings offer terminal font/size, Ghostty Clear, Pure White, Classic, Vivid, Tokyo Night, Catppuccin, Gruvbox and Solarized, plus `.itermcolors` import. The default Ghostty Clear uses a charcoal background, white text and more legible ANSI colors. A one-time upgrade replaces the previous Tokyo Night selection while preserving other themes. Pure White keeps a white surface and dark text even in the dark app appearance. Other built-in light themes use white; imports keep their original colors. Switching themes preserves connections and output buffers.
 - Log keywords and output fields such as permissions, time, paths, and addresses can be highlighted locally without rewriting terminal data; remote ANSI / True Color is respected, and the alternate screen disables local highlighting.
 - Snake no longer injects `ls/ll` aliases, `LS_COLORS`, `CLICOLOR` or color hints into the remote shell; ANSI colors emitted by the server itself are still displayed normally. See the [current terminal color guide](docs/en/TERMINAL_COLOR_SCHEMES.md) for details.
@@ -58,6 +58,12 @@ See the [1.1.3 release notes](docs/RELEASE_NOTES_1.1.3.md) for this update, and 
 - The Finder disk name shows "mapping name · SSH session name"; the system's actual mount table is authoritative. Before quitting, the app waits for mount operations and safely unmounts managed mappings, and a failed unmount cancels the quit. Only closing a window or a mapping tab does not unmount the disk.
 - The Rust `snake_core` provides SQLite data storage, session/mapping/transfer record interfaces, and UniFFI Swift bindings; credentials are stored separately, encrypted, and never written to the database.
 
+## Local MCP remote commands
+
+- Enable the loopback HTTP server in Settings → MCP (default `http://127.0.0.1:47821/mcp`). Create a token bound to selected SSH profiles, with optional expiry, revocation and deletion.
+- Call `list_sessions` first, then `run_command` with a returned session ID. Commands run in remote `/bin/sh` without a PTY; each call is independent. Use `cwd` or `cd / && ls -l` for a directory; interactive programs are unsupported.
+- Tokens are encrypted, and revealing an existing token requires system authentication. Commands, output excerpts and denials are audited, with filters, deletion and retention controls. A token grants execution as its bound SSH account, not a read-only sandbox. Do not put secrets in commands or output. The server is loopback-only and real tokens are never bundled.
+
 ## Security boundaries
 
 - Passwords and private-key passphrases are encrypted with AES-256-GCM and stored in `~/Library/Application Support/Snake/credentials.json`, with the random 256-bit key kept in the system keychain, file permissions of `0600`, and directory permissions of `0700`. If the file is corrupted or the key is lost, the original file is not overwritten and there is no fallback to plaintext.
@@ -67,7 +73,7 @@ See the [1.1.3 release notes](docs/RELEASE_NOTES_1.1.3.md) for this update, and 
 - Password management in Settings encrypts reusable accounts and passwords. Each SSH profile receives its own copy; library updates can be selectively synchronized, and independent username/password edits detach the profile. The private-key editor displays the resolved local path.
 - When a host key changes, the SSH terminal, SFTP, and remote directory picker show the old and new fingerprints; only after explicit confirmation is the trust record for the corresponding address and port updated and the connection re-established; cancelling keeps the original record, and the actual fingerprint is verified again on reconnect.
 - `SnakeMountHelper` accepts only managed mount directories and sshfs executable paths from the allowlist.
-- Terminal credentials are passed as bytes to Rust/libssh2 through UniFFI, and the authentication material is zeroed after use; the system `ssh` is never launched, and the password is never passed through argv, environment variables, or drag-and-drop payloads.
+- Terminal credentials are passed as bytes to Rust/russh through UniFFI, and the authentication material is zeroed after use; the connection pool keys entries by a credential digest and never stores the secret; the system `ssh` is never launched, and the password is never passed through argv, environment variables, or drag-and-drop payloads.
 - SSHFS currently performs real mounts only for private-key sessions; password-based mounts fail explicitly until the managed SSH_ASKPASS FIFO is complete, and never fall back to passing secrets through insecure argv/environment variables.
 
 ## Localization
@@ -82,7 +88,7 @@ See the [1.1.3 release notes](docs/RELEASE_NOTES_1.1.3.md) for this update, and 
 
 - Workspaces are not restored across app restarts and interrupted transfers are not resumed automatically; a failed download retries from a fresh source version, and resumable downloads are not promised.
 - Password-based mount AskPass, the Intel / Universal 2 installer package, and Developer ID signing and notarization have not been delivered yet.
-- The known mount test `MountOperationsTests.testQuitIsCancelledWhenMountIsBusyOrMountTableCannotBeRead` fails with `invalidMapping`, so the overall test suite cannot be claimed to pass completely. Swift: 197 tests, 5 skipped and 1 pre-existing failure; the 25 shortcut/workspace tests and 22 Rust tests pass. Page and clean-Mac installation acceptance still need to be performed.
+- 1.2.0 verification: of 226 Swift tests, 220 passed, 5 external fixtures were skipped and 1 pre-existing mount test failed with `invalidMapping`. Rust: 32 unit tests and 3 isolated SSH/SFTP regressions passed. The full suite is not all-green; GUI, system authentication and clean-Mac installation acceptance remain manual.
 
 ## Interface preview
 
@@ -110,19 +116,19 @@ cargo run --example terminal_smoke -- <host> <port> <username> <known-hosts-path
 cargo run --example sftp_smoke -- <host> <port> <username> <known-hosts-path>
 ```
 
-System requirements: Xcode 16.4, Swift 6.1, Rust 1.87+. SwiftTerm is pinned to `v1.13.0` because Swift 6.1 on the current workstation is incompatible with the Swift 6.2 manifest on its main branch.
+System requirements: Xcode 16.4, Swift 6.1, Rust 1.89+ (required by russh 0.64) and Python 3. SwiftTerm is pinned to `v1.13.0` because Swift 6.1 on the current workstation is incompatible with the Swift 6.2 manifest on its main branch.
 
 `scripts/package-debug-app.sh` creates an ad-hoc-signed development app at `.build/debug-app/Snake.app` with the embedded Rust dynamic library and Mount Helper, for local interface testing.
 
 ### Building the DMG
 
 ```sh
-zsh scripts/package-release-dmg.sh 1.1.3
+zsh scripts/package-release-dmg.sh 1.2.0
 ```
 
 Python 3 is required; the script builds with Release optimizations and only produces an installer package for the current host architecture. Artifacts are placed in `release/`, and it refuses to overwrite existing files with the same name. The app contains the Rust dynamic library, the Mount Helper, SwiftTerm Metal resources, and third-party licenses, and does not depend on dynamic libraries or rendering resources from the workspace.
 
-The version and build numbers are stored in `Resources/Info.plist` and are currently `1.1.3` / `1130`. The script uses ad-hoc signing by default; see the [release process](docs/en/RELEASING.md) for Developer ID signing, notarization, and regenerating the checksum file. Local packaging does not automatically create Git tags or publish a GitHub Release.
+The version and build numbers are stored in `Resources/Info.plist` and are currently `1.2.0` / `1200`. The script uses ad-hoc signing by default; see the [release process](docs/en/RELEASING.md) for Developer ID signing, notarization, and regenerating the checksum file. Local packaging does not automatically create Git tags or publish a GitHub Release.
 
 On launch, the app automatically migrates legacy plaintext credentials to the encrypted file; if an old session still has only a Keychain reference, it is migrated into encrypted storage after its first successful read. See [credential encryption and viewing](docs/en/CREDENTIAL_SECURITY.md) for the detailed design and manual acceptance steps.
 

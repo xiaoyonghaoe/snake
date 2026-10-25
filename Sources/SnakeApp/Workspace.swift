@@ -59,7 +59,7 @@ public final class TerminalRuntime: ObservableObject, Identifiable {
     private var appliedFontName: String?
     private var appliedFontSize: Double?
     private var isStarting = false
-    private var connectionAttemptID = UUID()
+    private(set) var connectionAttemptID = UUID()
     private var shellStartup: TerminalShellStartup?
     private var shellStartupTimeout: Task<Void, Never>?
     private var startupInputReleased = false
@@ -169,6 +169,14 @@ public final class TerminalRuntime: ObservableObject, Identifiable {
     /// The remote PTY is opened at the view's size. Before the first layout the
     /// view is only a couple of columns wide, which would make the shell render
     /// its first prompt for that width, so wait briefly for a real size.
+    /// Switches between Metal and CoreGraphics drawing without touching the
+    /// buffer or the connection. A failed Metal setup leaves CoreGraphics active.
+    func applyRenderer(metal: Bool) {
+        let view = terminalSurface()
+        guard view.isUsingMetalRenderer != metal else { return }
+        try? view.setUseMetal(metal)
+    }
+
     func startIfNeeded(_ view: TerminalView, allowDefaultSize: Bool = false) {
         guard launchRequested, state == .connecting, !isStarting, handle == nil else { return }
         let terminal = view.getTerminal()
@@ -409,7 +417,8 @@ public final class TerminalRuntime: ObservableObject, Identifiable {
         }
     }
 
-    private nonisolated static func authentication(for profile: SSHProfile) throws -> TerminalAuthentication {
+    /// Shared with the MCP command runner, which authenticates the same way.
+    nonisolated static func authentication(for profile: SSHProfile) throws -> TerminalAuthentication {
         switch profile.authMethod {
         case .password:
             guard let account = profile.keychainAccount,
@@ -592,7 +601,7 @@ public final class TerminalRuntime: ObservableObject, Identifiable {
         if let handle, !input.isEmpty { write(input, to: handle) }
     }
 
-    nonisolated private static var knownHostsPath: String {
+    nonisolated static var knownHostsPath: String {
         let support = (try? FileManager.default.url(
             for: .applicationSupportDirectory,
             in: .userDomainMask,
@@ -603,12 +612,12 @@ public final class TerminalRuntime: ObservableObject, Identifiable {
     }
 }
 
-private enum TerminalAuthentication: Sendable {
+enum TerminalAuthentication: Sendable {
     case password(Data)
     case privateKey(path: String, passphrase: Data?, scopedURL: URL)
 }
 
-private enum TerminalRuntimeError: LocalizedError {
+enum TerminalRuntimeError: LocalizedError {
     case missingPassword
     case missingPrivateKey
     case stalePrivateKey
@@ -630,9 +639,16 @@ enum TerminalConnectionRetryPolicy {
     }
 }
 
-private final class RustTerminalObserver: CoreTerminalObserver, @unchecked Sendable {
+/// Output arrives on Rust's IO threads. Chunks are appended to one buffer and
+/// handed to the main thread in a single hop, so a burst of output is parsed in
+/// one `feed` instead of one main-actor task per network read.
+final class RustTerminalObserver: CoreTerminalObserver, @unchecked Sendable {
     private weak var runtime: TerminalRuntime?
     private let attemptID: UUID
+    private let lock = NSLock()
+    private var pending = Data()
+    private var flushScheduled = false
+    private var closed: (Int32, String?)?
 
     init(runtime: TerminalRuntime, attemptID: UUID) {
         self.runtime = runtime
@@ -640,15 +656,42 @@ private final class RustTerminalObserver: CoreTerminalObserver, @unchecked Senda
     }
 
     func onOutput(data: Data) {
-        Task { @MainActor [weak runtime] in
-            runtime?.feed(data, attemptID: attemptID)
-        }
+        guard !data.isEmpty else { return }
+        lock.lock()
+        pending.append(data)
+        let schedule = !flushScheduled
+        flushScheduled = true
+        lock.unlock()
+        if schedule { scheduleFlush() }
     }
 
     func onClosed(exitStatus: Int32, message: String?) {
-        Task { @MainActor [weak runtime] in
-            runtime?.terminalDidClose(exitStatus: exitStatus, message: message, attemptID: attemptID)
+        lock.lock()
+        closed = (exitStatus, message)
+        let schedule = !flushScheduled
+        flushScheduled = true
+        lock.unlock()
+        if schedule { scheduleFlush() }
+    }
+
+    private func scheduleFlush() {
+        DispatchQueue.main.async { [self] in
+            MainActor.assumeIsolated { flush() }
         }
+    }
+
+    @MainActor
+    private func flush() {
+        lock.lock()
+        let output = pending
+        pending = Data()
+        let close = closed
+        closed = nil
+        flushScheduled = false
+        lock.unlock()
+        // Output always precedes the close notice that followed it.
+        if !output.isEmpty { runtime?.feed(output, attemptID: attemptID) }
+        if let close { runtime?.terminalDidClose(exitStatus: close.0, message: close.1, attemptID: attemptID) }
     }
 }
 
@@ -1156,6 +1199,8 @@ public final class LocalUploadCoordinator: ObservableObject {
         }
     }
 
+    /// Transfer workers use their own connection so bulk data never shares a
+    /// TCP stream with interactive terminals; browsing uses the pooled one.
     nonisolated static func openTransferHandle(profile: SSHProfile) throws -> CoreSftpHandle {
         let authentication = try authentication(for: profile)
         defer {
@@ -1165,9 +1210,9 @@ public final class LocalUploadCoordinator: ObservableObject {
         }
         switch authentication {
         case .password(let password):
-            return try openSftpPassword(host: profile.host, port: UInt16(profile.port), username: profile.username, password: password, knownHostsPath: knownHostsPath, acceptFingerprint: nil)
+            return try openSftpPassword(host: profile.host, port: UInt16(profile.port), username: profile.username, password: password, knownHostsPath: knownHostsPath, acceptFingerprint: nil, dedicated: true)
         case .privateKey(let path, let passphrase, _):
-            return try openSftpPrivateKey(host: profile.host, port: UInt16(profile.port), username: profile.username, privateKeyPath: path, passphrase: passphrase, knownHostsPath: knownHostsPath, acceptFingerprint: nil)
+            return try openSftpPrivateKey(host: profile.host, port: UInt16(profile.port), username: profile.username, privateKeyPath: path, passphrase: passphrase, knownHostsPath: knownHostsPath, acceptFingerprint: nil, dedicated: true)
         }
     }
 
@@ -1342,7 +1387,8 @@ public final class SFTPRuntime: ObservableObject, Identifiable {
                             username: profile.username,
                             password: password,
                             knownHostsPath: knownHostsPath,
-                            acceptFingerprint: fingerprint
+                            acceptFingerprint: fingerprint,
+                            dedicated: false
                         )
                     case .privateKey(let path, let passphrase, _):
                         handle = try openSftpPrivateKey(
@@ -1352,7 +1398,8 @@ public final class SFTPRuntime: ObservableObject, Identifiable {
                             privateKeyPath: path,
                             passphrase: passphrase,
                             knownHostsPath: knownHostsPath,
-                            acceptFingerprint: fingerprint
+                            acceptFingerprint: fingerprint,
+                            dedicated: false
                         )
                     }
                     let home = try handle.homeDirectory()
@@ -3230,6 +3277,7 @@ public final class SnakeAppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         pruneRemoteOpenCacheOnLaunch()
+        store.mcp.activate()
     }
 
     public func applicationDidBecomeActive(_ notification: Notification) {
@@ -3266,23 +3314,27 @@ public struct TerminalHost: NSViewRepresentable {
     let theme: TerminalTheme
     let fontName: String
     let fontSize: Double
+    let usesMetal: Bool
 
     init(
         runtime: TerminalRuntime,
         theme: TerminalTheme,
         fontName: String,
-        fontSize: Double
+        fontSize: Double,
+        usesMetal: Bool = true
     ) {
         self.runtime = runtime
         self.theme = theme
         self.fontName = fontName
         self.fontSize = fontSize
+        self.usesMetal = usesMetal
     }
 
     public func makeNSView(context: Context) -> TerminalView {
         let terminalView = runtime.terminalSurface()
         runtime.applyTheme(theme)
         runtime.applyFont(name: fontName, size: fontSize)
+        runtime.applyRenderer(metal: usesMetal)
         runtime.startIfNeeded(terminalView)
         return terminalView
     }
@@ -3290,6 +3342,7 @@ public struct TerminalHost: NSViewRepresentable {
     public func updateNSView(_ nsView: TerminalView, context: Context) {
         runtime.applyTheme(theme)
         runtime.applyFont(name: fontName, size: fontSize)
+        runtime.applyRenderer(metal: usesMetal)
         runtime.startIfNeeded(nsView)
     }
 }

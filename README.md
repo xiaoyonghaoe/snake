@@ -4,11 +4,11 @@
 
 Snake 是面向 macOS 15+ 的原生 SSH 工作台：会话管理、终端、SFTP 文件传输和 SSHFS 磁盘映射共用一个多窗口工作区。
 
-## 1.1.3 安装
+## 1.2.0 安装
 
 当前安装包为 **Apple Silicon（M 系列）版**，要求 **macOS 15 或更高版本**，不包含 Intel / Universal 2 版本。
 
-1. 打开 `Snake-1.1.3-macos-arm64.dmg`。
+1. 打开 `Snake-1.2.0-macos-arm64.dmg`。
 2. 将 **Snake.app 拖到 Applications（应用程序）**，等待复制完成。
 3. 推出磁盘映像，从“应用程序”启动 Snake。更新旧版前先退出应用，复制时选择替换。
 
@@ -19,10 +19,10 @@ Snake 是面向 macOS 15+ 的原生 SSH 工作台：会话管理、终端、SFTP
 将 DMG 与校验文件放在同一目录，在该目录执行：
 
 ```sh
-shasum -a 256 -c Snake-1.1.3-macos-arm64.dmg.sha256
+shasum -a 256 -c Snake-1.2.0-macos-arm64.dmg.sha256
 ```
 
-本次更新见 [1.1.3 版本说明](docs/RELEASE_NOTES_1.1.3.md)，构建、签名与公证步骤见 [发布流程](docs/RELEASING.md)。
+本次更新见 [1.2.0 版本说明](docs/RELEASE_NOTES_1.2.0.md)，构建、签名与公证步骤见 [发布流程](docs/RELEASING.md)。
 
 ## 当前功能
 
@@ -36,7 +36,7 @@ shasum -a 256 -c Snake-1.1.3-macos-arm64.dmg.sha256
 
 ### SSH 终端与配色
 
-- Rust/libssh2 `TerminalHandle` 提供真实 SSH PTY，SwiftTerm 负责渲染与输入。支持密码/私钥认证、主机密钥校验、真实协商算法详情、UTF-8 输入输出、PTY resize、远端退出和 30 秒 Keepalive；瞬时连接错误自动重试一次，并显示具体失败阶段。
+- Rust/russh `TerminalHandle` 提供真实 SSH PTY，SwiftTerm 负责渲染（默认 Metal GPU）与输入。支持密码/私钥认证、主机密钥校验、真实协商算法详情、UTF-8 输入输出、PTY resize、远端退出和 10 秒 Keepalive；同一会话的终端、SFTP 浏览与 MCP 命令复用一条已认证连接，传输分片使用独立连接；瞬时连接错误自动重试一次，断线后自动重连，并显示具体失败阶段。
 - 设置支持终端字体、字号及“Ghostty 清晰”“纯白”“经典”“鲜明”“Tokyo Night”“Catppuccin”“Gruvbox”“Solarized”内置主题，也可导入、删除 `.itermcolors`。默认 Ghostty 清晰，深色使用灰黑背景、白色正文和提高可读性的 ANSI 色；首次升级将原 Tokyo Night 选择迁入，其他主题保留。“纯白”在应用深色外观中也保持白底深字；其他内置浅色主题使用白底，导入主题保留原色。主题切换保留连接与输出缓冲。
 - 日志关键词和权限、时间、路径、地址等输出字段可本地高亮，不改写终端数据；尊重远端 ANSI / True Color，备用屏幕停用本地高亮。
 - Snake 不再自动改写远端 `ls/ll`、`LS_COLORS` 或 `CLICOLOR`；若服务器自身输出 ANSI 色，终端照常显示。详见 [当前终端配色说明](docs/TERMINAL_COLOR_SCHEMES.md)。
@@ -58,6 +58,12 @@ shasum -a 256 -c Snake-1.1.3-macos-arm64.dmg.sha256
 - Finder 磁盘名称显示“映射名称 · SSH 会话名称”；以系统实际挂载表为准。退出前等待挂载操作并安全卸载受管映射，卸载失败取消退出。仅关闭窗口或映射标签不卸载磁盘。
 - Rust `snake_core` 提供 SQLite 数据存储、会话/映射/传输记录接口及 UniFFI Swift 绑定；凭据单独加密保存，不写入数据库。
 
+### 本地 MCP 远程命令
+
+- 在「设置 → MCP」启用回环 HTTP 服务，默认地址为 `http://127.0.0.1:47821/mcp`；创建绑定指定 SSH 会话的 Token，可配置有效期、吊销与删除。
+- MCP 客户端先调用 `list_sessions`，再用返回的会话 ID 调用 `run_command`。命令使用远端 `/bin/sh`，没有 PTY；每次调用独立，使用 `cwd` 或 `cd / && ls -l` 指定目录，不支持交互程序。
+- Token 加密保存；查看已有 Token 需要系统身份验证。命令、返回摘录和拒绝记录进入审计，可筛选、删除和设置滚动保留策略。Token 赋予所绑定 SSH 账号的执行权限，不能当作只读沙箱；命令和输出中不要放秘密。服务不监听公网，不在安装包中附带真实 Token。
+
 ## 安全边界
 
 - 密码和私钥口令使用 AES-256-GCM 加密保存到 `~/Library/Application Support/Snake/credentials.json`，随机 256 位密钥保存在系统钥匙串，文件权限为 `0600`、目录为 `0700`。文件损坏或密钥丢失时不会覆盖原文件或回退明文。
@@ -67,7 +73,7 @@ shasum -a 256 -c Snake-1.1.3-macos-arm64.dmg.sha256
 - 设置中的密码管理加密保存常用账号和密码，填入 SSH 后各会话保有独立副本；条目变更可多选关联会话同步，会话单独改账号或密码会解除关联。私钥编辑页展示书签解析出的本机路径。
 - SSH 终端、SFTP 和远程目录选择器在主机密钥变化时显示原、新指纹，只有明确确认后才更新对应地址和端口的信任记录并重连；取消保留原记录，重连时再次校验实际指纹。
 - `SnakeMountHelper` 只接受受管挂载目录与允许列表中的 sshfs 可执行路径。
-- 终端凭据以字节通过 UniFFI 传给 Rust/libssh2，认证材料在使用后清零；不会启动系统 `ssh`，也不会把密码传递给 argv、环境变量或拖放载荷。
+- 终端凭据以字节通过 UniFFI 传给 Rust/russh，认证材料在使用后清零；连接池只按凭据摘要区分，不保存明文；不会启动系统 `ssh`，也不会把密码传递给 argv、环境变量或拖放载荷。
 - 当前 SSHFS 仅对私钥会话执行真实挂载；密码型挂载会明确失败，直到受管 SSH_ASKPASS FIFO 完成，绝不降级为不安全的 argv/环境变量传密。
 
 ## 多语言
@@ -81,7 +87,7 @@ shasum -a 256 -c Snake-1.1.3-macos-arm64.dmg.sha256
 
 - 不恢复跨应用重启的工作区或自动继续中断传输；下载失败重试从新的源版本重新下载，不承诺下载断点续传。
 - 密码型挂载 AskPass、Intel / Universal 2 安装包、Developer ID 签名与公证尚未交付。
-- 已知挂载测试 `MountOperationsTests.testQuitIsCancelledWhenMountIsBusyOrMountTableCannotBeRead` 存在 `invalidMapping` 失败，不能将整体测试宣称为全部通过。本次 Swift 197 项测试中 5 项跳过、1 项既有失败；快捷键/工作区 25 项及 Rust 22 项通过。页面和干净 Mac 安装验收仍需执行。
+- 1.2.0 验证：Swift 226 项中 220 项通过、5 项外部夹具跳过、1 项既有挂载 `invalidMapping` 失败；Rust 32 项单元测试和 3 项隔离 SSH/SFTP 回归通过。不能将整体测试宣称为全部通过。页面、系统身份验证和干净 Mac 安装验收仍由用户执行。
 
 ## 界面预览
 
@@ -109,19 +115,19 @@ cargo run --example terminal_smoke -- <host> <port> <username> <known-hosts-path
 cargo run --example sftp_smoke -- <host> <port> <username> <known-hosts-path>
 ```
 
-系统要求：Xcode 16.4、Swift 6.1、Rust 1.87+。SwiftTerm 固定到 `v1.13.0`，原因是当前工作站的 Swift 6.1 不兼容其主分支的 Swift 6.2 manifest。
+系统要求：Xcode 16.4、Swift 6.1、Rust 1.89+（russh 0.64 的最低要求）和 Python 3。SwiftTerm 固定到 `v1.13.0`，原因是当前工作站的 Swift 6.1 不兼容其主分支的 Swift 6.2 manifest。
 
 `scripts/package-debug-app.sh` 会在 `.build/debug-app/Snake.app` 创建内嵌 Rust 动态库与 Mount Helper、ad-hoc 签名的开发应用，供本机界面测试使用。
 
 ### 构建 DMG
 
 ```sh
-zsh scripts/package-release-dmg.sh 1.1.3
+zsh scripts/package-release-dmg.sh 1.2.0
 ```
 
 需要 Python 3；脚本使用 Release 优化构建，仅生成当前宿主架构的安装包。产物位于 `release/`，同名文件存在时拒绝覆盖。应用包含 Rust 动态库、Mount Helper、SwiftTerm Metal 资源及第三方许可证，不依赖工作区中的动态库或渲染资源。
 
-版本号和构建号保存在 `Resources/Info.plist`，当前为 `1.1.3` / `1130`。脚本默认临时签名；Developer ID 签名、公证和重新生成校验文件的步骤见 [发布流程](docs/RELEASING.md)。本地打包不会自动创建 Git 标签或发布 GitHub Release。
+版本号和构建号保存在 `Resources/Info.plist`，当前为 `1.2.0` / `1200`。脚本默认临时签名；Developer ID 签名、公证和重新生成校验文件的步骤见 [发布流程](docs/RELEASING.md)。本地打包不会自动创建 Git 标签或发布 GitHub Release。
 
 应用启动时自动将旧明文凭据迁移为加密文件；旧会话如果仍只有 Keychain 引用，会在首次成功读取后迁入加密存储。具体设计及手工验收见 [凭据加密与查看](docs/CREDENTIAL_SECURITY.md)。
 

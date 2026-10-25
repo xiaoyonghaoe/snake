@@ -8,7 +8,7 @@
 脚本只构建当前宿主架构，不将 arm64 冒充 Universal 2。
 
 ```sh
-zsh scripts/package-release-dmg.sh 1.1.3
+zsh scripts/package-release-dmg.sh 1.2.0
 ```
 
 输出在 `release/`（Git 忽略）：DMG 及 SHA-256 文件。已存在同名产物时拒绝覆盖。
@@ -21,7 +21,7 @@ zsh scripts/package-release-dmg.sh 1.1.3
 构建号默认读取 plist，可用 `SNAKE_BUILD_NUMBER` 覆盖。
 Cargo 许可证清单按锁文件和目标架构生成，包含 normal/build 依赖，不包含 dev 依赖。
 
-## 当前 1.1.3
+## 当前 1.2.0
 
 - Apple Silicon / macOS 15+；本地 ad-hoc 签名，不是 Apple 公证包。
 - 不包含 Intel 或 Universal 2 产物。
@@ -36,9 +36,9 @@ Cargo 许可证清单按锁文件和目标架构生成，包含 normal/build 依
 更换签名可能影响原测试包的钥匙串访问批准，发布前必须回归已保存凭据连接。
 
 ```sh
-xcrun notarytool submit release/Snake-1.1.3-macos-arm64.dmg --keychain-profile <你的公证配置名> --wait
-xcrun stapler staple release/Snake-1.1.3-macos-arm64.dmg
-xcrun stapler validate release/Snake-1.1.3-macos-arm64.dmg
+xcrun notarytool submit release/Snake-1.2.0-macos-arm64.dmg --keychain-profile <你的公证配置名> --wait
+xcrun stapler staple release/Snake-1.2.0-macos-arm64.dmg
+xcrun stapler validate release/Snake-1.2.0-macos-arm64.dmg
 ```
 
 只有公证结果为 Accepted 后才装订票据。装订会改变文件，必须重新生成 SHA-256，不能沿用旧值。
@@ -50,7 +50,17 @@ Apple 安全机制参见 [官方说明](https://support.apple.com/zh-cn/102445)�
 上传 DMG、同名 SHA-256 和版本说明；在发布页注明架构、最低系统版本与是否公证。
 公开版本前先提交对应源码并确认构建和源码一致，再由维护者创建标签及 Release。
 
-## 本次构建验证记录（1.1.3 / 1130）
+## 本次构建验证记录（1.2.0 / 1200，2026-10-25）
+
+- Release 构建成功；应用、Helper 和 Rust dylib 均为 arm64，版本 `1.2.0` / `1200`。
+- DMG 10,580,322 字节；SHA-256：`bd45e81c11545bb47e286ff920cca283d9a1224e18668d08fb252bb0251f789b`。
+- `hdiutil verify`、SHA-256 与只读挂载后的 `codesign --verify --deep --strict` 通过；Applications 链接为 `/Applications`，中英文安装说明均为 1.2.0。
+- 实际挂载应用通过资源定位与 7 个 Metal shader 编译检查，英文 699 条、中文源语言齐备；未启动应用进行页面验收。
+- Rust 32 项单元测试及 3 项本机隔离 SSH/SFTP 回归通过。Swift 226 项中 220 通过、5 跳过、1 项既有挂载 `invalidMapping` 失败；DispatchWorkItem Sendable 与未使用变量编译警告保留。
+- 发布内容见 [1.2.0 版本说明](RELEASE_NOTES_1.2.0.md)。本包 ad-hoc、未公证；GUI、真实身份验证和干净 Mac 安装/升级由用户验收。
+- 发布标签应绑定合并后的 main 提交，并上传本次已验证的 DMG、同名 SHA-256 与版本说明；文档或索引提交不得改变构建源码。不要覆盖旧版本附件。
+
+## 历史构建验证记录（1.1.3 / 1130）
 
 - Release 构建成功，应用、Helper 和 Rust dylib 均为 arm64；版本为 `1.1.3` / `1130`。
 - DMG 8,693,334 字节；SHA-256：`a0f317358c222df7dbbbe903ee485cd8c006e927c59a17309458810a76c44a51`。

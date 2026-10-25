@@ -118,8 +118,8 @@ final class SFTPDownloadIntegrationTests: XCTestCase {
         let hosts = root.appendingPathComponent("known_hosts").path
         // First verified connection writes the fixture host key; concurrent
         // workers subsequently read it without rewriting known_hosts.
-        _ = try openSftpPassword(host: "127.0.0.1", port: port, username: user, password: Data("snake-fixture-only".utf8), knownHostsPath: hosts, acceptFingerprint: key.fingerprint)
-        return { try openSftpPassword(host: "127.0.0.1", port: port, username: user, password: Data("snake-fixture-only".utf8), knownHostsPath: hosts, acceptFingerprint: nil) }
+        _ = try openSftpPassword(host: "127.0.0.1", port: port, username: user, password: Data("snake-fixture-only".utf8), knownHostsPath: hosts, acceptFingerprint: key.fingerprint, dedicated: true)
+        return { try openSftpPassword(host: "127.0.0.1", port: port, username: user, password: Data("snake-fixture-only".utf8), knownHostsPath: hosts, acceptFingerprint: nil, dedicated: true) }
     }
 
     func testUploadDownloadTreesSHA256MD5AndUnavailable() async throws {

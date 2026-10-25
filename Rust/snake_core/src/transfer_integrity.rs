@@ -60,46 +60,19 @@ fn probe_failure(status: i32, output: &str) -> CoreError {
 
 // Read both streams through a single bounded channel. No remote file bytes are
 // returned here: only tool detection markers and a small digest response.
-fn command_output(session: &Session, command: &str, control: Option<&CoreTransferControl>) -> Result<(i32, String), CoreError> {
-    let mut channel = session.channel_session().map_err(connection_error)?;
-    channel.handle_extended_data(ExtendedData::Merge).map_err(connection_error)?;
-    if let Err(error) = channel.exec(&posix_command(command)) {
-        if error.code() == ErrorCode::Session(-22) { return Ok((126, "snake:exec-denied".into())); }
-        return Err(connection_error(error));
-    }
-    struct BlockingRestore<'a>(&'a Session);
-    impl Drop for BlockingRestore<'_> { fn drop(&mut self) { self.0.set_blocking(true); } }
-    session.set_blocking(false);
-    let _restore = BlockingRestore(session);
-    let mut bytes = Vec::new();
-    let start = std::time::Instant::now();
-    let timeout_seconds = if control.is_some() { 1800 } else { 30 };
-    loop {
-        if let Some(control) = control {
-            if let Err(error) = control.wait_if_paused() { let _ = channel.close(); return Err(error); }
-        }
-        if start.elapsed().as_secs() > timeout_seconds {
-            let _ = channel.close(); return Err(invalid("远端校验命令超时"));
-        }
-        let mut buffer = [0; 1024];
-        match channel.read(&mut buffer) {
-            Ok(0) if channel.eof() => break,
-            Ok(size) => bytes.extend_from_slice(&buffer[..size]),
-            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {},
-            Err(error) => return Err(io_error(error)),
-        }
-        if bytes.len() > 8192 { let _ = channel.close(); return Err(invalid("校验命令输出过长")); }
-        std::thread::sleep(std::time::Duration::from_millis(20));
-    }
-    // Drain close packets without switching to a blocking wait so cancellation
-    // stays responsive even when the server stalls after sending the digest.
-    while let Err(error) = channel.wait_close() {
-        if error.code() != ErrorCode::Session(-37) { return Err(connection_error(error)); }
-        if let Some(control) = control { control.wait_if_paused()?; }
-        if start.elapsed().as_secs() > timeout_seconds { return Err(invalid("远端命令关闭超时")); }
-        std::thread::sleep(std::time::Duration::from_millis(20));
-    }
-    Ok((channel.exit_status().map_err(connection_error)?, String::from_utf8_lossy(&bytes).into_owned()))
+fn command_output(connection: &ssh::Connection, command: &str, control: Option<&CoreTransferControl>) -> Result<(i32, String), CoreError> {
+    let timeout = std::time::Duration::from_secs(if control.is_some() { 1800 } else { 30 });
+    let output = ssh::block_on(ssh::exec(connection, &posix_command(command), ssh::ExecOptions {
+        limit: 8193,
+        deadline: Some(std::time::Instant::now() + timeout),
+        merge_stderr: true,
+        control,
+        ..Default::default()
+    }))?;
+    if output.denied { return Ok((126, "snake:exec-denied".into())); }
+    if output.timed_out { return Err(invalid("远端校验命令超时")); }
+    if output.stdout.len() > 8192 { return Err(invalid("校验命令输出过长")); }
+    Ok((output.exit_status.map_or(-1, |status| status as i32), String::from_utf8_lossy(&output.stdout).into_owned()))
 }
 
 fn parse_digest(output: &str, algorithm: &str) -> Result<String, CoreError> {
@@ -134,7 +107,7 @@ impl CoreSftpHandle {
     pub fn checksum_capability(&self) -> Result<CoreChecksumCapability, CoreError> {
         // Probe algorithms with an empty input as well as executable presence;
         // installations with disabled OpenSSL MD5 are not falsely advertised.
-        let result = command_output(&self._session, CHECKSUM_PROBE_SCRIPT, None);
+        let result = command_output(&self.connection, CHECKSUM_PROBE_SCRIPT, None);
         match result {
             Err(error) => Err(error),
             Ok((status, output)) => {
@@ -162,7 +135,7 @@ impl CoreSftpHandle {
         let path = validated_remote_upload_path(&path)?;
         // Redirection avoids interpreting filenames as options and prevents
         // escaped filenames from contaminating GNU checksum output parsing.
-        let (status, output) = command_output(&self._session, &format!("{command} < {}", shell_single_quote(&path)), Some(&control))?;
+        let (status, output) = command_output(&self.connection, &format!("{command} < {}", shell_single_quote(&path)), Some(&control))?;
         control.wait_if_paused()?;
         if status != 0 { return Err(invalid("远端文件校验命令失败，请检查文件权限或重试")); }
         parse_digest(&output, &capability.algorithm)
@@ -222,9 +195,9 @@ impl CoreSftpHandle {
         }
         if !overwrite { ensure_destination_absent(&self.sftp, Path::new(&target))?; }
         if overwrite {
-            sftp_publish::atomic_rename(&self._session, &staging, &target)
+            sftp_publish::atomic_rename(&self.sftp, &staging, &target)
         } else {
-            self.sftp.rename(Path::new(&staging), Path::new(&target), Some(ssh2::RenameFlags::empty())).map_err(connection_error)
+            self.sftp.rename(Path::new(&staging), Path::new(&target)).map_err(connection_error)
         }
     }
 
@@ -233,7 +206,7 @@ impl CoreSftpHandle {
         if parts.is_empty() { return Err(invalid("缺少上传分片")); }
         let staging = validated_remote_upload_path(&staging)?;
         let quoted = parts.iter().map(|p| validated_remote_upload_path(p).map(|p| shell_single_quote(&p))).collect::<Result<Vec<_>, _>>()?.join(" ");
-        let (status, _) = command_output(&self._session, &format!("cat -- {quoted} > {}", shell_single_quote(&staging)), Some(&control))?;
+        let (status, _) = command_output(&self.connection, &format!("cat -- {quoted} > {}", shell_single_quote(&staging)), Some(&control))?;
         if status != 0 { return Err(invalid("合并上传分片失败")); }
         control.wait_if_paused()
     }

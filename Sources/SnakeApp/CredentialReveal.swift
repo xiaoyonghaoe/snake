@@ -16,6 +16,11 @@ protocol CredentialAuthenticating: AnyObject {
 @MainActor
 final class DeviceOwnerCredentialAuthentication: CredentialAuthenticating {
     private let context = LAContext()
+    private let reason: String
+
+    init(reason: String = L10n.text("验证身份以查看 Snake 中已保存的密码或私钥口令")) {
+        self.reason = reason
+    }
 
     func authenticate() async throws {
         context.localizedCancelTitle = L10n.text("取消")
@@ -27,7 +32,7 @@ final class DeviceOwnerCredentialAuthentication: CredentialAuthenticating {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             context.evaluatePolicy(
                 .deviceOwnerAuthentication,
-                localizedReason: L10n.text("验证身份以查看 Snake 中已保存的密码或私钥口令")
+                localizedReason: reason
             ) { approved, error in
                 if approved {
                     continuation.resume()

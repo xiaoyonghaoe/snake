@@ -27,6 +27,7 @@ fn connect(hosts: &Path) -> Arc<CoreSftpHandle> {
         None,
         hosts.display().to_string(),
         Some(fingerprint),
+        false,
     )
     .unwrap()
 }

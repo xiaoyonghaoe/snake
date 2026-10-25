@@ -744,7 +744,8 @@ private struct TerminalTabView: View {
                     runtime: runtime,
                     theme: terminalTheme,
                     fontName: store.terminalFontName,
-                    fontSize: store.terminalFontSize
+                    fontSize: store.terminalFontSize,
+                    usesMetal: store.terminalMetalRenderingEnabled
                 )
                     // Keep text off the window edges; the inset uses the theme background.
                     .padding(.leading, 12)
@@ -3255,7 +3256,7 @@ private struct MountDependencyStatus {
 /// A bare `Form` neither scrolls nor aligns to the top inside a fixed window,
 /// so each pane scrolls, keeps the same outer padding and starts at the top
 /// instead of being vertically centred with large empty margins.
-private struct SettingsPane<Content: View>: View {
+struct SettingsPane<Content: View>: View {
     private let content: Content
 
     init(@ViewBuilder content: () -> Content) {
@@ -3276,7 +3277,7 @@ private struct SettingsPane<Content: View>: View {
 ///
 /// A grouped `Form` inside a `ScrollView` lays its footers out with trailing
 /// alignment; pinning the text to the leading edge matches the rest of macOS.
-private struct SettingsFooter: View {
+struct SettingsFooter: View {
     private let key: LocalizedStringKey
 
     init(_ key: LocalizedStringKey) {
@@ -3550,6 +3551,9 @@ public struct SnakeSettingsView: View {
                 // 「格式」whenever the bundle resolves to Chinese; `terminal`
                 // is a pictogram and reads the same in every language.
                 .tabItem { Label("终端", systemImage: "terminal") }
+
+            McpSettingsPane(mcp: store.mcp)
+                .tabItem { Label("MCP", systemImage: "point.3.connected.trianglepath.dotted") }
         }
         .frame(minWidth: 560, idealWidth: 640, minHeight: 460, idealHeight: 560)
         .environment(\.locale, store.appLanguage.locale)
@@ -3815,8 +3819,11 @@ public struct SnakeSettingsView: View {
                             .frame(width: 52, alignment: .trailing)
                     }
                 }
+                Toggle("GPU 渲染（Metal）", isOn: $store.terminalMetalRenderingEnabled)
             } header: {
                 Text("终端字体")
+            } footer: {
+                SettingsFooter("GPU 渲染在大量输出时更流畅；如遇显示异常可关闭，改用 CPU 绘制。")
             }
             Section {
                 Text("终端配色示例 · 文件颜色仅用于预览")

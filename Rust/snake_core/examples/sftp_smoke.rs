@@ -23,6 +23,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         password,
         arguments[4].clone(),
         None,
+        false,
     )?;
     let home = handle.home_directory()?;
     let entries = handle.list(home.clone())?;

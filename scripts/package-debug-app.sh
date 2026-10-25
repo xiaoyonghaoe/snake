@@ -13,9 +13,9 @@ SWIFTPM_CACHE_DIR="$BUILD_DIR/swiftpm-cache"
 cd "$PROJECT_DIR"
 "$PROJECT_DIR/scripts/generate-core-bindings.sh"
 mkdir -p "$MACOS_DIR" "$FRAMEWORKS_DIR" "$RESOURCES_DIR" "$SWIFTPM_CACHE_DIR/clang" "$SWIFTPM_CACHE_DIR/modules"
-CLANG_MODULE_CACHE_PATH="$SWIFTPM_CACHE_DIR/clang" SWIFTPM_MODULECACHE_OVERRIDE="$SWIFTPM_CACHE_DIR/modules" swift build --disable-sandbox --product Snake
-CLANG_MODULE_CACHE_PATH="$SWIFTPM_CACHE_DIR/clang" SWIFTPM_MODULECACHE_OVERRIDE="$SWIFTPM_CACHE_DIR/modules" swift build --disable-sandbox --product SnakeMountHelper
-SNAKE_BIN_DIR="$(CLANG_MODULE_CACHE_PATH="$SWIFTPM_CACHE_DIR/clang" SWIFTPM_MODULECACHE_OVERRIDE="$SWIFTPM_CACHE_DIR/modules" swift build --disable-sandbox --show-bin-path)"
+CLANG_MODULE_CACHE_PATH="$SWIFTPM_CACHE_DIR/clang" SWIFTPM_MODULECACHE_OVERRIDE="$SWIFTPM_CACHE_DIR/modules" swift build -c release --disable-sandbox --product Snake
+CLANG_MODULE_CACHE_PATH="$SWIFTPM_CACHE_DIR/clang" SWIFTPM_MODULECACHE_OVERRIDE="$SWIFTPM_CACHE_DIR/modules" swift build -c release --disable-sandbox --product SnakeMountHelper
+SNAKE_BIN_DIR="$(CLANG_MODULE_CACHE_PATH="$SWIFTPM_CACHE_DIR/clang" SWIFTPM_MODULECACHE_OVERRIDE="$SWIFTPM_CACHE_DIR/modules" swift build -c release --disable-sandbox --show-bin-path)"
 cp "$SNAKE_BIN_DIR/Snake" "$MACOS_DIR/Snake"
 cp "$SNAKE_BIN_DIR/SnakeMountHelper" "$MACOS_DIR/SnakeMountHelper"
 cp "$PROJECT_DIR/Rust/snake_core/target/release/libsnake_core.dylib" "$FRAMEWORKS_DIR/libsnake_core.dylib"

@@ -10,15 +10,15 @@ Already delivered:
 - Double-clicking a session opens a terminal; the context menu offers opening a terminal/SFTP, editing, and delete with secondary confirmation; sessions can be dragged into peer groups.
 - During the current development phase, session passwords/private key passphrases are temporarily stored in a plaintext credential file with permissions `0600`, and SQLite stores only a credential reference; this will later be replaced by an external password tool adapter, while the private key still stores only a security-scoped bookmark.
 - The Rust `snake_core` is integrated into Swift through UniFFI and is responsible for groups, sessions, mappings, and transfer history in WAL SQLite; the legacy JSON configuration is migrated once.
-- Real Rust/libssh2 SFTP connections: password/private key authentication, Snake-managed `known_hosts`, first-time fingerprint confirmation, fingerprint change blocking, directory browsing, creation, renaming, deletion, upload, and cached download-then-open.
+- Real Rust/russh SFTP connections (russh-sftp with pipelined requests): password/private key authentication, Snake-managed `known_hosts`, first-time fingerprint confirmation, fingerprint change blocking, directory browsing, creation, renaming, deletion, upload, and cached download-then-open.
 - Finder file/folder selection and drag-in, real 1 MiB in-memory streaming transfer between SFTP panels, and progress, speed, pause, resume, and cancel driven by the Rust atomic controller; abnormal startup transitions to `interrupted`.
 - SFTP local upload supports resume and parallel chunking for large files: by default, files over 50 MB use 4 independent connections, and the threshold and concurrency can be adjusted in settings; on overwrite, chunks are first merged into a hidden remote staging file and then replace the real file through `mv -f`.
 - SFTP identifies symbolic links through `lstat/readlink`: the file table shows the link target, directory links can be entered, file links can be opened, deletion performs only `unlink`, and cross-SFTP copy preserves the original link target.
 - Remote permission editing supports recursively applying `chmod -R` to real folders; symbolic links do not offer the recursive option, avoiding modification of external directories across the link boundary.
 - The main window has no persistent transfer bar; when the current SFTP tab has local uploads, a mini determinate progress indicator appears to the left of the item statistics at the bottom of the file table and collapses into a record icon two seconds after completion. Clicking it shows only the upload records and control buttons for the current lifetime of the current tab.
 - The settings window already provides the transfer threshold, chunk concurrency, and terminal monospaced font and font size; terminal font changes are applied immediately to the stable SwiftTerm surface without triggering an SSH reconnect.
-- The Rust/libssh2 `TerminalHandle` has replaced the system `ssh`: SwiftTerm keeps a stable rendering surface, and UniFFI provides PTY output callbacks, input, resize, and close; terminals and SFTP share Snake `known_hosts`, the CredentialStore, a 15-second timeout, and a 30-second keepalive.
-- Terminal I/O is exclusively owned by a single Rust worker thread holding the libssh2 Session/Channel, and Swift input, resize, and close are serialized through a command queue; password authentication, input after 20 seconds of idleness, `stty size` resize, command output, and exit with status code 0 have been verified against a real OpenSSH server.
+- The Rust/russh `TerminalHandle` has replaced the system `ssh`: SwiftTerm keeps a stable rendering surface, and UniFFI provides PTY output callbacks, input, resize, and close; terminals and SFTP share Snake `known_hosts`, the CredentialStore, a 20-second handshake timeout, and a 10-second keepalive.
+- A shared tokio runtime hosts all connections. One authenticated connection per host, port and credential digest is reused; each terminal is its own channel with an event-driven task, and Swift input, resize, and close are serialized through a command queue; transfer workers use dedicated connections; password authentication, input after 20 seconds of idleness, `stty size` resize, command output, and exit with status code 0 have been verified against a real OpenSSH server.
 - macFUSE/sshfs detection, managed mount paths, private key SSHFS, symbolic links, open in Finder, and safe unmounting; passwords never enter argv or environment variables.
 - Self-contained debug app packaging: the Rust dylib is embedded into Frameworks using `@rpath` and carries `SnakeMountHelper`.
 
@@ -133,7 +133,7 @@ Swift side:
 
 Rust side:
 
-- `ssh2`/libssh2: SSH, PTY, and SFTP.
+- `russh` / `russh-sftp` (aws-lc-rs crypto backend): SSH, PTY, and SFTP.
 - `rusqlite`: SQLite access, using bundled SQLite.
 - `uniffi`: Swift bindings.
 - `serde`: configuration and internal event serialization.
@@ -305,7 +305,7 @@ After Swift parses a credential, it passes it to Rust as `Data`/bytes through Un
 - Keepalive interval 30 seconds
 - Support for PTY resize, writing, closing, and state subscription
 - The light/dark terminal palette follows application appearance changes, and switching does not rebuild the PTY, connection, or scroll buffer
-- Rust provides the host key, SHA256 fingerprint, key exchange, and bidirectional encryption and integrity algorithms using the actual libssh2 negotiation results; the interface displays them through the security lock popover rather than using static algorithm text
+- Rust provides the host key, SHA256 fingerprint, key exchange, and bidirectional encryption and integrity algorithms using the actual russh negotiation results; the interface displays them through the security lock popover rather than using static algorithm text
 - The terminal connection band does not show a fixed or guessed working directory, nor does it inject a path tracking hook into the remote shell
 - The recommended upper limit for a single output block crossing the FFI boundary is 64 KiB
 - Network errors, authentication failures, host key errors, and remote exits use different error codes
@@ -806,7 +806,7 @@ Stacio may serve only as a behavioral and architectural reference:
 - Create independent models, APIs, error codes, and test data.
 - Perform a manual similarity check before release.
 
-The Bonsplit fork must retain the MIT LICENSE and copyright notice. The project needs to maintain `THIRD_PARTY_NOTICES.md`, registering Bonsplit, SwiftTerm, libssh2, OpenSSL, UniFFI, SQLite, and other dependencies included in release artifacts.
+The Bonsplit fork must retain the MIT LICENSE and copyright notice. The project needs to maintain `THIRD_PARTY_NOTICES.md`, registering Bonsplit, SwiftTerm, russh, AWS-LC, UniFFI, SQLite, and other dependencies included in release artifacts.
 
 ## 17. Not Included in the First Version
 
