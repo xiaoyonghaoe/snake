@@ -1,7 +1,7 @@
 {
   "version": 1,
   "created_at": "2026-09-15T08:15:17Z",
-  "updated_at": "2026-10-25T02:43:17Z",
+  "updated_at": "2026-10-25T03:18:57Z",
   "files": {
     ".gitattributes": {
       "role": "index",
@@ -67,19 +67,19 @@
       "normalized_sha256": "a18f5914c76f9d1341330259f62816352b4937c97cdc0315196e11c42b04d63a"
     },
     "README.en.md": {
-      "sha256": "9c79e28b21411efd808372df95950bf8d8df7a9054f486c208eb925b113e06ee",
-      "size": 15956,
-      "normalized_sha256": "9c79e28b21411efd808372df95950bf8d8df7a9054f486c208eb925b113e06ee"
+      "sha256": "4d7fd6f71b074832bb42090b170a6e19d2e8ed23541e866060b5c260d82d9d79",
+      "size": 16706,
+      "normalized_sha256": "4d7fd6f71b074832bb42090b170a6e19d2e8ed23541e866060b5c260d82d9d79"
     },
     "README.md": {
-      "sha256": "6ad71593988c81efea7d62ee1efbc99019b021b9d8aa45a0b778128a1c2cfb98",
-      "size": 12925,
-      "normalized_sha256": "6ad71593988c81efea7d62ee1efbc99019b021b9d8aa45a0b778128a1c2cfb98"
+      "sha256": "ea7f12e89d11e42cc390a1b21b9c01355b5d80cdd3d04c327ebb298862b4b81c",
+      "size": 13713,
+      "normalized_sha256": "ea7f12e89d11e42cc390a1b21b9c01355b5d80cdd3d04c327ebb298862b4b81c"
     },
     "Resources/Info.plist": {
-      "sha256": "9bbdd099d20aa15d88068954b6c004b9bc0246c571c311d6201c1a4b5c2a0620",
+      "sha256": "17577380c3e6618d3b5a6b046a607b36df6da67961d9a749aaf63c7638c4a854",
       "size": 1173,
-      "normalized_sha256": "9bbdd099d20aa15d88068954b6c004b9bc0246c571c311d6201c1a4b5c2a0620"
+      "normalized_sha256": "17577380c3e6618d3b5a6b046a607b36df6da67961d9a749aaf63c7638c4a854"
     },
     "Resources/Licenses/Apache-2.0/LICENSE": {
       "sha256": "49f8d7e0db741fbf236f9b2d736c10494a809190d7cf719788382f52c584cbee",
@@ -576,9 +576,9 @@
       "normalized_sha256": "261de76480bbc4f5ceace9118a365c651ced313f57f2ebca964a0519468fcc97"
     },
     "aoci.code.txt": {
-      "sha256": "956eea0a6084b3098410e24483ff1a81c5e2b8ba12ab4d4ce4e4695a2ec0990f",
-      "size": 70685,
-      "normalized_sha256": "956eea0a6084b3098410e24483ff1a81c5e2b8ba12ab4d4ce4e4695a2ec0990f"
+      "sha256": "d13b996354f7b1bdb1b268b271044c54fff5bd816a2d7ea14634f0d377ad7ca2",
+      "size": 71642,
+      "normalized_sha256": "d13b996354f7b1bdb1b268b271044c54fff5bd816a2d7ea14634f0d377ad7ca2"
     },
     "aoci.meta.txt": {
       "role": "index",
@@ -604,9 +604,9 @@
       "normalized_sha256": "9ae4a4fbc17cbc737a2aef4f4fdb209a8fb20d5c6458fcd29153560dcdc63f09"
     },
     "docs/INSTALL.md": {
-      "sha256": "b893a8ae4ac248bd3d71fa0b900b46a5c69e070046bc1504898a01097d620741",
+      "sha256": "1d9671e272bf94fb0cb79debf1f628c948e02711b890ee78bfa14fd8a919858a",
       "size": 1428,
-      "normalized_sha256": "b893a8ae4ac248bd3d71fa0b900b46a5c69e070046bc1504898a01097d620741"
+      "normalized_sha256": "1d9671e272bf94fb0cb79debf1f628c948e02711b890ee78bfa14fd8a919858a"
     },
     "docs/RELEASE_NOTES_1.1.0.md": {
       "role": "index",
@@ -631,10 +631,15 @@
       "size": 2537,
       "normalized_sha256": "954fdfdc660fdbfea09c7c0d0be6c922eac8878362177b78998693e1d7c939c6"
     },
+    "docs/RELEASE_NOTES_1.2.0.md": {
+      "sha256": "1c0625811522aaab564476f3923ce7f43e78f46e0d3f263545ff18631990b4b6",
+      "size": 4811,
+      "normalized_sha256": "1c0625811522aaab564476f3923ce7f43e78f46e0d3f263545ff18631990b4b6"
+    },
     "docs/RELEASING.md": {
-      "sha256": "f8750a274a4c9251f0c74c9c5a23e18d72284fb3397227ad4d60a1d5226fdbc3",
-      "size": 4841,
-      "normalized_sha256": "f8750a274a4c9251f0c74c9c5a23e18d72284fb3397227ad4d60a1d5226fdbc3"
+      "sha256": "bdcf6e8b9ce722ce645a9faa211cab2985437f4484bab8dd738b6154ea096112",
+      "size": 6015,
+      "normalized_sha256": "bdcf6e8b9ce722ce645a9faa211cab2985437f4484bab8dd738b6154ea096112"
     },
     "docs/SESSION_EDITOR.md": {
       "role": "index",
@@ -659,9 +664,9 @@
       "normalized_sha256": "e0e0775b6f7c8df54d403991bb08b041288b20df5468c2881fd515550127c612"
     },
     "docs/TERMINAL_COLOR_SCHEMES.md": {
-      "sha256": "ea95a98213104dffc835e6589d65d195c72eccff0602a177e190dc4570072cac",
-      "size": 2814,
-      "normalized_sha256": "ea95a98213104dffc835e6589d65d195c72eccff0602a177e190dc4570072cac"
+      "sha256": "726ffe21d7d36f1b87afa7a6cb3e920f4394aec85236bfb4317a4f0e704ac1e3",
+      "size": 2875,
+      "normalized_sha256": "726ffe21d7d36f1b87afa7a6cb3e920f4394aec85236bfb4317a4f0e704ac1e3"
     },
     "docs/TERMINAL_THEMES.md": {
       "sha256": "9a9723dec3e181508537fe355275377e907c6f54342f46ddc07ca7f845f9a3e8",
@@ -690,14 +695,14 @@
       "normalized_sha256": "e578b1fb743c3a78edd1e0130cdc7ac8993ac018290f70ff9ec9f5c40aca72f5"
     },
     "docs/en/INSTALL.md": {
-      "sha256": "d78bd9bcf9107128dcec9f32df3991683b2a37cc2d8c15efae888827a8ae9cdd",
+      "sha256": "2593bb2ec574aad183a2413da11e76e7e9cd26f73dba00e497629aa1e4ee96a7",
       "size": 1784,
-      "normalized_sha256": "d78bd9bcf9107128dcec9f32df3991683b2a37cc2d8c15efae888827a8ae9cdd"
+      "normalized_sha256": "2593bb2ec574aad183a2413da11e76e7e9cd26f73dba00e497629aa1e4ee96a7"
     },
     "docs/en/RELEASING.md": {
-      "sha256": "1a9bf73bfb4b5ab5a5020a514e4ca98d52c6842d741343583214b590d9cdfd7d",
-      "size": 5856,
-      "normalized_sha256": "1a9bf73bfb4b5ab5a5020a514e4ca98d52c6842d741343583214b590d9cdfd7d"
+      "sha256": "c9e85472ae040e6cc4e387248720a1df967b578112b40ee20247cf1a5b2e4579",
+      "size": 7060,
+      "normalized_sha256": "c9e85472ae040e6cc4e387248720a1df967b578112b40ee20247cf1a5b2e4579"
     },
     "docs/en/SESSION_EDITOR.md": {
       "role": "index",
@@ -721,15 +726,20 @@
       "size": 45283,
       "normalized_sha256": "444921b9458ca813dcb4a1c4fe630e9bcf51efcbba36578185ed2d2d4c7a79c4"
     },
+    "docs/en/TERMINAL_COLOR_SCHEMES.md": {
+      "sha256": "35bb4fee020aedbab8c9bce891d20706820710d90daba337ccf64a869b6a16ff",
+      "size": 3640,
+      "normalized_sha256": "35bb4fee020aedbab8c9bce891d20706820710d90daba337ccf64a869b6a16ff"
+    },
     "docs/en/TERMINAL_THEMES.md": {
-      "sha256": "f3ee45f74c8543e02ae32fb550e7bd5abcc00901e6294e008dae3ce048a869d1",
-      "size": 5642,
-      "normalized_sha256": "f3ee45f74c8543e02ae32fb550e7bd5abcc00901e6294e008dae3ce048a869d1"
+      "sha256": "afcac9008c5d4faddca78312cee80a757b4e3e23c10a6d4d3298100083644f76",
+      "size": 5639,
+      "normalized_sha256": "afcac9008c5d4faddca78312cee80a757b4e3e23c10a6d4d3298100083644f76"
     },
     "docs/en/TOKYO_NIGHT_COLORS.md": {
-      "sha256": "ae2a57c1fb9df5bf2242cd5b90cde10948f0aee4b47d16ce295f3dc5316209a7",
-      "size": 7300,
-      "normalized_sha256": "ae2a57c1fb9df5bf2242cd5b90cde10948f0aee4b47d16ce295f3dc5316209a7"
+      "sha256": "d9ff386a3bad171fa89bb4fe7d95fde282a7b3e624443fc314a1a05c452de46f",
+      "size": 7297,
+      "normalized_sha256": "d9ff386a3bad171fa89bb4fe7d95fde282a7b3e624443fc314a1a05c452de46f"
     },
     "docs/en/WORKSPACE_MANAGER_TABS.md": {
       "sha256": "a137a5596a47ff923f80793c32bb8ff56f2296107d62557bbf8edaa62febd486",
