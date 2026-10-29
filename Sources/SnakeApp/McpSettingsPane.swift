@@ -2,7 +2,8 @@ import AppKit
 import SnakeCoreBindings
 import SwiftUI
 
-/// Settings › MCP: the local server, its tokens and the command audit.
+/// MCP workspace tab (beside 磁盘映射): the local server, its tokens and the
+/// command audit, filling the window like terminal and SFTP tabs.
 struct McpSettingsPane: View {
     @EnvironmentObject private var store: ApplicationStore
     @ObservedObject var mcp: McpController
@@ -12,20 +13,41 @@ struct McpSettingsPane: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Picker("", selection: $section) {
-                Text("服务与 Token").tag(Section.service)
-                Text("命令审计").tag(Section.audit)
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .center) {
+                    heading
+                    Spacer(minLength: 16)
+                    sectionPicker
+                }
+                VStack(alignment: .leading, spacing: 12) { heading; sectionPicker }
             }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .frame(maxWidth: 320)
-            .padding(.top, 12)
-            .padding(.bottom, 4)
+            .padding(.horizontal, 24)
+            .padding(.vertical, 20)
+            Divider()
             switch section {
             case .service: McpServicePane(mcp: mcp)
             case .audit: McpAuditPane(mcp: mcp)
             }
         }
+        .background(SnakeStyle.canvas)
+    }
+
+    private var heading: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text("MCP 服务").font(.system(size: 22, weight: .bold))
+            Text("让 AI 工具通过本机 MCP 服务，在指定的 SSH 会话上执行命令并留下审计记录。")
+                .font(.system(size: 13)).foregroundStyle(SnakeStyle.muted)
+        }
+    }
+
+    private var sectionPicker: some View {
+        Picker("", selection: $section) {
+            Text("服务与 Token").tag(Section.service)
+            Text("命令审计").tag(Section.audit)
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .frame(width: 260)
     }
 }
 
@@ -41,61 +63,13 @@ private struct McpServicePane: View {
     @State private var message: String?
 
     var body: some View {
-        SettingsPane {
-            Section {
-                Toggle("启用 MCP 服务", isOn: $mcp.isEnabled)
-                LabeledContent("端口") {
-                    TextField("", value: $mcp.port, format: .number.grouping(.never))
-                        .labelsHidden()
-                        .multilineTextAlignment(.trailing)
-                        .frame(width: 80)
-                        .accessibilityLabel(L10n.text("端口"))
-                }
-                LabeledContent("状态") {
-                    HStack(spacing: 6) {
-                        Circle().fill(stateColor).frame(width: 7, height: 7)
-                        Text(stateText).foregroundStyle(.secondary)
-                        if case .failed = mcp.serverState {
-                            Button("重试") { mcp.restartServer() }
-                        }
-                    }
-                }
-                LabeledContent("端点") {
-                    HStack(spacing: 8) {
-                        Text(mcp.endpoint).font(.system(size: 12, design: .monospaced)).textSelection(.enabled)
-                        Button("复制") { copy(mcp.endpoint) }
-                    }
-                }
-            } header: {
-                Text("本地 MCP 服务")
-            } footer: {
-                SettingsFooter("服务只监听本机 127.0.0.1，使用 Streamable HTTP（POST /mcp）。AI 工具通过 Authorization: Bearer <Token> 访问，只能在 Token 绑定的会话上执行命令。命令通过独立的 SSH exec 通道运行，不影响已打开的终端；主机密钥必须先在 Snake 中信任过。")
+        ScrollView {
+            VStack(alignment: .leading, spacing: 24) {
+                serverCard
+                tokenSection
             }
-
-            Section {
-                if mcp.tokens.isEmpty {
-                    Text("尚未创建 Token。").foregroundStyle(.secondary)
-                }
-                ForEach(mcp.tokens) { token in
-                    tokenRow(token)
-                }
-                HStack {
-                    Spacer()
-                    Button {
-                        editor = McpTokenDraft()
-                    } label: {
-                        Label("新建 Token", systemImage: "plus")
-                    }
-                    .disabled(store.profiles.isEmpty)
-                }
-                if let message {
-                    Text(message).font(.system(size: 11)).foregroundStyle(.red)
-                }
-            } header: {
-                Text("Token")
-            } footer: {
-                SettingsFooter("Token 加密保存在本机，验证身份后可再次查看或复制。吊销后立即失效，可随时恢复；删除不可恢复，但审计记录会保留 Token 名称。")
-            }
+            .padding(24)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .onAppear { mcp.reloadTokens() }
         .sheet(item: $editor) { draft in
@@ -118,19 +92,127 @@ private struct McpServicePane: View {
         }
     }
 
+    private var serverCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 14) {
+                Image(systemName: stateSymbol)
+                    .font(.system(size: 22))
+                    .foregroundStyle(stateColor)
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 8) {
+                        Text(stateText).font(.system(size: 14, weight: .semibold)).lineLimit(2)
+                        if case .failed = mcp.serverState {
+                            Button("重试") { mcp.restartServer() }.controlSize(.small)
+                        }
+                    }
+                    HStack(spacing: 6) {
+                        Text(mcp.endpoint)
+                            .font(.system(size: 12, design: .monospaced))
+                            .foregroundStyle(SnakeStyle.muted)
+                            .textSelection(.enabled)
+                        Button { copy(mcp.endpoint) } label: { Image(systemName: "doc.on.doc") }
+                            .buttonStyle(.borderless)
+                            .help("复制")
+                    }
+                }
+                Spacer(minLength: 16)
+                HStack(spacing: 6) {
+                    Text("端口").foregroundStyle(SnakeStyle.muted)
+                    TextField("", value: $mcp.port, format: .number.grouping(.never))
+                        .labelsHidden()
+                        .multilineTextAlignment(.trailing)
+                        .frame(width: 72)
+                        .accessibilityLabel(L10n.text("端口"))
+                }
+                Toggle("启用 MCP 服务", isOn: $mcp.isEnabled)
+                    .toggleStyle(.switch)
+            }
+            Text("服务只监听本机 127.0.0.1，使用 Streamable HTTP（POST /mcp）。AI 工具通过 Authorization: Bearer <Token> 访问，只能在 Token 绑定的会话上执行命令。命令通过独立的 SSH exec 通道运行，不影响已打开的终端；主机密钥必须先在 Snake 中信任过。")
+                .font(.system(size: 12))
+                .foregroundStyle(SnakeStyle.muted)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(18)
+        .background(stateColor.opacity(0.08), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
+
+    private var tokenSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .center) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Token").font(.system(size: 15, weight: .semibold))
+                    Text("Token 加密保存在本机，验证身份后可再次查看或复制。吊销后立即失效，可随时恢复；删除不可恢复，但审计记录会保留 Token 名称。")
+                        .font(.system(size: 12))
+                        .foregroundStyle(SnakeStyle.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 16)
+                Button("新建 Token", systemImage: "plus") { editor = McpTokenDraft() }
+                    .buttonStyle(SnakeOutlineButtonStyle(emphasized: true))
+                    .disabled(store.profiles.isEmpty)
+            }
+            if let message {
+                Text(message).font(.system(size: 12)).foregroundStyle(.red)
+            }
+            tokenTable
+        }
+    }
+
+    private var tokenTable: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 12) {
+                Text("名称").frame(width: 220, alignment: .leading)
+                Text("可用会话").frame(minWidth: 180, maxWidth: .infinity, alignment: .leading)
+                Text("有效期").frame(width: 140, alignment: .leading)
+                Text("最近使用").frame(width: 120, alignment: .leading)
+                Text("操作").frame(width: 116, alignment: .trailing)
+            }
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(SnakeStyle.muted)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 9)
+            Divider()
+            if mcp.tokens.isEmpty {
+                Text(store.profiles.isEmpty ? L10n.text("请先新建 SSH 会话，再为它创建 Token。") : L10n.text("尚未创建 Token。"))
+                    .font(.system(size: 13))
+                    .foregroundStyle(SnakeStyle.muted)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(16)
+            }
+            ForEach(mcp.tokens) { token in
+                tokenRow(token)
+                if token.id != mcp.tokens.last?.id { Divider().opacity(0.6) }
+            }
+        }
+        .background(SnakeStyle.raisedSurface, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay { RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Color.primary.opacity(0.10), lineWidth: 1) }
+    }
+
     private func tokenRow(_ token: McpTokenInfo) -> some View {
-        HStack(alignment: .top, spacing: 10) {
+        HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
-                    Text(token.name).font(.system(size: 13, weight: .medium))
+                    Text(token.name).font(.system(size: 13, weight: .medium)).lineLimit(1)
                     McpStateBadge(state: token.state())
                 }
-                Text(token.prefix + "…").font(.system(size: 11, design: .monospaced)).foregroundStyle(.secondary)
-                Text(boundSessions(token)).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(2)
-                Text(usageText(token)).font(.system(size: 10)).foregroundStyle(.tertiary)
+                Text(token.prefix + "…").font(.system(size: 11, design: .monospaced)).foregroundStyle(SnakeStyle.muted)
             }
-            Spacer()
-            HStack(spacing: 6) {
+            .frame(width: 220, alignment: .leading)
+            .help(L10n.format("创建于 %@", token.createdAt.formatted(date: .numeric, time: .shortened)))
+            Text(boundSessions(token))
+                .font(.system(size: 12))
+                .lineLimit(2)
+                .frame(minWidth: 180, maxWidth: .infinity, alignment: .leading)
+                .help(boundSessions(token))
+            Text(token.expiresAt.map { $0.formatted(date: .numeric, time: .shortened) } ?? L10n.text("永不过期"))
+                .font(.system(size: 12))
+                .foregroundStyle(token.state() == .expired ? .orange : .primary)
+                .frame(width: 140, alignment: .leading)
+            Text(token.lastUsedAt.map { $0.formatted(.relative(presentation: .named)) } ?? L10n.text("从未使用"))
+                .font(.system(size: 12))
+                .foregroundStyle(SnakeStyle.muted)
+                .frame(width: 120, alignment: .leading)
+            HStack(spacing: 10) {
                 Button {
                     reveal(token)
                 } label: {
@@ -151,8 +233,19 @@ private struct McpServicePane: View {
                     .help("删除")
             }
             .buttonStyle(.borderless)
+            .frame(width: 116, alignment: .trailing)
         }
-        .padding(.vertical, 2)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+    }
+
+    private var stateSymbol: String {
+        switch mcp.serverState {
+        case .listening: "checkmark.circle.fill"
+        case .starting: "clock.fill"
+        case .failed: "exclamationmark.triangle.fill"
+        case .stopped: "pause.circle.fill"
+        }
     }
 
     private var stateText: String {
@@ -175,14 +268,7 @@ private struct McpServicePane: View {
 
     private func boundSessions(_ token: McpTokenInfo) -> String {
         let names = token.profileIDs.compactMap { id in store.profiles.first { $0.id == id }?.name }
-        return names.isEmpty ? L10n.text("未绑定会话") : L10n.format("会话：%@", names.joined(separator: "、"))
-    }
-
-    private func usageText(_ token: McpTokenInfo) -> String {
-        var parts = [L10n.format("创建于 %@", token.createdAt.formatted(date: .numeric, time: .shortened))]
-        if let used = token.lastUsedAt { parts.append(L10n.format("最近使用 %@", used.formatted(.relative(presentation: .named)))) }
-        if let expires = token.expiresAt { parts.append(L10n.format("有效期至 %@", expires.formatted(date: .numeric, time: .shortened))) }
-        return parts.joined(separator: " · ")
+        return names.isEmpty ? L10n.text("未绑定会话") : names.joined(separator: "、")
     }
 
     private func save(_ draft: McpTokenDraft) {
@@ -319,50 +405,61 @@ private struct McpTokenEditorSheet: View {
     let onCancel: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text(draft.id == nil ? L10n.text("新建 MCP Token") : L10n.text("编辑 MCP Token"))
-                .font(.system(size: 19, weight: .semibold))
-            TextField("名称，例如 Claude Code", text: $draft.name)
-                .textFieldStyle(.roundedBorder)
-            Picker("有效期", selection: $draft.expiry) {
-                ForEach(McpTokenDraft.Expiry.allCases, id: \.self) { Text($0.title).tag($0) }
+        SnakeEditorSheet(
+            context: L10n.text("MCP 服务"),
+            title: draft.id == nil ? L10n.text("新建 Token") : L10n.text("编辑 Token"),
+            onClose: onCancel
+        ) {
+            EditorSection(L10n.text("基本信息")) {
+                HStack(alignment: .top, spacing: 12) {
+                    EditorField(label: L10n.text("名称"), text: $draft.name, placeholder: L10n.text("例如 Claude Code"))
+                    EditorRow(L10n.text("有效期")) {
+                        Picker("有效期", selection: $draft.expiry) {
+                            ForEach(McpTokenDraft.Expiry.allCases, id: \.self) { Text($0.title).tag($0) }
+                        }
+                        .labelsHidden()
+                    }
+                }
+                if draft.expiry == .custom {
+                    EditorRow(L10n.text("到期时间")) {
+                        DatePicker("到期时间", selection: $draft.customDate, in: Date.now..., displayedComponents: [.date, .hourAndMinute])
+                            .labelsHidden()
+                    }
+                }
             }
-            if draft.expiry == .custom {
-                DatePicker("到期时间", selection: $draft.customDate, in: Date.now..., displayedComponents: [.date, .hourAndMinute])
-            }
-            Text("可使用的会话").font(.system(size: 12, weight: .medium))
-            ScrollView {
-                VStack(alignment: .leading, spacing: 6) {
+            EditorSection(
+                L10n.format("可用会话（已选 %@ 个）", draft.profileIDs.count),
+                footnote: L10n.text("AI 工具只能在勾选的会话上执行命令。")
+            ) {
+                VStack(spacing: 0) {
                     ForEach(profiles) { profile in
                         Toggle(isOn: Binding(get: { draft.profileIDs.contains(profile.id) }, set: { value in
                             if value { draft.profileIDs.insert(profile.id) } else { draft.profileIDs.remove(profile.id) }
                         })) {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(profile.name).font(.system(size: 12, weight: .medium))
-                                Text(profile.connectionLabel).font(.system(size: 10, design: .monospaced))
+                            HStack {
+                                Text(profile.name).font(.system(size: 13, weight: .medium))
+                                Spacer()
+                                Text(profile.connectionLabel).font(.system(size: 11, design: .monospaced))
                                     .foregroundStyle(SnakeStyle.muted)
                             }
                         }
                         .toggleStyle(.checkbox)
-                        .padding(.vertical, 3)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        if profile.id != profiles.last?.id { Divider().opacity(0.6) }
                     }
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(SnakeStyle.raisedSurface, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .overlay { RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(SnakeStyle.hairline, lineWidth: 1) }
             }
-            .frame(minHeight: 120)
-            Divider()
-            HStack {
-                Button("取消", action: onCancel).buttonStyle(SnakeOutlineButtonStyle())
-                Spacer()
-                Button(draft.id == nil ? L10n.text("创建") : L10n.text("保存")) { onSave(draft) }
-                    .buttonStyle(SnakeOutlineButtonStyle(emphasized: true))
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(draft.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || draft.profileIDs.isEmpty)
-            }
+        } leading: {
+            Button("取消", action: onCancel).buttonStyle(SnakeOutlineButtonStyle())
+        } trailing: {
+            Button(draft.id == nil ? L10n.text("创建") : L10n.text("保存")) { onSave(draft) }
+                .buttonStyle(SnakeOutlineButtonStyle(emphasized: true))
+                .keyboardShortcut(.defaultAction)
+                .disabled(draft.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || draft.profileIDs.isEmpty)
         }
-        .padding(20)
-        .frame(width: 480, height: 460)
-        .background(SnakeStyle.canvas)
     }
 }
 
@@ -379,43 +476,35 @@ private struct McpTokenSecretSheet: View {
     let onClose: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(secret.isNew ? L10n.format("已创建「%@」", secret.name) : secret.name)
-                .font(.system(size: 19, weight: .semibold))
-            Text("Token").font(.system(size: 12, weight: .medium))
-            HStack {
-                Text(secret.value)
-                    .font(.system(size: 12, design: .monospaced))
-                    .textSelection(.enabled)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                Spacer()
-                Button("复制 Token") { copy(secret.value) }
+        SnakeEditorSheet(
+            context: L10n.text("MCP 服务"),
+            title: secret.isNew ? L10n.format("已创建「%@」", secret.name) : secret.name,
+            onClose: onClose
+        ) {
+            EditorSection(L10n.text("Token")) {
+                EditorValueBox(secret.value) {
+                    Button("复制 Token") { copy(secret.value) }.controlSize(.small)
+                }
             }
-            .padding(8)
-            .background(SnakeStyle.raisedSurface, in: RoundedRectangle(cornerRadius: 6))
-            Text("Claude Code 配置（.mcp.json）").font(.system(size: 12, weight: .medium))
-            ScrollView {
+            EditorSection(
+                L10n.text("Claude Code 配置（.mcp.json）"),
+                footnote: L10n.text("配置文件包含 Token，请勿提交到 Git 仓库。窗口 60 秒后自动关闭。")
+            ) {
                 Text(snippet)
                     .font(.system(size: 11, design: .monospaced))
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(10)
+                    .background(SnakeStyle.raisedSurface, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                    .overlay { RoundedRectangle(cornerRadius: 7, style: .continuous).stroke(SnakeStyle.hairline, lineWidth: 1) }
             }
-            .padding(8)
-            .background(SnakeStyle.raisedSurface, in: RoundedRectangle(cornerRadius: 6))
-            Text("配置文件包含 Token，请勿提交到 Git 仓库。窗口 60 秒后自动关闭。")
-                .font(.system(size: 11)).foregroundStyle(SnakeStyle.muted)
-            HStack {
-                Button("复制配置") { copy(snippet) }.buttonStyle(SnakeOutlineButtonStyle())
-                Spacer()
-                Button("完成", action: onClose)
-                    .buttonStyle(SnakeOutlineButtonStyle(emphasized: true))
-                    .keyboardShortcut(.defaultAction)
-            }
+        } leading: {
+            Button("复制配置") { copy(snippet) }.buttonStyle(SnakeOutlineButtonStyle())
+        } trailing: {
+            Button("完成", action: onClose)
+                .buttonStyle(SnakeOutlineButtonStyle(emphasized: true))
+                .keyboardShortcut(.defaultAction)
         }
-        .padding(20)
-        .frame(width: 520, height: 380)
-        .background(SnakeStyle.canvas)
         .task {
             try? await Task.sleep(for: .seconds(60))
             if !Task.isCancelled { onClose() }
@@ -436,7 +525,6 @@ private struct McpAuditPane: View {
     @State private var total = 0
     @State private var pageSize = 200
     @State private var selection: Set<String> = []
-    @State private var detail: CoreMcpAuditRecord?
     @State private var pendingDeletion: Deletion?
     @State private var message: String?
 
@@ -473,7 +561,14 @@ private struct McpAuditPane: View {
         VStack(spacing: 0) {
             filters
             Divider()
-            table
+            HStack(spacing: 0) {
+                table
+                Divider()
+                detailPanel
+                    .frame(width: 340)
+                    .frame(maxHeight: .infinity)
+                    .background(SnakeStyle.canvas)
+            }
             Divider()
             retention
         }
@@ -483,9 +578,6 @@ private struct McpAuditPane: View {
         .onChange(of: profileFilter) { _, _ in resetAndReload() }
         .onChange(of: statusFilter) { _, _ in resetAndReload() }
         .onChange(of: range) { _, _ in resetAndReload() }
-        .sheet(item: $detail) { record in
-            McpAuditDetailSheet(record: record) { detail = nil }
-        }
         .confirmationDialog(deletionTitle, isPresented: Binding(
             get: { pendingDeletion != nil }, set: { if !$0 { pendingDeletion = nil } }
         ), presenting: pendingDeletion) { deletion in
@@ -497,32 +589,43 @@ private struct McpAuditPane: View {
     }
 
     private var filters: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 16) {
             Picker("Token", selection: $tokenFilter) {
                 Text("全部 Token").tag("")
                 ForEach(mcp.tokens) { Text($0.name).tag($0.id.uuidString) }
             }
-            .frame(maxWidth: 170)
+            .frame(maxWidth: 220)
             Picker("会话", selection: $profileFilter) {
                 Text("全部会话").tag("")
                 ForEach(store.profiles) { Text($0.name).tag($0.id.uuidString) }
             }
-            .frame(maxWidth: 170)
+            .frame(maxWidth: 240)
             Picker("状态", selection: $statusFilter) {
                 Text("全部状态").tag("")
                 ForEach(Self.statuses, id: \.self) { Text(McpAuditStatus.title($0)).tag($0) }
             }
-            .frame(maxWidth: 140)
+            .frame(maxWidth: 170)
             Picker("时间", selection: $range) {
                 ForEach(TimeRange.allCases, id: \.self) { Text($0.title).tag($0) }
             }
-            .frame(maxWidth: 150)
-            .labelsHidden()
-            Spacer()
+            .frame(maxWidth: 190)
+            Spacer(minLength: 12)
+            Text(L10n.format("共 %@ 条", total)).foregroundStyle(SnakeStyle.muted)
+            if records.count < total {
+                Button("加载更多") { pageSize += 200; reload() }
+            }
+            Menu("删除…") {
+                Button(L10n.format("删除所选（%@ 条）", selection.count)) { pendingDeletion = .selected }
+                    .disabled(selection.isEmpty)
+                Button("删除当前筛选结果") { pendingDeletion = .filtered }
+                Divider()
+                Button("清空全部审计记录") { pendingDeletion = .all }
+            }
+            .fixedSize()
         }
-        .labelsHidden()
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
+        .font(.system(size: 12))
+        .padding(.horizontal, 24)
+        .padding(.vertical, 12)
     }
 
     private var table: some View {
@@ -531,7 +634,7 @@ private struct McpAuditPane: View {
                 Text(McpController.date(record.startedAt).formatted(date: .numeric, time: .standard))
                     .font(.system(size: 11, design: .monospaced))
             }
-            .width(min: 118, ideal: 128)
+            .width(min: 120, ideal: 140)
             TableColumn("状态") { record in McpAuditStatus(status: record.status) }
                 .width(min: 50, ideal: 56)
             TableColumn("Token") { record in
@@ -540,27 +643,24 @@ private struct McpAuditPane: View {
                     .foregroundStyle(record.tokenId == nil ? .red : .primary)
                     .lineLimit(1)
             }
-            .width(min: 60, ideal: 84)
+            .width(min: 64, ideal: 100)
             TableColumn("会话") { record in
                 Text(record.profileLabel).font(.system(size: 11, design: .monospaced)).lineLimit(1).help(record.profileLabel)
             }
-            .width(min: 80, ideal: 120)
+            .width(min: 80, ideal: 140)
             TableColumn("退出码") { record in
                 Text(record.exitStatus.map(String.init) ?? "–").font(.system(size: 11, design: .monospaced))
             }
-            .width(min: 36, ideal: 44)
+            .width(min: 40, ideal: 48)
             TableColumn("命令") { record in
                 Text(record.command).font(.system(size: 11, design: .monospaced)).lineLimit(1).help(record.command)
             }
-            .width(min: 100)
+            .width(min: 160)
         }
         .contextMenu(forSelectionType: String.self) { ids in
             if let id = ids.first, let record = records.first(where: { $0.id == id }) {
-                Button("查看详情") { detail = record }
                 Button("复制命令") { copy(record.command) }
             }
-        } primaryAction: { ids in
-            if let id = ids.first { detail = records.first { $0.id == id } }
         }
         .overlay {
             if records.isEmpty {
@@ -569,47 +669,46 @@ private struct McpAuditPane: View {
         }
     }
 
-    private var retention: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 10) {
-                Text(L10n.format("共 %@ 条", total)).foregroundStyle(.secondary)
-                if records.count < total {
-                    Button("加载更多") { pageSize += 200; reload() }
-                }
-                Spacer()
-                Menu("删除…") {
-                    Button(L10n.format("删除所选（%@ 条）", selection.count)) { pendingDeletion = .selected }
-                        .disabled(selection.isEmpty)
-                    Button("删除当前筛选结果") { pendingDeletion = .filtered }
-                    Divider()
-                    Button("清空全部审计记录") { pendingDeletion = .all }
-                }
-                .fixedSize()
+    @ViewBuilder
+    private var detailPanel: some View {
+        if selection.count == 1, let id = selection.first, let record = records.first(where: { $0.id == id }) {
+            McpAuditDetailView(record: record)
+        } else {
+            VStack(spacing: 10) {
+                Image(systemName: "doc.text.magnifyingglass").font(.system(size: 28)).foregroundStyle(SnakeStyle.muted)
+                Text("选择一条记录查看详情").font(.system(size: 13)).foregroundStyle(SnakeStyle.muted)
             }
-            HStack(spacing: 14) {
-                Text("滚动删除").font(.system(size: 12, weight: .medium))
-                LabeledContent("保留天数") {
-                    TextField("", value: $mcp.retentionDays, format: .number.grouping(.never))
-                        .labelsHidden().multilineTextAlignment(.trailing).frame(width: 56)
-                        .accessibilityLabel(L10n.text("保留天数"))
-                }
-                LabeledContent("最多保留") {
-                    HStack(spacing: 4) {
-                        TextField("", value: $mcp.maxRecords, format: .number.grouping(.never))
-                            .labelsHidden().multilineTextAlignment(.trailing).frame(width: 72)
-                            .accessibilityLabel(L10n.text("最多保留"))
-                        Text("条").foregroundStyle(.secondary)
-                    }
-                }
-                Button("立即清理") { mcp.pruneAudit() }
-                Spacer()
-            }
-            Text("超过保留天数或条数上限的最早记录会自动删除，0 表示不限制。启动时、每新增 100 条及每小时检查一次。")
-                .font(.system(size: 11)).foregroundStyle(.secondary)
-            if let message { Text(message).font(.system(size: 11)).foregroundStyle(.red) }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
+    }
+
+    private var retention: some View {
+        HStack(spacing: 14) {
+            Text("滚动删除").font(.system(size: 12, weight: .semibold))
+            LabeledContent("保留天数") {
+                TextField("", value: $mcp.retentionDays, format: .number.grouping(.never))
+                    .labelsHidden().multilineTextAlignment(.trailing).frame(width: 56)
+                    .accessibilityLabel(L10n.text("保留天数"))
+            }
+            LabeledContent("最多保留") {
+                HStack(spacing: 4) {
+                    TextField("", value: $mcp.maxRecords, format: .number.grouping(.never))
+                        .labelsHidden().multilineTextAlignment(.trailing).frame(width: 72)
+                        .accessibilityLabel(L10n.text("最多保留"))
+                    Text("条").foregroundStyle(.secondary)
+                }
+            }
+            Button("立即清理") { mcp.pruneAudit() }
+            Text("超过保留天数或条数上限的最早记录会自动删除，0 表示不限制。启动时、每新增 100 条及每小时检查一次。")
+                .font(.system(size: 11))
+                .foregroundStyle(SnakeStyle.muted)
+                .lineLimit(2)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            if let message { Text(message).font(.system(size: 11)).foregroundStyle(.red).lineLimit(2) }
+        }
+        .font(.system(size: 12))
+        .padding(.horizontal, 24)
+        .padding(.vertical, 12)
     }
 
     private var filter: CoreMcpAuditFilter {
@@ -691,46 +790,41 @@ struct McpAuditStatus: View {
     }
 }
 
-private struct McpAuditDetailSheet: View {
+/// Inline detail beside the audit table.
+private struct McpAuditDetailView: View {
     let record: CoreMcpAuditRecord
-    let onClose: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Text("命令详情").font(.system(size: 19, weight: .semibold))
-                McpAuditStatus(status: record.status)
-                Spacer()
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    Text("命令详情").font(.system(size: 15, weight: .semibold))
+                    McpAuditStatus(status: record.status)
+                    Spacer()
+                    Button("复制命令") { copy(record.command) }.controlSize(.small)
+                }
+                Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 5) {
+                    row(L10n.text("时间"), McpController.date(record.startedAt).formatted(date: .numeric, time: .standard))
+                    row(L10n.text("Token"), record.tokenName.isEmpty ? L10n.text("无效 Token") : record.tokenName)
+                    row(L10n.text("会话"), record.profileLabel)
+                    if !record.clientName.isEmpty { row(L10n.text("客户端"), record.clientName) }
+                    if let cwd = record.cwd { row(L10n.text("工作目录"), cwd) }
+                    row(L10n.text("退出码"), record.exitStatus.map(String.init) ?? "–")
+                    if let duration = record.durationMs { row(L10n.text("耗时"), L10n.format("%@ 毫秒", duration)) }
+                    row(L10n.text("输出大小"), L10n.format("stdout %@ / stderr %@",
+                        ByteCountFormatter.string(fromByteCount: record.stdoutBytes, countStyle: .file),
+                        ByteCountFormatter.string(fromByteCount: record.stderrBytes, countStyle: .file)))
+                    if let error = record.errorMessage { row(L10n.text("错误"), error) }
+                }
+                .font(.system(size: 12))
+                block(L10n.text("命令"), record.command)
+                if !record.stdoutExcerpt.isEmpty { block("stdout", record.stdoutExcerpt) }
+                if !record.stderrExcerpt.isEmpty { block("stderr", record.stderrExcerpt) }
+                Text("审计中每路输出最多保存 16 KB。").font(.system(size: 11)).foregroundStyle(SnakeStyle.muted)
             }
-            Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 4) {
-                row(L10n.text("时间"), McpController.date(record.startedAt).formatted(date: .numeric, time: .standard))
-                row(L10n.text("Token"), record.tokenName.isEmpty ? L10n.text("无效 Token") : record.tokenName)
-                row(L10n.text("会话"), record.profileLabel)
-                if !record.clientName.isEmpty { row(L10n.text("客户端"), record.clientName) }
-                if let cwd = record.cwd { row(L10n.text("工作目录"), cwd) }
-                row(L10n.text("退出码"), record.exitStatus.map(String.init) ?? "–")
-                if let duration = record.durationMs { row(L10n.text("耗时"), L10n.format("%@ 毫秒", duration)) }
-                row(L10n.text("输出大小"), L10n.format("stdout %@ / stderr %@",
-                    ByteCountFormatter.string(fromByteCount: record.stdoutBytes, countStyle: .file),
-                    ByteCountFormatter.string(fromByteCount: record.stderrBytes, countStyle: .file)))
-                if let error = record.errorMessage { row(L10n.text("错误"), error) }
-            }
-            .font(.system(size: 12))
-            block(L10n.text("命令"), record.command)
-            if !record.stdoutExcerpt.isEmpty { block("stdout", record.stdoutExcerpt) }
-            if !record.stderrExcerpt.isEmpty { block("stderr", record.stderrExcerpt) }
-            Text("审计中每路输出最多保存 16 KB。").font(.system(size: 11)).foregroundStyle(SnakeStyle.muted)
-            HStack {
-                Button("复制命令") { copy(record.command) }.buttonStyle(SnakeOutlineButtonStyle())
-                Spacer()
-                Button("完成", action: onClose)
-                    .buttonStyle(SnakeOutlineButtonStyle(emphasized: true))
-                    .keyboardShortcut(.defaultAction)
-            }
+            .padding(18)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(20)
-        .frame(width: 600, height: 560)
-        .background(SnakeStyle.canvas)
     }
 
     private func row(_ label: String, _ value: String) -> some View {
@@ -749,7 +843,7 @@ private struct McpAuditDetailSheet: View {
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .frame(maxHeight: 120)
+            .frame(maxHeight: 240)
             .padding(6)
             .background(SnakeStyle.raisedSurface, in: RoundedRectangle(cornerRadius: 6))
         }

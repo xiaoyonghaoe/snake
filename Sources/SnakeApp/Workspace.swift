@@ -2208,7 +2208,7 @@ public final class WorkspaceTabRuntime: ObservableObject, Identifiable {
     }
 
     init(manager kind: WorkspaceTabKind = .sessions) {
-        precondition(kind == .sessions || kind == .mounts)
+        precondition(kind == .sessions || kind == .mounts || kind == .mcp)
         id = WorkspaceTabID()
         self.kind = kind
     }
@@ -2250,6 +2250,7 @@ public final class WorkspaceTabRuntime: ObservableObject, Identifiable {
         switch kind {
         case .sessions: L10n.text("SSH 会话")
         case .mounts: L10n.text("磁盘映射")
+        case .mcp: L10n.text("MCP")
         case .terminal: L10n.format("终端 · %@", profile?.name ?? "")
         case .sftp: L10n.format("SFTP · %@", profile?.name ?? "")
         }
@@ -2359,6 +2360,17 @@ public final class WorkspaceWindowState: ObservableObject, Identifiable {
         let runtime = WorkspaceTabRuntime(manager: kind)
         if kind == .sessions { runtime.searchFocusRequest = 1 }
         return add(runtime, to: pane ?? activePaneID ?? bonsplit.focusedPaneId)
+    }
+
+    /// MCP is single-instance per window: reopening selects the existing tab
+    /// instead of stacking duplicates.
+    @discardableResult
+    func showManager(_ kind: WorkspaceTabKind) -> Bool {
+        if let tabID = bonsplit.allTabIds.first(where: { tabs[$0]?.kind == kind }) {
+            bonsplit.selectTab(tabID)
+            return true
+        }
+        return openManager(kind)
     }
 
     func focusSessionSearch() {
@@ -2751,6 +2763,12 @@ public final class WorkspaceWindowCoordinator: NSObject {
     }
 
     func reopenWindows() {
+        // Settings is modal; bring it back instead of a window it is blocking.
+        if let modal = NSApp.modalWindow {
+            modal.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
         let visibleWindows = windows.values.compactMap(\.window).filter(\.isVisible)
         if let window = visibleWindows.first {
             window.makeKeyAndOrderFront(nil)

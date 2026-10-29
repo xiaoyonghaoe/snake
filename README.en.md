@@ -4,11 +4,11 @@
 
 Snake is a native SSH workbench for macOS 15+: session management, terminal, SFTP file transfer, and SSHFS disk mapping share a single multi-window workspace.
 
-## Installing 1.2.0
+## Installing 1.3.0
 
 The current installer package is the **Apple Silicon (M-series) build**, requires **macOS 15 or later**, and there is no Intel / Universal 2 build.
 
-1. Open `Snake-1.2.0-macos-arm64.dmg`.
+1. Open `Snake-1.3.0-macos-arm64.dmg`.
 2. Drag **Snake.app into Applications** and wait for the copy to finish.
 3. Eject the disk image and launch Snake from Applications. Quit the old version before updating, and choose Replace when copying.
 
@@ -19,16 +19,16 @@ A local installer package has been generated and uploaded to GitHub Releases. Bu
 Place the DMG and the checksum file in the same directory and run the following in that directory:
 
 ```sh
-shasum -a 256 -c Snake-1.2.0-macos-arm64.dmg.sha256
+shasum -a 256 -c Snake-1.3.0-macos-arm64.dmg.sha256
 ```
 
-See the [1.2.0 release notes](docs/RELEASE_NOTES_1.2.0.md) for this update, and the [release process](docs/en/RELEASING.md) for build, signing, and notarization steps.
+See the [1.3.0 release notes](docs/RELEASE_NOTES_1.3.0.md) for this update, and the [release process](docs/en/RELEASING.md) for build, signing, and notarization steps.
 
 ## Current features
 
 ### Sessions and multi-window workspace
 
-- Native AppKit/SwiftUI interface with a unified top bar and light/dark appearance; SSH sessions use card tabs instead of a sidebar or groups. Disk mappings open in a separate tab from the entry point in the top-right corner.
+- Native AppKit/SwiftUI interface with a unified top bar and light/dark appearance; SSH sessions use card tabs instead of a sidebar or groups. Disk mappings and the MCP service open from the top-right corner as full-window tabs, like terminals and SFTP, and share one sectioned add/edit sheet design. The Settings window is modal: close it to return to other windows.
 - Launching opens the SSH sessions page by default and never injects sample servers, sample mappings, or fake terminal output. Double-click the empty area at the end of the tab bar, or press the configurable `Command-T` shortcut (default), to add a session page to the current split and automatically focus search.
 - Supports session editing, space-separated tags, tag filtering with multi-selection, and cropping custom photo icons. Connecting through a card button, a double-click, or the context menu converts the current manager tab into a terminal or SFTP in place, without appending a tab.
 - Bonsplit supports tab reordering, side-by-side/top-and-bottom splits, dragging tabs out into separate windows, and merging across windows. Dropping a session card into the workspace creates a new connection, and holding Option creates an SFTP connection; moving an existing connection tab does not reconnect.
@@ -54,13 +54,13 @@ See the [1.2.0 release notes](docs/RELEASE_NOTES_1.2.0.md) for this update, and 
 
 ### Disk mappings and data
 
-- Supports macFUSE/sshfs dependency detection, mapping editing, private-key SSHFS mounts, opening in Finder, and safe unmounting, using a constrained `SnakeMountHelper`.
+- Supports macFUSE/sshfs dependency detection, mapping editing, password and private-key SSHFS mounts, opening in Finder, and safe unmounting, using a constrained `SnakeMountHelper`. The password (or a saved key passphrase) reaches ssh through a managed SSH_ASKPASS channel, is tried once, and a failed mount cleans up its whole process group.
 - The Finder disk name shows "mapping name · SSH session name"; the system's actual mount table is authoritative. Before quitting, the app waits for mount operations and safely unmounts managed mappings, and a failed unmount cancels the quit. Only closing a window or a mapping tab does not unmount the disk.
 - The Rust `snake_core` provides SQLite data storage, session/mapping/transfer record interfaces, and UniFFI Swift bindings; credentials are stored separately, encrypted, and never written to the database.
 
 ## Local MCP remote commands
 
-- Enable the loopback HTTP server in Settings → MCP (default `http://127.0.0.1:47821/mcp`). Create a token bound to selected SSH profiles, with optional expiry, revocation and deletion.
+- Enable the loopback HTTP server in the MCP service tab (top-right corner) (default `http://127.0.0.1:47821/mcp`). Create a token bound to selected SSH profiles, with optional expiry, revocation and deletion.
 - Call `list_sessions` first, then `run_command` with a returned session ID. Commands run in remote `/bin/sh` without a PTY; each call is independent. Use `cwd` or `cd / && ls -l` for a directory; interactive programs are unsupported.
 - Tokens are encrypted, and revealing an existing token requires system authentication. Commands, output excerpts and denials are audited, with filters, deletion and retention controls. A token grants execution as its bound SSH account, not a read-only sandbox. Do not put secrets in commands or output. The server is loopback-only and real tokens are never bundled.
 
@@ -74,7 +74,7 @@ See the [1.2.0 release notes](docs/RELEASE_NOTES_1.2.0.md) for this update, and 
 - When a host key changes, the SSH terminal, SFTP, and remote directory picker show the old and new fingerprints; only after explicit confirmation is the trust record for the corresponding address and port updated and the connection re-established; cancelling keeps the original record, and the actual fingerprint is verified again on reconnect.
 - `SnakeMountHelper` accepts only managed mount directories and sshfs executable paths from the allowlist.
 - Terminal credentials are passed as bytes to Rust/russh through UniFFI, and the authentication material is zeroed after use; the connection pool keys entries by a credential digest and never stores the secret; the system `ssh` is never launched, and the password is never passed through argv, environment variables, or drag-and-drop payloads.
-- SSHFS currently performs real mounts only for private-key sessions; password-based mounts fail explicitly until the managed SSH_ASKPASS FIFO is complete, and never fall back to passing secrets through insecure argv/environment variables.
+- Password SSHFS mounts never pass the secret through argv, environment variables or files: the app opens a one-off Unix socket in a private temporary folder and answers only an askpass process owned by the user, running SnakeMountHelper, and inside that mount's process group; the secret is wiped when the mount ends.
 
 ## Localization
 
@@ -87,8 +87,8 @@ See the [1.2.0 release notes](docs/RELEASE_NOTES_1.2.0.md) for this update, and 
 ## Not yet delivered
 
 - Workspaces are not restored across app restarts and interrupted transfers are not resumed automatically; a failed download retries from a fresh source version, and resumable downloads are not promised.
-- Password-based mount AskPass, the Intel / Universal 2 installer package, and Developer ID signing and notarization have not been delivered yet.
-- 1.2.0 verification: of 226 Swift tests, 220 passed, 5 external fixtures were skipped and 1 pre-existing mount test failed with `invalidMapping`. Rust: 32 unit tests and 3 isolated SSH/SFTP regressions passed. The full suite is not all-green; GUI, system authentication and clean-Mac installation acceptance remain manual.
+- The Intel / Universal 2 installer package, and Developer ID signing and notarization have not been delivered yet.
+- 1.3.0 verification: of 233 Swift tests, 227 passed, 5 external fixtures were skipped and 1 pre-existing mount test failed with `invalidMapping`. Rust: 32 unit tests passed; the 3 isolated SSH/SFTP regressions were not run this time. The full suite is not all-green; GUI, system authentication and clean-Mac installation acceptance remain manual.
 
 ## Interface preview
 
@@ -123,12 +123,12 @@ System requirements: Xcode 16.4, Swift 6.1, Rust 1.89+ (required by russh 0.64) 
 ### Building the DMG
 
 ```sh
-zsh scripts/package-release-dmg.sh 1.2.0
+zsh scripts/package-release-dmg.sh 1.3.0
 ```
 
 Python 3 is required; the script builds with Release optimizations and only produces an installer package for the current host architecture. Artifacts are placed in `release/`, and it refuses to overwrite existing files with the same name. The app contains the Rust dynamic library, the Mount Helper, SwiftTerm Metal resources, and third-party licenses, and does not depend on dynamic libraries or rendering resources from the workspace.
 
-The version and build numbers are stored in `Resources/Info.plist` and are currently `1.2.0` / `1200`. The script uses ad-hoc signing by default; see the [release process](docs/en/RELEASING.md) for Developer ID signing, notarization, and regenerating the checksum file. Local packaging does not automatically create Git tags or publish a GitHub Release.
+The version and build numbers are stored in `Resources/Info.plist` and are currently `1.3.0` / `1300`. The script uses ad-hoc signing by default; see the [release process](docs/en/RELEASING.md) for Developer ID signing, notarization, and regenerating the checksum file. Local packaging does not automatically create Git tags or publish a GitHub Release.
 
 On launch, the app automatically migrates legacy plaintext credentials to the encrypted file; if an old session still has only a Keychain reference, it is migrated into encrypted storage after its first successful read. See [credential encryption and viewing](docs/en/CREDENTIAL_SECURITY.md) for the detailed design and manual acceptance steps.
 
