@@ -19,29 +19,35 @@ enum MountOperations {
             .first(where: manager.isExecutableFile(atPath:)) else {
             return .init(state: .unavailable, message: L10n.text("未检测到 sshfs，请安装后重新检测。"))
         }
-        guard profile.authMethod == .privateKey, let bookmark = profile.privateKeyBookmark else {
-            return .init(
-                state: .failed,
-                message: L10n.text("密码型 SSHFS 需要受管 SSH_ASKPASS 通道；当前版本不会通过参数或环境变量传递密码。")
-            )
-        }
-
         let mountURL = URL(fileURLWithPath: mapping.managedMountPath, isDirectory: true).standardizedFileURL
         let managedRoot = URL(fileURLWithPath: "/Users/Shared/.SnakeMounts", isDirectory: true).standardizedFileURL.path + "/"
         guard mountURL.path.hasPrefix(managedRoot) else {
             return .init(state: .failed, message: L10n.text("挂载点不在 Snake 受管目录中。"))
         }
 
-        var stale = false
-        guard let keyURL = try? URL(
-            resolvingBookmarkData: bookmark,
-            options: [.withSecurityScope],
-            relativeTo: nil,
-            bookmarkDataIsStale: &stale
-        ), !stale, keyURL.startAccessingSecurityScopedResource() else {
-            return .init(state: .failed, message: L10n.text("私钥访问授权已失效，请编辑会话并重新选择私钥。"))
+        // A password, or a private key's passphrase, reaches ssh only through
+        // the askpass broker; never through argv, the environment or a file.
+        var keyURL: URL?
+        var secret: Data?
+        switch profile.authMethod {
+        case .privateKey:
+            var stale = false
+            guard let bookmark = profile.privateKeyBookmark,
+                  let url = try? URL(resolvingBookmarkData: bookmark, options: [.withSecurityScope],
+                                     relativeTo: nil, bookmarkDataIsStale: &stale),
+                  !stale, url.startAccessingSecurityScopedResource() else {
+                return .init(state: .failed, message: L10n.text("私钥访问授权已失效，请编辑会话并重新选择私钥。"))
+            }
+            keyURL = url
+            secret = try? profile.keychainAccount.flatMap { try CredentialStore.readData(account: $0) }
+        case .password:
+            guard let account = profile.keychainAccount,
+                  let password = try? CredentialStore.readData(account: account), !password.isEmpty else {
+                return .init(state: .failed, message: L10n.text("该会话未保存密码，请编辑会话填写密码后再挂载。"))
+            }
+            secret = password
         }
-        defer { keyURL.stopAccessingSecurityScopedResource() }
+        defer { keyURL?.stopAccessingSecurityScopedResource() }
 
         do {
             let mounted = try checkedMountedPaths()
@@ -55,16 +61,19 @@ enum MountOperations {
             try ManagedMountPath.validateTarget(mountURL.path, mounted: mounted)
             try manager.createDirectory(at: mountURL, withIntermediateDirectories: true)
             let source = "\(profile.username)@\(profile.host):\(mapping.remotePath)"
-            let options = sshOptions(knownHostsPath: knownHostsPath, privateKeyPath: keyURL.path)
+            let options = sshOptions(knownHostsPath: knownHostsPath, privateKeyPath: keyURL?.path)
             let arguments = [source, mountURL.path, "-p", String(profile.port), "-o", options]
+            let helperURL = try locateHelper()
+            let broker = try secret.map { try MountAskpassBroker(secret: $0, helperPath: helperURL.path) }
             let request = MountHelperRequest(
                 executable: sshfs,
                 arguments: arguments,
                 mountPoint: mountURL.path,
                 volumeName: volumeName(mappingName: mapping.name, connectionName: profile.name),
+                askpassSocket: broker?.socketPath,
                 dryRun: false
             )
-            let result = try runHelper(request)
+            let result = try runHelper(request, helperURL: helperURL, broker: broker)
             guard result.status == 0 else {
                 return .init(state: .failed, message: result.error.isEmpty ? L10n.text("sshfs 挂载失败。") : result.error)
             }
@@ -86,21 +95,25 @@ enum MountOperations {
         "\(mappingName) · \(connectionName)".replacingOccurrences(of: "/", with: "∕")
     }
 
-    static func sshOptions(knownHostsPath: String, privateKeyPath: String) -> String {
+    /// Without a private key, public-key auth is off so ssh asks askpass for the password.
+    static func sshOptions(knownHostsPath: String, privateKeyPath: String?) -> String {
         // Process protects argv boundaries, but OpenSSH parses each -o value again.
         // Keep the quotes in the argument so spaces remain part of the filename.
         func quotedPath(_ path: String) -> String {
             "\"" + path.replacingOccurrences(of: "\\", with: "\\\\")
                 .replacingOccurrences(of: "\"", with: "\\\"") + "\""
         }
+        let identity = privateKeyPath.map { "IdentityFile=\(quotedPath($0))" } ?? "PubkeyAuthentication=no"
         return [
             "reconnect",
             "ServerAliveInterval=30",
             "ServerAliveCountMax=3",
             "StrictHostKeyChecking=yes",
             "UserKnownHostsFile=\(quotedPath(knownHostsPath))",
-            "IdentityFile=\(quotedPath(privateKeyPath))",
-            "IdentitiesOnly=yes"
+            identity,
+            "IdentitiesOnly=yes",
+            // A wrong password fails once instead of tripping server lockouts.
+            "NumberOfPasswordPrompts=1"
         ].joined(separator: ",")
     }
 
@@ -208,7 +221,7 @@ enum MountOperations {
         })
     }
 
-    private static func runHelper(_ request: MountHelperRequest) throws -> (status: Int32, error: String) {
+    private static func locateHelper() throws -> URL {
         let executableDirectory = Bundle.main.executableURL?.deletingLastPathComponent()
         let candidates = [
             executableDirectory?.appendingPathComponent("SnakeMountHelper"),
@@ -218,9 +231,23 @@ enum MountOperations {
         guard let helperURL = candidates.first(where: { FileManager.default.isExecutableFile(atPath: $0.path) }) else {
             throw MountOperationError.helperUnavailable
         }
+        return helperURL
+    }
 
+    /// `broker`, when present, is closed once the mount process ends or fails.
+    private static func runHelper(
+        _ request: MountHelperRequest,
+        helperURL: URL,
+        broker: MountAskpassBroker?
+    ) throws -> (status: Int32, error: String) {
+        var launched = false
+        defer { if !launched { broker?.close() } }
         let process = Process()
         process.executableURL = helperURL
+        // The helper sets the askpass variables itself; never inherit stale ones.
+        process.environment = ProcessInfo.processInfo.environment.filter { key, _ in
+            !key.hasPrefix("SSH_ASKPASS") && key != "SNAKE_ASKPASS_SOCKET"
+        }
         let inputPipe = Pipe()
         let logsURL = URL(fileURLWithPath: knownHostsPath).deletingLastPathComponent().appendingPathComponent("MountLogs", isDirectory: true)
         try FileManager.default.createDirectory(at: logsURL, withIntermediateDirectories: true)
@@ -235,8 +262,12 @@ enum MountOperations {
         process.standardError = log
         process.terminationHandler = { finished in
             processes.remove(finished, for: request.mountPoint)
+            broker?.close()
+            terminateProcessGroup(finished.processIdentifier)
         }
         try process.run()
+        launched = true
+        broker?.authorize(mountPID: process.processIdentifier)
         processes.insert(process, for: request.mountPoint)
         do {
             inputPipe.fileHandleForWriting.write(try JSONEncoder().encode(request))
@@ -250,10 +281,33 @@ enum MountOperations {
         }
         let wasRunning = process.isRunning
         if wasRunning { process.terminate() }
+        terminateProcessGroup(process.processIdentifier)
         let details = (try? String(contentsOf: logURL, encoding: .utf8))?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let summary = wasRunning ? L10n.text("等待挂载超时，已停止挂载进程。") : L10n.text("挂载进程已退出，系统未建立挂载。")
         return (1, L10n.format("%@%@\n日志：%@", summary, details.isEmpty ? "" : "\n" + details, logURL.path))
+    }
+
+    /// The helper leads its own process group. sshfs double-forks ssh and
+    /// mount_macfuse away from itself, so ending sshfs alone leaves them behind.
+    /// Members are listed first and signalled one by one: an empty group's ID
+    /// can be reused, and a blanket `kill(-group)` could then hit another process.
+    static func terminateProcessGroup(_ group: pid_t) {
+        for pid in processes(inGroup: group) where pid != getpid() {
+            kill(pid, SIGTERM)
+        }
+    }
+
+    static func processes(inGroup group: pid_t) -> [pid_t] {
+        guard group > 1 else { return [] }
+        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PGRP, group]
+        var size = 0
+        guard sysctl(&mib, u_int(mib.count), nil, &size, nil, 0) == 0, size > 0 else { return [] }
+        let stride = MemoryLayout<kinfo_proc>.stride
+        var entries = [kinfo_proc](repeating: kinfo_proc(), count: size / stride + 8)
+        size = entries.count * stride
+        guard sysctl(&mib, u_int(mib.count), &entries, &size, nil, 0) == 0 else { return [] }
+        return entries.prefix(size / stride).map(\.kp_proc.p_pid).filter { $0 > 0 }
     }
 
     static func waitForMount(process: Process, timeout: TimeInterval = 20, isMounted: () -> Bool) -> Bool {
@@ -288,6 +342,8 @@ private struct MountHelperRequest: Encodable, Sendable {
     let arguments: [String]
     let mountPoint: String
     let volumeName: String
+    /// Path of the askpass broker socket; not a secret.
+    let askpassSocket: String?
     let dryRun: Bool
 }
 

@@ -176,6 +176,21 @@ final class WorkspaceDraggingTests: XCTestCase {
         XCTAssertEqual(target.tabs.count, 3)
     }
 
+    func testMcpTabIsSingleInstanceAndHoldsNoConnection() throws {
+        let state = WorkspaceWindowState()
+        state.openManager(.sessions)
+        XCTAssertTrue(state.showManager(.mcp))
+        let mcp = try XCTUnwrap(state.selectedRuntime)
+        XCTAssertEqual(mcp.kind, .mcp)
+        state.openManager(.mounts)
+        XCTAssertTrue(state.showManager(.mcp))
+        XCTAssertTrue(state.selectedRuntime === mcp)
+        XCTAssertEqual(state.tabs.count, 3)
+        XCTAssertNil(mcp.profile)
+        XCTAssertNil(mcp.terminal)
+        XCTAssertNil(mcp.sftp)
+    }
+
     func testSearchCreatesChooserOnlyWhenNeededAndFiltersAreIndependent() throws {
         let state = WorkspaceWindowState()
         state.openManager(.mounts)

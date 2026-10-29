@@ -30,7 +30,6 @@
 "FINDER 入口 · 软链接" = "FINDER ENTRY · SYMLINK";
 "Finder 入口创建失败：%@" = "Failed to create Finder entry: %@";
 "Finder 磁盘名称：%@" = "Finder disk name: %@";
-"Finder：%@" = "Finder: %@";
 "INFO 服务已启动" = "INFO service started";
 "IP 或主机名" = "IP or hostname";
 "SFTP · %@" = "SFTP · %@";
@@ -94,7 +93,6 @@
 "传输或校验期间远端源文件已变化" = "Remote source file changed during transfer or verification";
 "传输记录" = "Transfer History";
 "使用头像" = "Use Avatar";
-"依赖" = "Dependencies";
 "保存" = "Save";
 "保存会话" = "Save Session";
 "保存后会生成 512×512 PNG，仅存放在 Snake 数据目录中。" = "Saving generates a 512×512 PNG that is stored only in the Snake data directory.";
@@ -168,7 +166,6 @@
 "实际挂载点" = "Actual mount point";
 "容量上限" = "Size limit";
 "密码" = "Password";
-"密码型 SSHFS 需要受管 SSH_ASKPASS 通道；当前版本不会通过参数或环境变量传递密码。" = "Password-based SSHFS requires a managed SSH_ASKPASS channel; this version does not pass passwords through arguments or environment variables.";
 "密钥交换" = "Key exchange";
 "对象" = "Class";
 "将关闭相关终端和 SFTP 连接、禁用关联映射，并删除该会话保存的凭据。传输历史会保留会话快照。同时清理该会话已下载的远程文件副本，仅限 Snake 自己缓存的副本，不会改动目录中的其他内容。" = "This closes related terminals and SFTP connections, disables associated mounts, and deletes credentials saved for this session. Transfer history keeps a session snapshot. It also removes the remote-file copies cached for this session — only the copies Snake downloaded, never other content in the folder.";
@@ -193,7 +190,6 @@
 "已挂载" = "Mounted";
 "已断开" = "Disconnected";
 "已暂停" = "Paused";
-"已检测到" = "Detected";
 "已经位于顶级目录" = "Already at the top-level directory";
 "已跳过" = "Skipped";
 "已连接" = "Connected";
@@ -229,6 +225,27 @@
 "打开文件夹 %@" = "Open Folder %@";
 "打开父目录" = "Open Parent Directory";
 "打开磁盘映射" = "Open Mount";
+"打开 MCP 服务" = "Open MCP Service";
+"临时目录路径过长，无法建立 SSHFS 密码通道。" = "The temporary folder path is too long to open the SSHFS password channel.";
+"该会话未保存密码，请编辑会话填写密码后再挂载。" = "This session has no saved password. Edit the session to add one, then mount again.";
+"AI 工具只能在勾选的会话上执行命令。" = "AI tools can run commands only on the checked sessions.";
+"例如 Claude Code" = "For example, Claude Code";
+"关闭" = "Close";
+"到期时间" = "Expires at";
+"可用会话（已选 %@ 个）" = "Allowed sessions (%@ selected)";
+"基本信息" = "Basics";
+"目录" = "Directories";
+"编辑 Token" = "Edit Token";
+"编辑映射…" = "Edit Mapping…";
+"选项" = "Options";
+"MCP 服务" = "MCP Service";
+"让 AI 工具通过本机 MCP 服务，在指定的 SSH 会话上执行命令并留下审计记录。" = "Let AI tools run commands on chosen SSH sessions through the local MCP service, with every command audited.";
+"可用会话" = "Allowed sessions";
+"最近使用" = "Last used";
+"从未使用" = "Never used";
+"操作" = "Actions";
+"请先新建 SSH 会话，再为它创建 Token。" = "Create an SSH session first, then create a token for it.";
+"选择一条记录查看详情" = "Select a record to see its details";
 "打开访达文件选择器并上传到当前目录" = "Open the Finder file picker and upload to the current directory";
 "打开远程文件" = "Open Remote Files";
 "打开远程文件时先下载到该目录再交给系统打开；Snake 只清理自己下载的副本，不会改动所选目录中的其他内容。默认位置是系统缓存目录。" = "Opened remote files are downloaded here first and then handed to the system; Snake only cleans up the copies it downloaded and never touches other content in the chosen folder. The default location is the system cache directory.";
@@ -240,7 +257,6 @@
 "挂载点不在 Snake 受管目录中。" = "The mount point is not in the Snake managed directory.";
 "挂载环境已就绪" = "Mount environment ready";
 "挂载环境需要配置" = "Mount environment needs configuration";
-"挂载设置" = "Mount Settings";
 "挂载进程已退出，系统未建立挂载。" = "The mount process exited and the system did not establish a mount.";
 "按下快捷键…" = "Press shortcut…";
 "接收加密" = "Receive Encryption";
@@ -300,7 +316,6 @@
 "无法读取本地文件进行校验" = "Unable to read the local file for verification";
 "无法读取软链接目标" = "Unable to read the symbolic link target";
 "日志关键词高亮" = "Log keyword highlighting";
-"映射" = "Mount";
 "映射名称" = "Mount name";
 "是否删除“%@”？" = "Delete \"%@\"?";
 "显示 %@ / %@ 个项目" = "Showing %@ / %@ item";
@@ -318,7 +333,6 @@
 "未找到 SnakeMountHelper，请重新构建应用。" = "SnakeMountHelper not found. Rebuild the app.";
 "未挂载" = "Not mounted";
 "未校验：%@" = "Unverified: %@";
-"未检测到" = "Not detected";
 "未检测到 macFUSE，请安装后重新检测。" = "macFUSE not detected. Install it, then check again.";
 "未检测到 sshfs，请安装后重新检测。" = "sshfs not detected. Install it, then check again.";
 "未知校验算法" = "Unknown verification algorithm";
@@ -343,7 +357,6 @@
 "来源或目标 SFTP 尚未连接，无法开始远程互传。" = "The source or destination SFTP is not connected, so the remote transfer cannot start.";
 "松开后选择上传目录" = "Release to choose the upload folder";
 "查看" = "View";
-"查看安装说明" = "View installation instructions";
 "查看当前%@传输记录" = "View current %@ transfer history";
 "查看当前%@传输记录 · %@" = "View current %@ transfer history · %@";
 "查看连接安全详情" = "View connection security details";
@@ -513,7 +526,6 @@
 "远程地址必须以 / 开头。" = "The remote address must start with /.";
 "远程文件已存在" = "Remote file already exists";
 "远程目录" = "Remote directory";
-"远程目录通过受管 SSHFS 挂载点映射到 Finder。" = "Remote directories are mapped into Finder through a managed SSHFS mount point.";
 "远程绝对路径，例如 /tmp" = "Remote absolute path, for example /tmp";
 "远端文件名不安全" = "Unsafe remote filename";
 "连接后可查看安全详情" = "View security details after connecting";
@@ -550,7 +562,6 @@
 "配色主题" = "Theme";
 "重命名" = "Rename";
 "重命名…" = "Rename…";
-"重新检测" = "Check Again";
 "重新选择照片…" = "Choose Photo Again…";
 "重置" = "Reset";
 "重试" = "Retry";
@@ -619,7 +630,6 @@
 "Snake 数据库不可用，无法保存 MCP 设置。" = "The Snake database is unavailable, so MCP settings cannot be saved.";
 "Token 加密保存在本机，验证身份后可再次查看或复制。吊销后立即失效，可随时恢复；删除不可恢复，但审计记录会保留 Token 名称。" = "Tokens are stored encrypted on this Mac and can be viewed or copied again after you authenticate. Revoking takes effect immediately and can be undone; deleting is permanent, but audit records keep the token name.";
 "会话" = "Session";
-"会话：%@" = "Sessions: %@";
 "使用「%@」的 AI 工具将无法再连接。已有的审计记录会保留。" = "AI tools using “%@” will no longer be able to connect. Existing audit records are kept.";
 "保留天数" = "Keep for days";
 "全部 Token" = "All tokens";
@@ -636,9 +646,7 @@
 "删除所选（%@ 条）" = "Delete Selected (%@)";
 "删除此 Token？" = "Delete this token?";
 "加载更多" = "Load More";
-"可使用的会话" = "Allowed sessions";
 "吊销" = "Revoke";
-"名称，例如 Claude Code" = "Name, for example Claude Code";
 "启动失败：%@" = "Failed to start: %@";
 "启用 MCP 服务" = "Enable MCP server";
 "命令" = "Command";
@@ -662,7 +670,6 @@
 "执行中" = "Running";
 "找不到该 Token 的加密副本，请删除后重新创建。" = "The encrypted copy of this token is missing. Delete it and create a new one.";
 "指定日期" = "Custom date";
-"新建 MCP Token" = "New MCP Token";
 "新建 Token" = "New Token";
 "无效 Token" = "Invalid token";
 "时间" = "Time";
@@ -671,16 +678,12 @@
 "最近 24 小时" = "Last 24 hours";
 "最近 30 天" = "Last 30 days";
 "最近 7 天" = "Last 7 days";
-"最近使用 %@" = "Last used %@";
 "有效" = "Active";
 "有效期" = "Expires";
-"有效期至 %@" = "Expires %@";
 "服务与 Token" = "Server & Tokens";
 "服务只监听本机 127.0.0.1，使用 Streamable HTTP（POST /mcp）。AI 工具通过 Authorization: Bearer <Token> 访问，只能在 Token 绑定的会话上执行命令。命令通过独立的 SSH exec 通道运行，不影响已打开的终端；主机密钥必须先在 Snake 中信任过。" = "The server listens only on 127.0.0.1 and uses Streamable HTTP (POST /mcp). AI tools authenticate with Authorization: Bearer <Token> and can only run commands on the sessions bound to that token. Commands run over a separate SSH exec channel and never touch open terminals; the host key must already be trusted in Snake.";
 "未绑定会话" = "No sessions bound";
-"本地 MCP 服务" = "Local MCP Server";
 "条" = "records";
-"查看详情" = "View Details";
 "正在启动…" = "Starting…";
 "永不过期" = "Never";
 "没有符合条件的审计记录" = "No matching audit records";
@@ -688,8 +691,6 @@
 "清空全部审计记录？" = "Clear all audit records?";
 "滚动删除" = "Rolling deletion";
 "端口已被占用" = "Port already in use";
-"端点" = "Endpoint";
-"编辑 MCP Token" = "Edit MCP Token";
 "编辑名称、绑定会话和有效期" = "Edit name, bound sessions and expiry";
 "超时" = "Timed out";
 "超过保留天数或条数上限的最早记录会自动删除，0 表示不限制。启动时、每新增 100 条及每小时检查一次。" = "The oldest records beyond the retention period or record limit are deleted automatically; 0 means no limit. Checked at launch, after every 100 new records, and hourly.";

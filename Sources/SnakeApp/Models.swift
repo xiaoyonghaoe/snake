@@ -322,6 +322,7 @@ public struct MountMapping: Identifiable, Codable, Hashable, Sendable {
 public enum WorkspaceTabKind: Hashable, Sendable {
     case sessions
     case mounts
+    case mcp
     case terminal(profileID: UUID)
     case sftp(profileID: UUID)
 
@@ -329,6 +330,7 @@ public enum WorkspaceTabKind: Hashable, Sendable {
         switch self {
         case .sessions: "square.grid.2x2"
         case .mounts: "externaldrive"
+        case .mcp: "point.3.connected.trianglepath.dotted"
         case .terminal: "terminal"
         case .sftp: "folder"
         }
