@@ -4,11 +4,11 @@
 
 Snake is a native SSH workbench for macOS 15+: session management, terminal, SFTP file transfer, and SSHFS disk mapping share a single multi-window workspace.
 
-## Installing 1.3.0
+## Installing 1.4.0
 
 The current installer package is the **Apple Silicon (M-series) build**, requires **macOS 15 or later**, and there is no Intel / Universal 2 build.
 
-1. Open `Snake-1.3.0-macos-arm64.dmg`.
+1. Open `Snake-1.4.0-macos-arm64.dmg`.
 2. Drag **Snake.app into Applications** and wait for the copy to finish.
 3. Eject the disk image and launch Snake from Applications. Quit the old version before updating, and choose Replace when copying.
 
@@ -19,10 +19,10 @@ A local installer package has been generated and uploaded to GitHub Releases. Bu
 Place the DMG and the checksum file in the same directory and run the following in that directory:
 
 ```sh
-shasum -a 256 -c Snake-1.3.0-macos-arm64.dmg.sha256
+shasum -a 256 -c Snake-1.4.0-macos-arm64.dmg.sha256
 ```
 
-See the [1.3.0 release notes](docs/RELEASE_NOTES_1.3.0.md) for this update, and the [release process](docs/en/RELEASING.md) for build, signing, and notarization steps.
+See the [1.4.0 release notes](docs/RELEASE_NOTES_1.4.0.md) for this update, and the [release process](docs/en/RELEASING.md) for build, signing, and notarization steps.
 
 ## Current features
 
@@ -88,7 +88,7 @@ See the [1.3.0 release notes](docs/RELEASE_NOTES_1.3.0.md) for this update, and 
 
 - Workspaces are not restored across app restarts and interrupted transfers are not resumed automatically; a failed download retries from a fresh source version, and resumable downloads are not promised.
 - The Intel / Universal 2 installer package, and Developer ID signing and notarization have not been delivered yet.
-- 1.3.0 verification: of 233 Swift tests, 227 passed, 5 external fixtures were skipped and 1 pre-existing mount test failed with `invalidMapping`. Rust: 32 unit tests passed; the 3 isolated SSH/SFTP regressions were not run this time. The full suite is not all-green; GUI, system authentication and clean-Mac installation acceptance remain manual.
+- 1.4.0 verification: of 242 Swift tests, 236 passed, 5 external fixtures were skipped and 1 pre-existing mount test failed with `invalidMapping`. Rust: 33 unit tests passed; the 3 isolated SSH/SFTP regressions were not run this time. The full suite is not all-green; GUI, drag feel, system authentication and clean-Mac installation acceptance remain manual.
 
 ## Interface preview
 
@@ -123,12 +123,12 @@ System requirements: Xcode 16.4, Swift 6.1, Rust 1.89+ (required by russh 0.64) 
 ### Building the DMG
 
 ```sh
-zsh scripts/package-release-dmg.sh 1.3.0
+zsh scripts/package-release-dmg.sh 1.4.0
 ```
 
 Python 3 is required; the script builds with Release optimizations and only produces an installer package for the current host architecture. Artifacts are placed in `release/`, and it refuses to overwrite existing files with the same name. The app contains the Rust dynamic library, the Mount Helper, SwiftTerm Metal resources, and third-party licenses, and does not depend on dynamic libraries or rendering resources from the workspace.
 
-The version and build numbers are stored in `Resources/Info.plist` and are currently `1.3.0` / `1300`. The script uses ad-hoc signing by default; see the [release process](docs/en/RELEASING.md) for Developer ID signing, notarization, and regenerating the checksum file. Local packaging does not automatically create Git tags or publish a GitHub Release.
+The version and build numbers are stored in `Resources/Info.plist` and are currently `1.4.0` / `1400`. The script uses ad-hoc signing by default; see the [release process](docs/en/RELEASING.md) for Developer ID signing, notarization, and regenerating the checksum file. Local packaging does not automatically create Git tags or publish a GitHub Release.
 
 On launch, the app automatically migrates legacy plaintext credentials to the encrypted file; if an old session still has only a Keychain reference, it is migrated into encrypted storage after its first successful read. See [credential encryption and viewing](docs/en/CREDENTIAL_SECURITY.md) for the detailed design and manual acceptance steps.
 
