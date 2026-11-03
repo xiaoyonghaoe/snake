@@ -1131,15 +1131,26 @@ final class MetalTerminalRenderer: NSObject, MTKViewDelegate {
                 let runFont = runAttributes[.font] as? TTFont ?? terminalView.fontSet.normal
                 let ctFont = runFont as CTFont
                 let startColumn = shaped.segment.column + (processedGlyphs * shaped.segment.columnWidth)
-                let baseX = lineOrigin.x + (cellWidth * CGFloat(startColumn))
-                let xOffset = baseX - run.shaperRun.firstX
+                let columnWidth = shaped.segment.columnWidth
+                // Snake: glyphs sit on the cell grid, as the CoreGraphics renderer
+                // draws them. CoreText's own advances differ from the cell width by a
+                // fraction of a point, so laying a run out with them drifted along the
+                // line, and every selection edge (which splits runs) re-anchored the
+                // text after it: dragging a selection made the text jiggle sideways.
+                func glyphX(_ index: Int) -> CGFloat {
+                    Self.gridGlyphX(lineOriginX: lineOrigin.x, cellWidth: cellWidth,
+                                    startColumn: startColumn, glyphIndex: index, columnWidth: columnWidth)
+                }
 
                 let textColor = runAttributes[.foregroundColor] as? TTColor ?? terminalView.nativeForegroundColor
                 let textColorSIMD = colorToSIMD(textColor)
 
+                var glyphIndexInRun = 0
                 for glyphRun in run.shaperRun.glyphRuns {
                     let scaledFont = scaledFontFor(font: glyphRun.font, scale: scale)
                     for i in 0..<glyphRun.glyphs.count {
+                        let runGlyphIndex = glyphIndexInRun
+                        glyphIndexInRun += 1
                         let glyph = glyphRun.glyphs[i]
                         guard let entry = glyphEntry(for: scaledFont, glyph: glyph) else {
                             continue
@@ -1148,7 +1159,7 @@ final class MetalTerminalRenderer: NSObject, MTKViewDelegate {
                             continue
                         }
                         let ctPos = glyphRun.positions[i]
-                        let basePos = CGPoint(x: ctPos.x + xOffset,
+                        let basePos = CGPoint(x: glyphX(runGlyphIndex),
                                               y: lineOrigin.y + yOffset + ctPos.y)
                         let pxX = basePos.x * scale + entry.bearing.x
                         let pxY = basePos.y * scale + entry.bearing.y
@@ -1194,8 +1205,8 @@ final class MetalTerminalRenderer: NSObject, MTKViewDelegate {
                     let thickness = underlineThickness * scale
                     let segmentStyle: UnderlineStyle = underlineStyle == .double ? .single : underlineStyle
 
-                    for ctPos in run.shaperRun.positions {
-                        let basePos = CGPoint(x: ctPos.x + xOffset,
+                    for (index, ctPos) in run.shaperRun.positions.enumerated() {
+                        let basePos = CGPoint(x: glyphX(index),
                                               y: lineOrigin.y + yOffset + ctPos.y)
                         let x0 = basePos.x * scale
                         let x1 = (basePos.x + decorationCellWidth) * scale
@@ -1245,8 +1256,8 @@ final class MetalTerminalRenderer: NSObject, MTKViewDelegate {
                     let strikeThickness = max(round(scale * CTFontGetUnderlineThickness(ctFont)) / scale, 0.5)
                     let strikePosition = (CTFontGetXHeight(ctFont) + strikeThickness) * 0.5
 
-                    for ctPos in run.shaperRun.positions {
-                        let basePos = CGPoint(x: ctPos.x + xOffset,
+                    for (index, ctPos) in run.shaperRun.positions.enumerated() {
+                        let basePos = CGPoint(x: glyphX(index),
                                               y: lineOrigin.y + yOffset + ctPos.y)
                         let x0 = basePos.x * scale
                         let x1 = (basePos.x + decorationCellWidth) * scale
@@ -1352,6 +1363,14 @@ final class MetalTerminalRenderer: NSObject, MTKViewDelegate {
                            placeholderImageDraws: placeholderImageDraws,
                            overImageDraws: overImageDraws,
                            otherImageDraws: otherImageDraws)
+    }
+
+    /// Snake: the left edge of a run's `glyphIndex`-th glyph on the cell grid,
+    /// matching the CoreGraphics renderer, so a glyph's position never depends
+    /// on where its attribute run (e.g. the selection) happens to start.
+    static func gridGlyphX(lineOriginX: CGFloat, cellWidth: CGFloat, startColumn: Int,
+                           glyphIndex: Int, columnWidth: Int) -> CGFloat {
+        lineOriginX + CGFloat(startColumn + glyphIndex * columnWidth) * cellWidth
     }
 
     private func buildShapedSegments(_ segments: [ViewLineSegment], terminalView: TerminalView) -> [ShapedSegment] {

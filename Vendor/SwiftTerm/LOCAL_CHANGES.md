@@ -2,6 +2,12 @@
 
 上游与 MIT 许可见 `README.md`、`LICENSE` 及项目根目录 `THIRD_PARTY_NOTICES.md`。
 
+## 2026-11-03：Metal 字形对齐单元格网格
+
+- Metal 渲染器此前按 CoreText 自然字宽在每个属性 run 内排列字形，只把 run 的起点对齐到单元格。字宽与单元格宽度差零点几个点，越往右累积越多；选区边界会切分 run，于是拖选时边界后的文字重新对齐，表现为文字左右轻微晃动。
+- 字形、下划线和删除线改为按 `起始列 + 字形序号 × 列宽` 落在单元格网格上，与 CoreGraphics 渲染器一致；位置计算提取为 `MetalTerminalRenderer.gridGlyphX`。光标字符本就锚定单元格，未改动。
+- 测试：应用 `MetalGlyphGridTests` 覆盖 run 被选区切分前后位置一致及宽字符两列步进。本包测试目标因基准测试依赖 jemalloc 无法在本机构建，故放在应用测试中。
+
 ## 2026-10-25：Metal 视图不拦截点击
 
 - macOS 的 Metal 渲染视图改为 `PassthroughMetalView`（`hitTest` 返回 nil）。此前 `MTKView` 覆盖在终端上并接收点击，又不接受第一响应者，导致点击其他分屏无法转移键盘焦点，拖放落点判断也会命中该视图。

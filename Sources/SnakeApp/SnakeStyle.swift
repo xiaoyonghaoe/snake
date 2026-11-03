@@ -51,15 +51,37 @@ enum SnakeStyle {
 
 struct SnakeIconButtonStyle: ButtonStyle {
     var selected = false
+    /// Minimum clickable size; toolbar buttons pass a larger one.
+    var minSize = CGSize(width: 26, height: 26)
 
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .foregroundStyle(selected ? SnakeStyle.action : SnakeStyle.ink)
-            .padding(6)
-            .background(
-                selected ? SnakeStyle.action.opacity(0.14) : (configuration.isPressed ? Color.primary.opacity(0.08) : .clear),
-                in: RoundedRectangle(cornerRadius: 6, style: .continuous)
-            )
+        IconButtonBody(configuration: configuration, selected: selected, minSize: minSize)
+    }
+
+    private struct IconButtonBody: View {
+        let configuration: ButtonStyleConfiguration
+        let selected: Bool
+        let minSize: CGSize
+        @State private var hovering = false
+
+        var body: some View {
+            let shape = RoundedRectangle(cornerRadius: 7, style: .continuous)
+            configuration.label
+                .foregroundStyle(selected ? SnakeStyle.action : SnakeStyle.ink)
+                .padding(6)
+                .frame(minWidth: minSize.width, minHeight: minSize.height)
+                .background(fill, in: shape)
+                // A clear background is not hit-testable: without this only the
+                // glyph's own pixels respond to clicks.
+                .contentShape(shape)
+                .onHover { hovering = $0 }
+        }
+
+        private var fill: Color {
+            if selected { return SnakeStyle.action.opacity(configuration.isPressed ? 0.22 : 0.14) }
+            if configuration.isPressed { return Color.primary.opacity(0.12) }
+            return hovering ? Color.primary.opacity(0.07) : .clear
+        }
     }
 }
 

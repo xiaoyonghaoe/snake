@@ -80,11 +80,14 @@ public struct SessionGroup: Identifiable, Codable, Hashable, Sendable {
     public var id: UUID
     public var name: String
     public var sortOrder: Int
+    /// Folders nest; `nil` is the top level. Absent in older saved data.
+    public var parentID: UUID?
 
-    public init(id: UUID = UUID(), name: String, sortOrder: Int = 0) {
+    public init(id: UUID = UUID(), name: String, sortOrder: Int = 0, parentID: UUID? = nil) {
         self.id = id
         self.name = name
         self.sortOrder = sortOrder
+        self.parentID = parentID
     }
 }
 
@@ -154,22 +157,111 @@ public struct SavedPassword: Identifiable, Hashable, Sendable {
     public var credentialAccount: String { "library/\(id.uuidString)/password" }
 }
 
-enum SessionTags {
-    static func parse(_ text: String) -> [String] {
-        var seen = Set<String>()
-        return text
-            .components(separatedBy: .whitespacesAndNewlines)
-            .filter { !$0.isEmpty && seen.insert($0).inserted }
+/// Folders group SSH sessions and nest inside each other; a session's `groupID`
+/// and a folder's `parentID` name their folder, and `nil` is the top level.
+/// Folders replaced tags, which stay stored on the profile but are no longer
+/// shown or edited.
+enum SessionFolders {
+    /// One-time move from tags: a session outside any folder goes into a folder
+    /// named after its first tag, reusing an existing folder of that name.
+    static func placingByFirstTag(
+        groups: [SessionGroup],
+        profiles: [SSHProfile]
+    ) -> (groups: [SessionGroup], profiles: [SSHProfile]) {
+        var groups = groups
+        var profiles = profiles
+        for index in profiles.indices where profiles[index].groupID == nil {
+            guard let tag = profiles[index].tags.first?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !tag.isEmpty else { continue }
+            if let existing = groups.first(where: { $0.parentID == nil && $0.name == tag }) {
+                profiles[index].groupID = existing.id
+            } else {
+                let folder = SessionGroup(name: tag, sortOrder: (groups.map(\.sortOrder).max() ?? -1) + 1)
+                groups.append(folder)
+                profiles[index].groupID = folder.id
+            }
+        }
+        return (groups, profiles)
     }
 
-    static func format(_ tags: [String]) -> String {
-        tags.joined(separator: " ")
+    static func sorted(_ groups: [SessionGroup]) -> [SessionGroup] {
+        groups.sorted {
+            $0.sortOrder == $1.sortOrder
+                ? $0.name.localizedStandardCompare($1.name) == .orderedAscending
+                : $0.sortOrder < $1.sortOrder
+        }
     }
-}
 
-enum SessionTagFilter {
-    static func matches(profileTags: [String], selectedTags: Set<String>) -> Bool {
-        selectedTags.isEmpty || selectedTags.isSubset(of: Set(profileTags))
+    /// Names are trimmed and unique among siblings, ignoring case.
+    static func validatedName(_ name: String, among groups: [SessionGroup], parentID: UUID? = nil,
+                              excluding id: UUID? = nil) -> String? {
+        let cleaned = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleaned.isEmpty,
+              !groups.contains(where: {
+                  $0.id != id && $0.parentID == parentID && $0.name.caseInsensitiveCompare(cleaned) == .orderedSame
+              }) else { return nil }
+        return cleaned
+    }
+
+    /// The folders directly inside `parentID`, in display order. A folder whose
+    /// parent no longer exists shows at the top level.
+    static func children(of parentID: UUID?, in groups: [SessionGroup]) -> [SessionGroup] {
+        let ids = Set(groups.map(\.id))
+        return sorted(groups.filter { group in
+            let effectiveParent = group.parentID.flatMap { ids.contains($0) ? $0 : nil }
+            return effectiveParent == parentID
+        })
+    }
+
+    /// From the top level down to `id` itself; stops on a cycle.
+    static func path(to id: UUID?, in groups: [SessionGroup]) -> [SessionGroup] {
+        var path: [SessionGroup] = []
+        var current = id
+        var seen = Set<UUID>()
+        while let currentID = current, seen.insert(currentID).inserted,
+              let group = groups.first(where: { $0.id == currentID }) {
+            path.insert(group, at: 0)
+            current = group.parentID
+        }
+        return path
+    }
+
+    /// True when `id` is `ancestor` or sits anywhere inside it.
+    static func isWithin(_ id: UUID?, _ ancestor: UUID, in groups: [SessionGroup]) -> Bool {
+        path(to: id, in: groups).contains { $0.id == ancestor }
+    }
+
+    /// Parents before children, so a child's foreign key always finds its parent.
+    static func parentsFirst(_ groups: [SessionGroup]) -> [SessionGroup] {
+        groups.sorted { path(to: $0.id, in: groups).count < path(to: $1.id, in: groups).count }
+    }
+
+    /// Long-press reordering: the moved item takes the target's place, landing
+    /// after it when moving forward and before it when moving back.
+    static func moving<ID: Equatable>(_ id: ID, onto target: ID, in ids: [ID]) -> [ID] {
+        guard id != target,
+              let from = ids.firstIndex(of: id),
+              let to = ids.firstIndex(of: target) else { return ids }
+        var result = ids
+        result.remove(at: from)
+        result.insert(id, at: to)
+        return result
+    }
+
+    /// A press becomes a drag once it travels a few points, or once it has been
+    /// held briefly and then moves. A plain click never starts one, and a hand
+    /// that drifts while holding no longer cancels the drag.
+    static func dragActivates(distance: CGFloat, held: TimeInterval) -> Bool {
+        distance >= 6 || (held >= 0.25 && distance > 0)
+    }
+
+    /// Search covers what a card shows: name, address, account and folder.
+    static func matches(_ profile: SSHProfile, query: String, folderName: String?) -> Bool {
+        let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return true }
+        return [profile.name, profile.host, profile.username, folderName ?? ""]
+            .joined(separator: " ")
+            .localizedCaseInsensitiveContains(query)
     }
 }
 
