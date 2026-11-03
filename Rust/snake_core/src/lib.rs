@@ -48,6 +48,8 @@ pub struct SessionGroup {
     pub id: Uuid,
     pub name: String,
     pub sort_order: i64,
+    /// Folders nest: `None` is the top level.
+    pub parent_id: Option<Uuid>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -239,21 +241,33 @@ impl SnakeStore {
         }
         self.connection.execute("INSERT OR IGNORE INTO schema_migrations(version) VALUES (2)", [])?;
         self.migrate_mcp()?;
+        // v4: nested folders. Existing folders stay at the top level.
+        let has_parent_id = self.connection
+            .prepare("PRAGMA table_info(session_groups)")?
+            .query_map([], |row| row.get::<_, String>(1))?
+            .any(|name| name.as_deref() == Ok("parent_id"));
+        if !has_parent_id {
+            self.connection.execute_batch(
+                "ALTER TABLE session_groups ADD COLUMN parent_id TEXT REFERENCES session_groups(id) ON DELETE SET NULL",
+            )?;
+        }
+        self.connection.execute("INSERT OR IGNORE INTO schema_migrations(version) VALUES (4)", [])?;
         Ok(())
     }
 
     pub fn save_group(&self, group: &SessionGroup) -> Result<(), SnakeCoreError> {
         self.connection.execute(
-            "INSERT INTO session_groups(id, name, sort_order) VALUES(?1, ?2, ?3)
-             ON CONFLICT(id) DO UPDATE SET name = excluded.name, sort_order = excluded.sort_order, updated_at = unixepoch()",
-            params![group.id.to_string(), group.name, group.sort_order],
+            "INSERT INTO session_groups(id, name, sort_order, parent_id) VALUES(?1, ?2, ?3, ?4)
+             ON CONFLICT(id) DO UPDATE SET name = excluded.name, sort_order = excluded.sort_order,
+                 parent_id = excluded.parent_id, updated_at = unixepoch()",
+            params![group.id.to_string(), group.name, group.sort_order, group.parent_id.map(|id| id.to_string())],
         )?;
         Ok(())
     }
 
     pub fn groups(&self) -> Result<Vec<SessionGroup>, SnakeCoreError> {
         let mut statement = self.connection.prepare(
-            "SELECT id, name, sort_order FROM session_groups ORDER BY sort_order, name COLLATE NOCASE",
+            "SELECT id, name, sort_order, parent_id FROM session_groups ORDER BY sort_order, name COLLATE NOCASE",
         )?;
         let groups = statement
             .query_map([], |row| {
@@ -261,6 +275,7 @@ impl SnakeStore {
                     id: Uuid::parse_str(&row.get::<_, String>(0)?).unwrap_or_else(|_| Uuid::nil()),
                     name: row.get(1)?,
                     sort_order: row.get(2)?,
+                    parent_id: row.get::<_, Option<String>>(3)?.and_then(|value| Uuid::parse_str(&value).ok()),
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;
@@ -541,6 +556,7 @@ pub struct CoreSessionGroup {
     pub id: String,
     pub name: String,
     pub sort_order: i64,
+    pub parent_id: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, uniffi::Record)]
@@ -663,6 +679,7 @@ impl From<SessionGroup> for CoreSessionGroup {
             id: value.id.to_string(),
             name: value.name,
             sort_order: value.sort_order,
+            parent_id: value.parent_id.map(|id| id.to_string()),
         }
     }
 }
@@ -755,11 +772,18 @@ impl CoreDatabase {
                 message: "group name cannot be empty".to_owned(),
             });
         }
+        let parent_id = group.parent_id.as_deref().map(parse_identifier).transpose()?;
+        if parent_id == Some(id) {
+            return Err(CoreError::InvalidInput {
+                message: "a group cannot contain itself".to_owned(),
+            });
+        }
         self.with_store(|store| {
             store.save_group(&SessionGroup {
                 id,
                 name: name.to_owned(),
                 sort_order: group.sort_order,
+                parent_id,
             })
         })
     }
@@ -2225,6 +2249,7 @@ mod tests {
             id: Uuid::new_v4(),
             name: "生产".into(),
             sort_order: 0,
+            parent_id: None,
         };
         store.save_group(&group).unwrap();
         let profile = SshProfile {
@@ -2273,6 +2298,49 @@ mod tests {
     }
 
     #[test]
+    fn groups_nest_and_old_databases_gain_parent_column() {
+        let temp = tempfile::NamedTempFile::new().unwrap();
+        {
+            // A pre-v4 database: session_groups without parent_id.
+            let connection = rusqlite::Connection::open(temp.path()).unwrap();
+            connection
+                .execute_batch(
+                    "CREATE TABLE session_groups (
+                        id TEXT PRIMARY KEY NOT NULL,
+                        name TEXT NOT NULL,
+                        sort_order INTEGER NOT NULL DEFAULT 0,
+                        created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+                        updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+                    );
+                    INSERT INTO session_groups(id, name, sort_order)
+                    VALUES ('7c9e6679-7425-40de-944b-e07fc1f90ae7', '旧分组', 0);",
+                )
+                .unwrap();
+        }
+        let database = CoreDatabase::open(temp.path().to_string_lossy().into_owned()).unwrap();
+        let old = database.groups().unwrap();
+        assert_eq!(old.len(), 1);
+        assert_eq!(old[0].parent_id, None);
+
+        let parent = old[0].id.clone();
+        let child = Uuid::new_v4().to_string();
+        database
+            .save_group(CoreSessionGroup { id: child.clone(), name: "子".into(), sort_order: 0, parent_id: Some(parent.clone()) })
+            .unwrap();
+        let reloaded = database.groups().unwrap();
+        let stored = reloaded.iter().find(|group| group.id == child).unwrap();
+        assert_eq!(stored.parent_id.as_deref(), Some(parent.as_str()));
+
+        let rejected = database.save_group(CoreSessionGroup {
+            id: parent.clone(),
+            name: "旧分组".into(),
+            sort_order: 0,
+            parent_id: Some(parent.clone()),
+        });
+        assert!(matches!(rejected, Err(CoreError::InvalidInput { .. })));
+    }
+
+    #[test]
     fn uniffi_database_round_trips_configuration() {
         let temp = tempfile::NamedTempFile::new().unwrap();
         let database = CoreDatabase::open(temp.path().to_string_lossy().into_owned()).unwrap();
@@ -2282,6 +2350,7 @@ mod tests {
                 id: group_id.clone(),
                 name: "研发环境".into(),
                 sort_order: 0,
+                parent_id: None,
             })
             .unwrap();
         let profile = CoreSshProfile {

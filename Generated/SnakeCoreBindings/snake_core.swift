@@ -3098,13 +3098,15 @@ public struct CoreSessionGroup {
     public var id: String
     public var name: String
     public var sortOrder: Int64
+    public var parentId: String?
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(id: String, name: String, sortOrder: Int64) {
+    public init(id: String, name: String, sortOrder: Int64, parentId: String?) {
         self.id = id
         self.name = name
         self.sortOrder = sortOrder
+        self.parentId = parentId
     }
 }
 
@@ -3124,6 +3126,9 @@ extension CoreSessionGroup: Equatable, Hashable {
         if lhs.sortOrder != rhs.sortOrder {
             return false
         }
+        if lhs.parentId != rhs.parentId {
+            return false
+        }
         return true
     }
 
@@ -3131,6 +3136,7 @@ extension CoreSessionGroup: Equatable, Hashable {
         hasher.combine(id)
         hasher.combine(name)
         hasher.combine(sortOrder)
+        hasher.combine(parentId)
     }
 }
 
@@ -3145,7 +3151,8 @@ public struct FfiConverterTypeCoreSessionGroup: FfiConverterRustBuffer {
             try CoreSessionGroup(
                 id: FfiConverterString.read(from: &buf), 
                 name: FfiConverterString.read(from: &buf), 
-                sortOrder: FfiConverterInt64.read(from: &buf)
+                sortOrder: FfiConverterInt64.read(from: &buf), 
+                parentId: FfiConverterOptionString.read(from: &buf)
         )
     }
 
@@ -3153,6 +3160,7 @@ public struct FfiConverterTypeCoreSessionGroup: FfiConverterRustBuffer {
         FfiConverterString.write(value.id, into: &buf)
         FfiConverterString.write(value.name, into: &buf)
         FfiConverterInt64.write(value.sortOrder, into: &buf)
+        FfiConverterOptionString.write(value.parentId, into: &buf)
     }
 }
 

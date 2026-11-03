@@ -116,6 +116,7 @@ public final class ApplicationStore: ObservableObject {
     private let defaults: UserDefaults
     private let corePersistence: CorePersistence?
     private let groupsKey = "com.snake.groups"
+    private let tagFolderMigrationKey = "com.snake.sessions.tag-folders-v1"
     private let profilesKey = "com.snake.profiles"
     private let mountsKey = "com.snake.mounts"
     private let multipartThresholdKey = "com.snake.transfer.multipart-threshold-mb"
@@ -252,6 +253,7 @@ public final class ApplicationStore: ObservableObject {
                 // Preserve the only durable copy when storage is unavailable.
             }
         }
+        migrateTagsToFoldersIfNeeded()
         let automaticMappings = mountMappings.filter { $0.autoMount && $0.enabled }.map(\.id)
         if !automaticMappings.isEmpty {
             DispatchQueue.main.async { [weak self] in
@@ -353,18 +355,128 @@ public final class ApplicationStore: ObservableObject {
         profiles.filter { $0.groupID == nil }.sorted { $0.sortOrder < $1.sortOrder }
     }
 
-    public func group(named name: String) {
-        let cleaned = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !cleaned.isEmpty else { return }
-        groups.append(SessionGroup(name: cleaned, sortOrder: groups.count))
+    public func childFolders(of parentID: UUID?) -> [SessionGroup] {
+        SessionFolders.children(of: parentID, in: groups)
+    }
+
+    /// Every folder with its full path, for "move to" menus and pickers.
+    public var folderPaths: [(folder: SessionGroup, path: String)] {
+        func walk(_ parentID: UUID?, prefix: String) -> [(SessionGroup, String)] {
+            childFolders(of: parentID).flatMap { folder -> [(SessionGroup, String)] in
+                let path = prefix.isEmpty ? folder.name : prefix + " / " + folder.name
+                return [(folder, path)] + walk(folder.id, prefix: path)
+            }
+        }
+        return walk(nil, prefix: "").map { (folder: $0.0, path: $0.1) }
+    }
+
+    /// The folder path a session sits in, e.g. "生产 / 华东".
+    public func folderName(for profile: SSHProfile) -> String? {
+        let path = SessionFolders.path(to: profile.groupID, in: groups)
+        return path.isEmpty ? nil : path.map(\.name).joined(separator: " / ")
+    }
+
+    @discardableResult
+    public func createFolder(named name: String, in parentID: UUID? = nil) -> SessionGroup? {
+        let parentID = parentID.flatMap { id in groups.contains { $0.id == id } ? id : nil }
+        guard let cleaned = SessionFolders.validatedName(name, among: groups, parentID: parentID) else { return nil }
+        let last = childFolders(of: parentID).map(\.sortOrder).max() ?? -1
+        let folder = SessionGroup(name: cleaned, sortOrder: last + 1, parentID: parentID)
+        groups.append(folder)
+        persistConfiguration()
+        return folder
+    }
+
+    @discardableResult
+    public func renameFolder(id: UUID, to name: String) -> Bool {
+        guard let index = groups.firstIndex(where: { $0.id == id }),
+              let cleaned = SessionFolders.validatedName(name, among: groups, parentID: groups[index].parentID,
+                                                         excluding: id) else { return false }
+        groups[index].name = cleaned
+        persistConfiguration()
+        return true
+    }
+
+    /// Moves a folder (with everything inside it) under `parentID`. Refuses to
+    /// move a folder into itself or its own subfolders, or onto a sibling's name.
+    @discardableResult
+    public func moveFolder(id: UUID, to parentID: UUID?) -> Bool {
+        guard let index = groups.firstIndex(where: { $0.id == id }),
+              groups[index].parentID != parentID,
+              parentID.map({ !SessionFolders.isWithin($0, id, in: groups) }) ?? true,
+              SessionFolders.validatedName(groups[index].name, among: groups, parentID: parentID, excluding: id) != nil
+        else { return false }
+        groups[index].parentID = parentID
+        groups[index].sortOrder = (childFolders(of: parentID).map(\.sortOrder).max() ?? -1) + 1
+        persistConfiguration()
+        return true
+    }
+
+    /// Deleting a folder never deletes sessions or subfolders; they move up one level.
+    public func deleteFolder(id: UUID) {
+        guard let folder = groups.first(where: { $0.id == id }) else { return }
+        for index in profiles.indices where profiles[index].groupID == id {
+            profiles[index].groupID = folder.parentID
+        }
+        for index in groups.indices where groups[index].parentID == id {
+            groups[index].parentID = folder.parentID
+        }
+        groups.removeAll { $0.id == id }
+        ProfileIconStore.delete(for: id)
         persistConfiguration()
     }
 
+    /// Folders replaced tags. Runs once per data store, and only marks itself
+    /// done after the moved sessions were actually saved.
+    private func migrateTagsToFoldersIfNeeded() {
+        guard let corePersistence, !defaults.bool(forKey: tagFolderMigrationKey) else { return }
+        let migrated = SessionFolders.placingByFirstTag(groups: groups, profiles: profiles)
+        if migrated.groups != groups || migrated.profiles != profiles {
+            do {
+                try corePersistence.synchronize(groups: migrated.groups, profiles: migrated.profiles)
+            } catch {
+                return
+            }
+            groups = migrated.groups
+            profiles = migrated.profiles
+        }
+        defaults.set(true, forKey: tagFolderMigrationKey)
+    }
+
+    /// Moving into another folder appends the session at that folder's end.
     public func move(profileID: UUID, to groupID: UUID?) {
-        guard let index = profiles.firstIndex(where: { $0.id == profileID }) else { return }
+        guard let index = profiles.firstIndex(where: { $0.id == profileID }),
+              profiles[index].groupID != groupID else { return }
+        let last = profiles.filter { $0.groupID == groupID }.map(\.sortOrder).max() ?? -1
         profiles[index].groupID = groupID
-        profiles[index].sortOrder = profiles.filter { $0.groupID == groupID }.count
+        profiles[index].sortOrder = last + 1
         persistConfiguration()
+    }
+
+    /// `orderedIDs` is the full new order of one folder level.
+    public func reorderFolders(_ orderedIDs: [UUID]) {
+        for (order, id) in orderedIDs.enumerated() {
+            if let index = groups.firstIndex(where: { $0.id == id }) { groups[index].sortOrder = order }
+        }
+        persistConfiguration()
+    }
+
+    /// `orderedIDs` is the full new order of the sessions in one folder (or the top level).
+    public func reorderProfiles(_ orderedIDs: [UUID]) {
+        for (order, id) in orderedIDs.enumerated() {
+            if let index = profiles.firstIndex(where: { $0.id == id }) { profiles[index].sortOrder = order }
+        }
+        persistConfiguration()
+    }
+
+    /// Folder icons live beside session photos, keyed by the folder's ID.
+    public func setFolderIcon(_ data: Data?, for folderID: UUID) throws {
+        if let data {
+            try ProfileIconStore.save(data, for: folderID)
+        } else {
+            ProfileIconStore.delete(for: folderID)
+        }
+        objectWillChange.send()
     }
 
     public func save(profile: SSHProfile, credential: String? = nil, fromSavedPassword sourceID: UUID? = nil) throws {

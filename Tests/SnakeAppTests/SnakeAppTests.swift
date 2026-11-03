@@ -30,15 +30,189 @@ final class SnakeAppTests: XCTestCase {
         XCTAssertEqual(profile.connectionLabel, "deploy@10.0.0.8:2222")
     }
 
-    func testSessionTagsUseWhitespaceAndRemoveDuplicates() {
-        XCTAssertEqual(SessionTags.parse("生产 API  内网\nAPI\t测试"), ["生产", "API", "内网", "测试"])
-        XCTAssertEqual(SessionTags.format(["生产", "API", "内网"]), "生产 API 内网")
+    func testTagMigrationMovesLooseSessionsIntoFirstTagFolder() {
+        let existing = SessionGroup(name: "生产", sortOrder: 0)
+        let filed = SSHProfile(groupID: existing.id, name: "filed", host: "a", username: "u", tags: ["测试"])
+        let reuse = SSHProfile(name: "reuse", host: "b", username: "u", tags: ["生产", "API"])
+        let fresh = SSHProfile(name: "fresh", host: "c", username: "u", tags: ["测试"])
+        let sibling = SSHProfile(name: "sibling", host: "d", username: "u", tags: [" 测试 "])
+        let untagged = SSHProfile(name: "untagged", host: "e", username: "u")
+        let result = SessionFolders.placingByFirstTag(groups: [existing], profiles: [filed, reuse, fresh, sibling, untagged])
+        XCTAssertEqual(result.groups.map(\.name), ["生产", "测试"])
+        let created = try? XCTUnwrap(result.groups.last)
+        XCTAssertEqual(result.profiles[0].groupID, existing.id, "a session already in a folder stays put")
+        XCTAssertEqual(result.profiles[1].groupID, existing.id, "an existing folder of that name is reused")
+        XCTAssertEqual(result.profiles[2].groupID, created?.id)
+        XCTAssertEqual(result.profiles[3].groupID, created?.id, "one folder per tag name")
+        XCTAssertNil(result.profiles[4].groupID)
+        XCTAssertEqual(result.profiles[1].tags, ["生产", "API"], "tags stay stored")
     }
 
-    func testSessionTagMultiSelectRequiresEverySelectedTag() {
-        XCTAssertTrue(SessionTagFilter.matches(profileTags: ["生产", "API", "内网"], selectedTags: ["生产", "API"]))
-        XCTAssertFalse(SessionTagFilter.matches(profileTags: ["生产", "数据库"], selectedTags: ["生产", "API"]))
-        XCTAssertTrue(SessionTagFilter.matches(profileTags: [], selectedTags: []))
+    func testFolderNamesAreTrimmedAndUniqueIgnoringCase() {
+        let folder = SessionGroup(name: "Prod")
+        XCTAssertNil(SessionFolders.validatedName("  ", among: [folder]))
+        XCTAssertNil(SessionFolders.validatedName(" prod ", among: [folder]))
+        XCTAssertEqual(SessionFolders.validatedName(" PROD ", among: [folder], excluding: folder.id), "PROD")
+        XCTAssertEqual(SessionFolders.validatedName(" 测试 ", among: [folder]), "测试")
+    }
+
+    func testFolderSearchCoversNameAddressAccountAndFolder() {
+        let profile = SSHProfile(name: "阿里云", host: "39.107.43.50", username: "root", tags: ["hidden"])
+        XCTAssertTrue(SessionFolders.matches(profile, query: "", folderName: nil))
+        XCTAssertTrue(SessionFolders.matches(profile, query: "39.107", folderName: nil))
+        XCTAssertTrue(SessionFolders.matches(profile, query: "ROOT", folderName: nil))
+        XCTAssertTrue(SessionFolders.matches(profile, query: "生产", folderName: "生产服务器"))
+        XCTAssertFalse(SessionFolders.matches(profile, query: "hidden", folderName: nil), "tags are no longer searched")
+    }
+
+    func testLongPressMoveTakesTheTargetsPlace() {
+        let ids = ["a", "b", "c", "d"]
+        XCTAssertEqual(SessionFolders.moving("a", onto: "c", in: ids), ["b", "c", "a", "d"], "moving forward lands after the target")
+        XCTAssertEqual(SessionFolders.moving("d", onto: "b", in: ids), ["a", "d", "b", "c"], "moving back lands before the target")
+        XCTAssertEqual(SessionFolders.moving("b", onto: "b", in: ids), ids)
+        XCTAssertEqual(SessionFolders.moving("x", onto: "b", in: ids), ids)
+        XCTAssertEqual(SessionFolders.moving("a", onto: "x", in: ids), ids)
+    }
+
+    func testCardDragStartsOnMovementOrAfterAShortHold() {
+        XCTAssertFalse(SessionFolders.dragActivates(distance: 0, held: 2), "holding still is not a drag")
+        XCTAssertFalse(SessionFolders.dragActivates(distance: 3, held: 0.1), "a click with a small wobble stays a click")
+        XCTAssertTrue(SessionFolders.dragActivates(distance: 6, held: 0), "dragging straight away works")
+        XCTAssertTrue(SessionFolders.dragActivates(distance: 2, held: 0.3), "after a short hold any movement lifts the card")
+        XCTAssertTrue(SessionFolders.dragActivates(distance: 40, held: 1), "drifting while holding no longer cancels")
+    }
+
+    func testFolderTreeHelpers() {
+        let top = SessionGroup(name: "生产", sortOrder: 1)
+        let other = SessionGroup(name: "测试", sortOrder: 0)
+        let mid = SessionGroup(name: "华东", sortOrder: 0, parentID: top.id)
+        let leaf = SessionGroup(name: "数据库", sortOrder: 0, parentID: mid.id)
+        let orphan = SessionGroup(name: "孤儿", sortOrder: 2, parentID: UUID())
+        let groups = [leaf, top, orphan, mid, other]
+        XCTAssertEqual(SessionFolders.children(of: nil, in: groups).map(\.name), ["测试", "生产", "孤儿"],
+                       "a folder whose parent vanished shows at the top level")
+        XCTAssertEqual(SessionFolders.children(of: top.id, in: groups).map(\.name), ["华东"])
+        XCTAssertEqual(SessionFolders.path(to: leaf.id, in: groups).map(\.name), ["生产", "华东", "数据库"])
+        XCTAssertTrue(SessionFolders.isWithin(leaf.id, top.id, in: groups))
+        XCTAssertTrue(SessionFolders.isWithin(top.id, top.id, in: groups))
+        XCTAssertFalse(SessionFolders.isWithin(top.id, leaf.id, in: groups))
+        XCTAssertFalse(SessionFolders.isWithin(nil, top.id, in: groups))
+        let ordered = SessionFolders.parentsFirst(groups).map(\.id)
+        XCTAssertLessThan(try XCTUnwrap(ordered.firstIndex(of: top.id)), try XCTUnwrap(ordered.firstIndex(of: mid.id)))
+        XCTAssertLessThan(try XCTUnwrap(ordered.firstIndex(of: mid.id)), try XCTUnwrap(ordered.firstIndex(of: leaf.id)))
+        XCTAssertNotNil(SessionFolders.validatedName("华东", among: groups), "names only clash with siblings")
+        XCTAssertNil(SessionFolders.validatedName("华东", among: groups, parentID: top.id))
+    }
+
+    @MainActor
+    func testNestedFoldersCreateMoveDeleteAndPersist() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("snake-nest-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let suite = "com.snake.tests.nest.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let database = root.appendingPathComponent("db.sqlite3")
+        try CorePersistence(databaseURL: database).save(SSHProfile(name: "db-01", host: "10.0.0.9", username: "root"))
+        let store = ApplicationStore(databaseURL: database, userDefaults: defaults)
+
+        let production = try XCTUnwrap(store.createFolder(named: "生产"))
+        let east = try XCTUnwrap(store.createFolder(named: "华东", in: production.id))
+        let databases = try XCTUnwrap(store.createFolder(named: "数据库", in: east.id))
+        XCTAssertNotNil(store.createFolder(named: "华东"), "the same name is fine at another level")
+        XCTAssertNil(store.createFolder(named: "华东", in: production.id), "but not among siblings")
+
+        XCTAssertFalse(store.moveFolder(id: production.id, to: databases.id), "a folder cannot move into its own subfolder")
+        let profileID = try XCTUnwrap(store.profiles.first?.id)
+        store.move(profileID: profileID, to: east.id)
+        XCTAssertEqual(store.folderName(for: try XCTUnwrap(store.profiles.first)), "生产 / 华东")
+        XCTAssertTrue(store.folderPaths.map(\.path).contains("生产 / 华东 / 数据库"))
+
+        store.deleteFolder(id: east.id)
+        XCTAssertEqual(store.profiles.first?.groupID, production.id, "sessions move up one level")
+        XCTAssertEqual(store.groups.first { $0.id == databases.id }?.parentID, production.id, "subfolders move up one level")
+
+        XCTAssertTrue(store.moveFolder(id: databases.id, to: nil))
+        let reloaded = ApplicationStore(databaseURL: database, userDefaults: defaults)
+        XCTAssertNil(reloaded.groups.first { $0.id == databases.id }?.parentID)
+        XCTAssertEqual(reloaded.profiles.first?.groupID, production.id)
+        XCTAssertEqual(Set(reloaded.childFolders(of: nil).map(\.name)), ["生产", "华东", "数据库"])
+    }
+
+    @MainActor
+    func testStoreReordersFoldersAndSessionsAndKeepsFolderIcons() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("snake-order-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let suite = "com.snake.tests.order.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let database = root.appendingPathComponent("db.sqlite3")
+        let persistence = try CorePersistence(databaseURL: database)
+        for (index, name) in ["one", "two", "three"].enumerated() {
+            try persistence.save(SSHProfile(name: name, host: "10.0.0.\(index)", username: "root", sortOrder: index))
+        }
+        let store = ApplicationStore(databaseURL: database, userDefaults: defaults)
+        let alpha = try XCTUnwrap(store.createFolder(named: "Alpha"))
+        let beta = try XCTUnwrap(store.createFolder(named: "Beta"))
+        XCTAssertEqual(store.childFolders(of: nil).map(\.name), ["Alpha", "Beta"])
+        store.reorderFolders([beta.id, alpha.id])
+        XCTAssertEqual(store.childFolders(of: nil).map(\.name), ["Beta", "Alpha"])
+
+        func id(_ name: String) throws -> UUID { try XCTUnwrap(store.profiles.first { $0.name == name }?.id) }
+        store.reorderProfiles([try id("three"), try id("one"), try id("two")])
+        XCTAssertEqual(store.profiles.sorted { $0.sortOrder < $1.sortOrder }.map(\.name), ["three", "one", "two"])
+
+        store.move(profileID: try id("one"), to: alpha.id)
+        store.move(profileID: try id("two"), to: alpha.id)
+        let inAlpha = store.profiles.filter { $0.groupID == alpha.id }.sorted { $0.sortOrder < $1.sortOrder }
+        XCTAssertEqual(inAlpha.map(\.name), ["one", "two"], "moving into a folder appends at its end")
+        store.move(profileID: try id("one"), to: nil)
+        XCTAssertNil(store.profiles.first { $0.name == "one" }?.groupID)
+
+        let png = try XCTUnwrap(NSImage(size: NSSize(width: 4, height: 4), flipped: false) { rect in
+            NSColor.systemOrange.setFill(); rect.fill(); return true
+        }.tiffRepresentation.flatMap { NSBitmapImageRep(data: $0)?.representation(using: .png, properties: [:]) })
+        // Folder icons share the app's real icon folder; never leave this one behind.
+        defer { ProfileIconStore.delete(for: beta.id) }
+        try store.setFolderIcon(png, for: beta.id)
+        XCTAssertNotNil(ProfileIconStore.data(for: beta.id))
+        store.deleteFolder(id: beta.id)
+        XCTAssertNil(ProfileIconStore.data(for: beta.id), "deleting a folder removes its icon")
+
+        let reloaded = ApplicationStore(databaseURL: database, userDefaults: defaults)
+        XCTAssertEqual(reloaded.childFolders(of: nil).map(\.name), ["Alpha"])
+        XCTAssertEqual(reloaded.profiles.first { $0.name == "two" }?.groupID, alpha.id)
+    }
+
+    @MainActor
+    func testStoreMigratesTagsOnceAndDeletingAFolderKeepsItsSessions() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("snake-folders-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let suite = "com.snake.tests.folders.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let database = root.appendingPathComponent("db.sqlite3")
+        let tagged = SSHProfile(name: "tagged", host: "10.0.0.1", username: "root", tags: ["测试"])
+        try CorePersistence(databaseURL: database).save(tagged)
+
+        let store = ApplicationStore(databaseURL: database, userDefaults: defaults)
+        let folder = try XCTUnwrap(store.groups.first { $0.name == "测试" })
+        XCTAssertEqual(store.profiles.first?.groupID, folder.id)
+        XCTAssertNil(store.createFolder(named: "测试"), "duplicate names are refused")
+        let other = try XCTUnwrap(store.createFolder(named: "生产"))
+        XCTAssertTrue(store.renameFolder(id: other.id, to: "生产服务器"))
+        XCTAssertFalse(store.renameFolder(id: other.id, to: " 测试 "))
+
+        store.deleteFolder(id: folder.id)
+        XCTAssertEqual(store.profiles.map(\.name), ["tagged"], "deleting a folder never deletes sessions")
+        XCTAssertNil(store.profiles.first?.groupID)
+
+        // The migration ran once: a reload must not recreate the deleted folder.
+        let reloaded = ApplicationStore(databaseURL: database, userDefaults: defaults)
+        XCTAssertEqual(reloaded.groups.map(\.name), ["生产服务器"])
+        XCTAssertNil(reloaded.profiles.first?.groupID)
     }
 
     func testCustomProfileIconMarkerAndCropOutput() throws {

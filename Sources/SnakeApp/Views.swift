@@ -185,19 +185,66 @@ private struct SnakeToolbar: View {
                 Image(systemName: "externaldrive")
                     .font(.system(size: 14, weight: .medium))
             }
-            .buttonStyle(SnakeIconButtonStyle(selected: windowState.selectedRuntime?.kind == .mounts))
+            .buttonStyle(SnakeIconButtonStyle(selected: windowState.selectedRuntime?.kind == .mounts, minSize: CGSize(width: 34, height: 30)))
             .help("打开磁盘映射").accessibilityLabel("打开磁盘映射")
 
             Button { windowState.showManager(.mcp) } label: {
                 Image(systemName: WorkspaceTabKind.mcp.symbolName)
                     .font(.system(size: 14, weight: .medium))
             }
-            .buttonStyle(SnakeIconButtonStyle(selected: windowState.selectedRuntime?.kind == .mcp))
+            .buttonStyle(SnakeIconButtonStyle(selected: windowState.selectedRuntime?.kind == .mcp, minSize: CGSize(width: 34, height: 30)))
             .help("打开 MCP 服务").accessibilityLabel("打开 MCP 服务")
 
         }
         .padding(.horizontal, 4)
         .frame(height: 40)
+    }
+}
+
+/// Dragging on the SSH page: sessions and folders reorder among their siblings
+/// while the others slide aside, a session dropped on a folder moves into it, a
+/// folder dropped on the middle of another moves inside it, and any level of the
+/// breadcrumb path takes a card out to that level.
+private enum CatalogItem: Hashable {
+    case folder(UUID)
+    case profile(UUID)
+    /// A breadcrumb level; `nil` is the top level.
+    case crumb(UUID?)
+    /// The wide "move up one level" zone shown over the search field inside a folder.
+    case moveUp
+}
+
+private enum CatalogDropIntent: Equatable {
+    case reorder(onto: CatalogItem)
+    case into(UUID?)
+}
+
+/// One press on a card; it becomes a drag once `SessionFolders.dragActivates`.
+/// Card frames are frozen when the press starts, so cards sliding aside never
+/// change what is under the pointer.
+private struct CatalogPress: Equatable {
+    let item: CatalogItem
+    let started: Date
+    let frames: [CatalogItem: CGRect]
+    var translation = CGSize.zero
+    var location = CGPoint.zero
+    var isActive = false
+    /// What the pointer is over right now, and since when; a reorder only takes
+    /// effect once the pointer has rested on it (see `SessionCatalogView.reorderDwell`).
+    var hoverIntent: CatalogDropIntent?
+    var hoverSince = Date.distantPast
+}
+
+/// A reorder target the pointer has rested on long enough to slide cards aside.
+private struct CatalogHover: Equatable {
+    let intent: CatalogDropIntent
+    let since: Date
+}
+
+private struct CatalogFrameKey: PreferenceKey {
+    static let defaultValue: [CatalogItem: CGRect] = [:]
+    static func reduce(value: inout [CatalogItem: CGRect], nextValue: () -> [CatalogItem: CGRect]) {
+        value.merge(nextValue()) { $1 }
     }
 }
 
@@ -209,51 +256,73 @@ private struct SessionCatalogView: View {
     let onConnect: (SSHProfile, Bool) -> Void
     let isOnScreen: () -> Bool
     @FocusState private var searchFocused: Bool
+    @State private var folderEditor: SessionFolderDraft?
+    @State private var pendingFolderDeletion: SessionGroup?
+    @State private var frames: [CatalogItem: CGRect] = [:]
+    /// The frames frozen for the current drag, kept past the gesture's own state
+    /// (which may already be reset when the drop is handled).
+    @State private var dragFrames: [CatalogItem: CGRect] = [:]
+    @GestureState private var press: CatalogPress?
+    @State private var settledHover: CatalogHover?
+
+    private static let space = "session-catalog"
+    private static let reorderAnimation = Animation.spring(response: 0.28, dampingFraction: 0.82)
+    /// Passing over a card does not shuffle the grid; only resting on it does.
+    /// Without this, aiming a folder at another folder slid that folder away.
+    private static let reorderDwell: Duration = .milliseconds(300)
+
+    private var activePress: CatalogPress? {
+        guard let press, press.isActive else { return nil }
+        return press
+    }
+
+    /// A deleted folder falls back to the top level instead of an empty page.
+    private var openFolder: SessionGroup? {
+        runtime.openFolderID.flatMap { id in store.groups.first { $0.id == id } }
+    }
+
+    private var isSearching: Bool {
+        !runtime.searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
 
     var body: some View {
         GeometryReader { geometry in
+            let columns = [GridItem(.adaptive(minimum: min(280, max(1, geometry.size.width - 32))), spacing: 16)]
             ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 20) {
                     ViewThatFits(in: .horizontal) {
-                        HStack {
+                        HStack(alignment: .bottom) {
                             heading
                             Spacer(minLength: 16)
-                            newProfileButton
+                            actions
                         }
-                        VStack(alignment: .leading, spacing: 12) { heading; newProfileButton }
+                        VStack(alignment: .leading, spacing: 12) { heading; actions }
                     }
-                    ViewThatFits(in: .horizontal) {
-                        HStack(spacing: 12) { searchField.frame(minWidth: 160); tagFilter.frame(width: 180) }
-                        VStack(spacing: 8) { searchField; tagFilter }
-                    }
-                    if filteredProfiles.isEmpty {
-                        VStack(spacing: 12) {
-                            Image(systemName: "server.rack").font(.system(size: 28))
-                            Text(store.profiles.isEmpty ? L10n.text("暂无 SSH 会话") : L10n.text("没有匹配的会话"))
-                                .font(.headline)
-                            Text(store.profiles.isEmpty ? L10n.text("新建会话，保存连接信息后即可打开终端或 SFTP。") : L10n.text("试试其他名称、地址或标签。"))
-                                .foregroundStyle(SnakeStyle.muted)
-                            if store.profiles.isEmpty { newProfileButton }
-                        }
-                        .frame(maxWidth: .infinity).padding(.vertical, 48)
-                    } else {
-                        LazyVGrid(columns: [GridItem(.adaptive(minimum: min(280, max(1, geometry.size.width - 32))), spacing: 16)], spacing: 16) {
-                            ForEach(filteredProfiles) { profile in
-                                SessionProfileCard(
-                                    profile: profile,
-                                    selected: runtime.selectedProfileID == profile.id,
-                                    onSelect: { runtime.selectedProfileID = profile.id },
-                                    onEdit: { onEdit(profile) },
-                                    onConnect: { onConnect(profile, $0) }
-                                )
-                            }
-                        }
-                    }
+                    searchField
+                    content(columns: columns)
                 }
                 .padding(geometry.size.width < 500 ? 16 : 24)
+                .coordinateSpace(name: Self.space)
+                .onPreferenceChange(CatalogFrameKey.self) { frames = $0 }
+                .overlay(alignment: .topLeading) { dragPreview }
             }
         }
         .background(SnakeStyle.canvas)
+        // A closed hand shows the card is held, even before it reaches a target.
+        .task(id: pendingHover) {
+            guard let pendingHover else { return }
+            try? await Task.sleep(for: Self.reorderDwell)
+            if !Task.isCancelled { settledHover = pendingHover }
+        }
+        .onChange(of: activePress != nil) { _, dragging in
+            if dragging {
+                settledHover = nil
+                dragFrames = activePress?.frames ?? frames
+                NSCursor.closedHand.push()
+            } else {
+                NSCursor.pop()
+            }
+        }
         .task(id: runtime.searchFocusRequest) {
             guard runtime.searchFocusRequest > 0 else { return }
             // Bonsplit keeps hidden tab content alive. Give the selected tab a
@@ -263,109 +332,660 @@ private struct SessionCatalogView: View {
                 searchFocused = true
             }
         }
-    }
-
-    private var heading: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text("SSH 会话").font(.system(size: 22, weight: .bold))
-            Text("选择会话，在当前标签打开终端或 SFTP。")
-                .font(.system(size: 13)).foregroundStyle(SnakeStyle.muted)
+        .sheet(item: $folderEditor) { draft in
+            SessionFolderEditorSheet(draft: draft) { folderEditor = nil }
+                .environmentObject(store)
+        }
+        .confirmationDialog(
+            pendingFolderDeletion.map { L10n.format("删除文件夹「%@」？", $0.name) } ?? "",
+            isPresented: Binding(get: { pendingFolderDeletion != nil }, set: { if !$0 { pendingFolderDeletion = nil } }),
+            presenting: pendingFolderDeletion
+        ) { folder in
+            Button("删除文件夹", role: .destructive) {
+                if let open = runtime.openFolderID, SessionFolders.isWithin(open, folder.id, in: store.groups) {
+                    runtime.openFolderID = folder.parentID
+                }
+                if runtime.selectedFolderID == folder.id { runtime.selectedFolderID = nil }
+                store.deleteFolder(id: folder.id)
+            }
+            Button("取消", role: .cancel) {}
+        } message: { _ in
+            Text("其中的会话和子文件夹会移到上一层，不会被删除。")
         }
     }
+
+    @ViewBuilder
+    private var heading: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            if let folder = openFolder {
+                breadcrumbs(to: folder)
+                HStack(spacing: 10) {
+                    SessionFolderIcon(image: ProfileIconStore.image(for: folder.id), size: 30)
+                    Text(folder.name).lineLimit(1)
+                }
+                .font(.system(size: 22, weight: .bold))
+                Text(contentsSummary(of: folder.id))
+                    .font(.system(size: 13)).foregroundStyle(SnakeStyle.muted)
+            } else {
+                Text("SSH 会话").font(.system(size: 22, weight: .bold))
+                Text("双击文件夹打开；按住卡片拖动可调整顺序，或把会话拖进文件夹。")
+                    .font(.system(size: 13)).foregroundStyle(SnakeStyle.muted)
+            }
+        }
+    }
+
+    /// Every level above the open folder; each opens that level and accepts drops.
+    private func breadcrumbs(to folder: SessionGroup) -> some View {
+        let ancestors = SessionFolders.path(to: folder.parentID, in: store.groups)
+        let levels: [(id: UUID?, title: String)] = [(nil, L10n.text("SSH 会话"))] + ancestors.map { ($0.id, $0.name) }
+        return HStack(spacing: 2) {
+            ForEach(Array(levels.enumerated()), id: \.offset) { index, level in
+                if index > 0 {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(SnakeStyle.muted)
+                }
+                Button { runtime.openFolderID = level.id } label: {
+                    HStack(spacing: 4) {
+                        if index == 0 {
+                            Image(systemName: "chevron.left").font(.system(size: 11, weight: .semibold))
+                        }
+                        Text(level.title).lineLimit(1)
+                    }
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(SnakeStyle.action)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 3)
+                    .background(dropHighlight(.crumb(level.id)), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .background(frameReader(.crumb(level.id)))
+                .help("打开这一层；把卡片拖到这里可移到这一层")
+            }
+        }
+        .padding(.horizontal, -6)
+    }
+
+    private var actions: some View {
+        HStack(spacing: 8) {
+            if let folder = openFolder {
+                Button("编辑…", systemImage: "pencil") { folderEditor = SessionFolderDraft(folder: folder) }
+                    .buttonStyle(SnakeOutlineButtonStyle())
+                Button("删除文件夹…", systemImage: "trash") { pendingFolderDeletion = folder }
+                    .buttonStyle(SnakeOutlineButtonStyle())
+            }
+            Button("新建文件夹", systemImage: "folder.badge.plus") {
+                folderEditor = SessionFolderDraft(parentID: openFolder?.id)
+            }
+            .buttonStyle(SnakeOutlineButtonStyle())
+            newProfileButton
+        }
+        .fixedSize(horizontal: true, vertical: false)
+    }
+
     private var newProfileButton: some View {
         Button("新建会话", systemImage: "plus", action: onNewProfile)
             .buttonStyle(SnakeOutlineButtonStyle(emphasized: true))
     }
+
     private var searchField: some View {
         HStack {
             Image(systemName: "magnifyingglass").foregroundStyle(SnakeStyle.muted)
-            TextField("搜索会话、IP 或标签", text: $runtime.searchQuery)
+            TextField(openFolder == nil ? L10n.text("搜索会话、IP、用户名或文件夹") : L10n.text("在此文件夹中搜索"),
+                      text: $runtime.searchQuery)
                 .textFieldStyle(.plain).focused($searchFocused)
                 .accessibilityIdentifier("session-catalog-search")
         }
         .padding(10)
         .background(SnakeStyle.raisedSurface, in: RoundedRectangle(cornerRadius: 7))
         .overlay { RoundedRectangle(cornerRadius: 7).stroke(SnakeStyle.hairline, lineWidth: 1) }
+        // Inside a folder the search field doubles as a wide "move up" target while
+        // dragging. It is laid out before the drag starts, so its frame is in the
+        // snapshot the drop is judged against.
+        .background { if openFolder != nil { frameReader(.moveUp) } }
+        .overlay { moveUpZone }
     }
 
-    private var tagFilter: some View {
-        let tags = Array(Set(store.profiles.flatMap(\.tags))).sorted()
-        return HStack(spacing: 7) {
-            Menu {
-                Button {
-                    runtime.selectedTags.removeAll()
-                } label: {
-                    Label("全部标签", systemImage: runtime.selectedTags.isEmpty ? "checkmark" : "tag")
-                }
-                if !tags.isEmpty { Divider() }
-                ForEach(tags, id: \.self) { tag in
-                    Toggle(tag, isOn: Binding(
-                        get: { runtime.selectedTags.contains(tag) },
-                        set: { selected in
-                            if selected { runtime.selectedTags.insert(tag) }
-                            else { runtime.selectedTags.remove(tag) }
-                        }
-                    ))
-                }
-            } label: {
-                HStack(spacing: 7) {
-                    Image(systemName: runtime.selectedTags.isEmpty ? "tag" : "tag.fill")
-                        .foregroundStyle(runtime.selectedTags.isEmpty ? SnakeStyle.muted : SnakeStyle.action)
-                    Text(runtime.selectedTags.isEmpty ? L10n.text("全部标签") : L10n.plural("已选 %@ 个标签", count: runtime.selectedTags.count, runtime.selectedTags.count))
-                        .lineLimit(1)
-                    Spacer(minLength: 4)
-                    Image(systemName: "chevron.up.chevron.down")
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(SnakeStyle.muted)
-                }
-                .font(.system(size: 11, weight: .medium))
-                .padding(.horizontal, 9)
-                .frame(height: 27)
-                .background(SnakeStyle.raisedSurface, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
-                .overlay { RoundedRectangle(cornerRadius: 7, style: .continuous).stroke(SnakeStyle.hairline, lineWidth: 1) }
+    @ViewBuilder
+    private var moveUpZone: some View {
+        if activePress != nil, let folder = openFolder {
+            let parentName = folder.parentID.flatMap { id in store.groups.first { $0.id == id }?.name }
+                ?? L10n.text("SSH 会话")
+            let targeted = dropIntent == .into(folder.parentID)
+            let shape = RoundedRectangle(cornerRadius: 7, style: .continuous)
+            HStack(spacing: 8) {
+                Image(systemName: "arrow.up.to.line")
+                Text(L10n.format("拖到这里，移到上一层「%@」", parentName)).lineLimit(1)
             }
-            .menuStyle(.borderlessButton)
-            .frame(maxWidth: .infinity)
+            .font(.system(size: 13, weight: .medium))
+            .foregroundStyle(SnakeStyle.action)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(targeted ? SnakeStyle.action.opacity(0.18) : SnakeStyle.raisedSurface, in: shape)
+            .overlay { shape.stroke(SnakeStyle.action, style: StrokeStyle(lineWidth: targeted ? 2.5 : 1.5, dash: targeted ? [] : [6, 4])) }
+            .allowsHitTesting(false)
+        }
+    }
 
-            if !runtime.selectedTags.isEmpty {
-                Button { runtime.selectedTags.removeAll() } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(SnakeStyle.muted)
+    @ViewBuilder
+    private func content(columns: [GridItem]) -> some View {
+        if store.profiles.isEmpty && store.groups.isEmpty {
+            emptyState(symbol: "server.rack", title: L10n.text("暂无 SSH 会话"),
+                       detail: L10n.text("新建会话，保存连接信息后即可打开终端或 SFTP。"), showsNewButton: true)
+        } else if isSearching {
+            // Search spans the open folder and everything inside it (or everything at the top level).
+            let results = sortedProfiles.filter { profile in
+                (openFolder.map { SessionFolders.isWithin(profile.groupID, $0.id, in: store.groups) } ?? true)
+                    && SessionFolders.matches(profile, query: runtime.searchQuery, folderName: store.folderName(for: profile))
+            }
+            if results.isEmpty {
+                emptyState(symbol: "magnifyingglass", title: L10n.text("没有匹配的会话"),
+                           detail: L10n.text("试试其他名称、地址、用户名或文件夹。"), showsNewButton: false)
+            } else {
+                section(L10n.text("搜索结果")) { profileGrid(results, columns: columns, showsFolder: true) }
+            }
+        } else {
+            let folders = displayed(store.childFolders(of: openFolder?.id)) { CatalogItem.folder($0.id) }
+            let sessions = displayed(profiles(in: openFolder?.id)) { CatalogItem.profile($0.id) }
+            if folders.isEmpty && sessions.isEmpty {
+                emptyState(symbol: "folder", title: L10n.text("文件夹是空的"),
+                           detail: L10n.text("在这里新建会话或文件夹，或回到上一层把会话拖到这个文件夹上。"), showsNewButton: true)
+            }
+            if !folders.isEmpty {
+                section(L10n.text("文件夹")) {
+                    LazyVGrid(columns: columns, spacing: 16) {
+                        ForEach(folders) { folder in
+                            draggable(.folder(folder.id)) { folderCard(folder) }
+                        }
+                    }
+                    .animation(Self.reorderAnimation, value: folders.map(\.id))
                 }
-                .buttonStyle(.plain)
-                .help("清除标签筛选")
+            }
+            if !sessions.isEmpty {
+                section(L10n.text("会话")) { profileGrid(sessions, columns: columns, showsFolder: false) }
             }
         }
-        .padding(.horizontal, 8)
-        .frame(height: 36)
     }
 
-    private var filteredProfiles: [SSHProfile] {
-        store.profiles
-            .sorted {
-                if $0.sortOrder == $1.sortOrder {
-                    return $0.name.localizedStandardCompare($1.name) == .orderedAscending
-                }
-                return $0.sortOrder < $1.sortOrder
+    private func contentsSummary(of folderID: UUID) -> String {
+        let sessions = L10n.plural("%@ 个会话", count: profiles(in: folderID).count, profiles(in: folderID).count)
+        let subfolders = store.childFolders(of: folderID).count
+        guard subfolders > 0 else { return sessions }
+        return L10n.plural("%@ 个文件夹", count: subfolders, subfolders) + " · " + sessions
+    }
+
+    private func folderCard(_ folder: SessionGroup) -> some View {
+        SessionFolderCard(
+            folder: folder,
+            summary: contentsSummary(of: folder.id),
+            selected: runtime.selectedFolderID == folder.id,
+            isDropTarget: dropIntent == .into(folder.id),
+            onSelect: {
+                runtime.selectedFolderID = folder.id
+                runtime.selectedProfileID = nil
+            },
+            onOpen: { openFolder(folder.id) },
+            onEdit: { folderEditor = SessionFolderDraft(folder: folder) },
+            onDelete: { pendingFolderDeletion = folder }
+        )
+    }
+
+    private func profileCard(_ profile: SSHProfile, showsFolder: Bool) -> some View {
+        SessionProfileCard(
+            profile: profile,
+            folderName: showsFolder ? (store.folderName(for: profile) ?? L10n.text("未放入文件夹")) : nil,
+            selected: runtime.selectedProfileID == profile.id,
+            onSelect: {
+                runtime.selectedProfileID = profile.id
+                runtime.selectedFolderID = nil
+            },
+            onEdit: { onEdit(profile) },
+            onConnect: { onConnect(profile, $0) }
+        )
+    }
+
+    private func openFolder(_ id: UUID) {
+        runtime.selectedFolderID = id
+        runtime.openFolderID = id
+    }
+
+    private func section<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(title).font(.system(size: 15, weight: .semibold))
+            content()
+        }
+    }
+
+    private func profileGrid(_ profiles: [SSHProfile], columns: [GridItem], showsFolder: Bool) -> some View {
+        LazyVGrid(columns: columns, spacing: 16) {
+            ForEach(profiles) { profile in
+                draggable(.profile(profile.id)) { profileCard(profile, showsFolder: showsFolder) }
             }
-            .filter(matches)
+        }
+        .animation(Self.reorderAnimation, value: profiles.map(\.id))
     }
 
-    private func matches(_ profile: SSHProfile) -> Bool {
-        let query = runtime.searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
-        let matchesTag = SessionTagFilter.matches(profileTags: profile.tags, selectedTags: runtime.selectedTags)
-        guard matchesTag else { return false }
-        guard !query.isEmpty else { return true }
-        return [profile.name, profile.host, profile.username, profile.tags.joined(separator: " ")]
-            .joined(separator: " ")
-            .localizedCaseInsensitiveContains(query)
+    private func emptyState(symbol: String, title: String, detail: String, showsNewButton: Bool) -> some View {
+        VStack(spacing: 12) {
+            Image(systemName: symbol).font(.system(size: 28))
+            Text(title).font(.headline)
+            Text(detail).foregroundStyle(SnakeStyle.muted).multilineTextAlignment(.center)
+            if showsNewButton { newProfileButton }
+        }
+        .frame(maxWidth: .infinity).padding(.vertical, 48)
     }
 
+    private var sortedProfiles: [SSHProfile] {
+        store.profiles.sorted {
+            if $0.sortOrder == $1.sortOrder {
+                return $0.name.localizedStandardCompare($1.name) == .orderedAscending
+            }
+            return $0.sortOrder < $1.sortOrder
+        }
+    }
+
+    /// `nil` lists sessions outside every folder, including ones whose folder vanished.
+    private func profiles(in folderID: UUID?) -> [SSHProfile] {
+        sortedProfiles.filter { profile in
+            guard let folderID else {
+                return profile.groupID.map { id in !store.groups.contains { $0.id == id } } ?? true
+            }
+            return profile.groupID == folderID
+        }
+    }
+
+    // MARK: - Dragging
+
+    private func frameReader(_ item: CatalogItem) -> some View {
+        GeometryReader { proxy in
+            Color.clear.preference(key: CatalogFrameKey.self, value: [item: proxy.frame(in: .named(Self.space))])
+        }
+    }
+
+    /// Search results mix folders, so they have no order to drag within.
+    private func draggable<Content: View>(_ item: CatalogItem, @ViewBuilder content: () -> Content) -> some View {
+        content()
+            .background(frameReader(item))
+            // The lifted card's slot stays as a faint placeholder where it would land.
+            .opacity(activePress?.item == item ? 0.25 : 1)
+            .simultaneousGesture(cardDrag(item), including: isSearching ? .subviews : .all)
+    }
+
+    /// A plain drag rather than LongPressGesture + DragGesture: the long press
+    /// failed whenever the hand drifted ~10pt while holding, which made picking
+    /// a card up unreliable. `SessionFolders.dragActivates` decides when it lifts.
+    private func cardDrag(_ item: CatalogItem) -> some Gesture {
+        DragGesture(minimumDistance: 0, coordinateSpace: .named(Self.space))
+            .updating($press) { value, state, _ in
+                var current = state ?? CatalogPress(item: item, started: value.time, frames: frames)
+                current.translation = value.translation
+                current.location = value.location
+                if !current.isActive {
+                    current.isActive = SessionFolders.dragActivates(
+                        distance: hypot(value.translation.width, value.translation.height),
+                        held: value.time.timeIntervalSince(current.started)
+                    )
+                }
+                let hover = current.isActive ? rawIntent(for: current) : nil
+                if hover != current.hoverIntent {
+                    current.hoverIntent = hover
+                    current.hoverSince = value.time
+                }
+                state = current
+            }
+            .onEnded { value in
+                // A click (or a hold without travel) is not a drop, whatever the old frames say.
+                let travelled = hypot(value.translation.width, value.translation.height)
+                guard press?.isActive == true || travelled >= 6 else { return }
+                // Recompute against the frames frozen when this press began.
+                // Cards slid aside during the drag, so live frames no longer match what the user saw.
+                var finished = CatalogPress(item: item, started: .distantPast, frames: press?.frames ?? dragFrames)
+                finished.location = value.location
+                finished.isActive = true
+                // Dropping where the cards have not slid aside yet changes nothing, as it looks.
+                guard let intent = rawIntent(for: finished) else { return }
+                if case .reorder = intent, settledHover?.intent != intent { return }
+                withAnimation(Self.reorderAnimation) { drop(item, intent: intent) }
+            }
+    }
+
+    /// A reorder still waiting for the pointer to rest, keyed so a new target restarts the wait.
+    private var pendingHover: CatalogHover? {
+        guard let press = activePress, let intent = press.hoverIntent, case .reorder = intent else { return nil }
+        return CatalogHover(intent: intent, since: press.hoverSince)
+    }
+
+    /// What a drop would do now: moving into a folder shows at once, reordering
+    /// only after the pointer has rested (`reorderDwell`).
+    private var dropIntent: CatalogDropIntent? {
+        guard let press = activePress, let intent = press.hoverIntent else { return nil }
+        if case .reorder = intent {
+            return settledHover == CatalogHover(intent: intent, since: press.hoverSince) ? intent : nil
+        }
+        return intent
+    }
+
+    private func rawIntent(for press: CatalogPress) -> CatalogDropIntent? {
+        // Half the grid spacing around each card, so the gaps between cards count too.
+        guard let (target, frame) = press.frames.first(where: { item, frame in
+            item != press.item && frame.insetBy(dx: -8, dy: -8).contains(press.location)
+        }) else { return nil }
+        switch (press.item, target) {
+        case (.profile, .profile):
+            return .reorder(onto: target)
+        case (.profile(let id), .folder(let folderID)):
+            return store.profiles.first { $0.id == id }?.groupID == folderID ? nil : .into(folderID)
+        case (.folder(let dragged), .folder(let folderID)):
+            // Most of a folder card (the middle 70%) moves the dragged folder inside
+            // it; only the outer edges reorder, so aiming at a folder is easy.
+            let middle = frame.insetBy(dx: frame.width * 0.15, dy: 0)
+            if middle.contains(press.location), !SessionFolders.isWithin(folderID, dragged, in: store.groups) {
+                return .into(folderID)
+            }
+            return .reorder(onto: target)
+        case (.profile(let id), .crumb(let level)):
+            return store.profiles.first { $0.id == id }?.groupID == level ? nil : .into(level)
+        case (.folder(let id), .crumb(let level)):
+            let parent = store.groups.first { $0.id == id }?.parentID
+            return parent == level ? nil : .into(level)
+        case (.profile, .moveUp), (.folder, .moveUp):
+            // Only shown inside a folder: the dragged card leaves for the level above.
+            guard let folder = openFolder else { return nil }
+            return .into(folder.parentID)
+        default:
+            return nil
+        }
+    }
+
+    /// While a card is held over a sibling, the list shows the order it would
+    /// drop into, and the grid animates the others aside.
+    private func displayed<Element>(_ elements: [Element], item: (Element) -> CatalogItem) -> [Element] {
+        guard case .reorder(let target) = dropIntent, let press = activePress else { return elements }
+        let ids = elements.map(item)
+        guard ids.contains(press.item), ids.contains(target) else { return elements }
+        let order = SessionFolders.moving(press.item, onto: target, in: ids)
+        return order.compactMap { id in elements.first { item($0) == id } }
+    }
+
+    private func dropHighlight(_ item: CatalogItem) -> Color {
+        if case .crumb(let level) = item, dropIntent == .into(level) {
+            return SnakeStyle.action.opacity(0.16)
+        }
+        return .clear
+    }
+
+    private func drop(_ item: CatalogItem, intent: CatalogDropIntent) {
+        switch (item, intent) {
+        case let (.folder(id), .reorder(.folder(targetID))):
+            let siblings = store.childFolders(of: store.groups.first { $0.id == id }?.parentID).map(\.id)
+            store.reorderFolders(SessionFolders.moving(id, onto: targetID, in: siblings))
+        case let (.profile(id), .reorder(.profile(targetID))):
+            let siblings = profiles(in: store.profiles.first { $0.id == id }?.groupID).map(\.id)
+            store.reorderProfiles(SessionFolders.moving(id, onto: targetID, in: siblings))
+        case let (.profile(id), .into(folderID)):
+            store.move(profileID: id, to: folderID)
+        case let (.folder(id), .into(folderID)):
+            store.moveFolder(id: id, to: folderID)
+        default:
+            break
+        }
+    }
+
+    @ViewBuilder
+    private var dragPreview: some View {
+        if let press = activePress, let frame = press.frames[press.item] {
+            Group {
+                switch press.item {
+                case .folder(let id):
+                    if let folder = store.groups.first(where: { $0.id == id }) { folderCard(folder) }
+                case .profile(let id):
+                    if let profile = store.profiles.first(where: { $0.id == id }) { profileCard(profile, showsFolder: false) }
+                case .crumb, .moveUp:
+                    EmptyView()
+                }
+            }
+            .frame(width: frame.width, height: frame.height)
+            .scaleEffect(1.03)
+            .shadow(color: .black.opacity(0.18), radius: 14, y: 6)
+            .offset(x: frame.minX + press.translation.width, y: frame.minY + press.translation.height)
+            .allowsHitTesting(false)
+        }
+    }
+}
+
+private struct SessionFolderIcon: View {
+    let image: NSImage?
+    let size: CGFloat
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: size * 0.25, style: .continuous)
+        Group {
+            if let image {
+                Image(nsImage: image).resizable().interpolation(.high).scaledToFill()
+            } else {
+                Image(systemName: "folder.fill")
+                    .font(.system(size: size * 0.43, weight: .medium))
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(SnakeStyle.action)
+            }
+        }
+        .frame(width: size, height: size)
+        .clipShape(shape)
+    }
+}
+
+private struct SessionFolderCard: View {
+    @EnvironmentObject private var store: ApplicationStore
+    let folder: SessionGroup
+    let summary: String
+    let selected: Bool
+    /// A dragged card would move into this folder if dropped now.
+    let isDropTarget: Bool
+    let onSelect: () -> Void
+    let onOpen: () -> Void
+    let onEdit: () -> Void
+    let onDelete: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: 12, style: .continuous)
+        HStack(spacing: 14) {
+            SessionFolderIcon(image: ProfileIconStore.image(for: folder.id), size: 44)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(folder.name).font(.system(size: 15, weight: .semibold)).lineLimit(1)
+                Text(summary)
+                    .font(.system(size: 12)).foregroundStyle(SnakeStyle.muted).lineLimit(1)
+            }
+            Spacer(minLength: 0)
+            Image(systemName: "chevron.right")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(SnakeStyle.muted)
+        }
+        .padding(14)
+        .background(isDropTarget ? SnakeStyle.action.opacity(0.14)
+                    : (selected ? SnakeStyle.selectedRow.opacity(0.55) : SnakeStyle.raisedSurface), in: shape)
+        .overlay {
+            shape.stroke(isDropTarget || selected ? SnakeStyle.action : (hovering ? SnakeStyle.action.opacity(0.45) : SnakeStyle.hairline),
+                         lineWidth: isDropTarget ? 2.5 : (selected ? 1.5 : 1))
+        }
+        .contentShape(shape)
+        .onHover { hovering = $0 }
+        // Select at once rather than after the double-click timeout, as session cards do.
+        .onTapGesture(count: 2) {
+            onSelect()
+            onOpen()
+        }
+        .simultaneousGesture(TapGesture().onEnded(onSelect))
+        .contextMenu {
+            Button("打开", systemImage: "folder", action: onOpen)
+            Button("编辑…", systemImage: "pencil", action: onEdit)
+            Menu("移到文件夹") {
+                destination(L10n.text("最外层"), parentID: nil)
+                let targets = store.folderPaths.filter { !SessionFolders.isWithin($0.folder.id, folder.id, in: store.groups) }
+                if !targets.isEmpty { Divider() }
+                ForEach(targets, id: \.folder.id) { target in
+                    destination(target.path, parentID: target.folder.id)
+                }
+            }
+            Divider()
+            Button("删除文件夹…", systemImage: "trash", role: .destructive, action: onDelete)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
+        .accessibilityAction(named: Text("打开"), onOpen)
+    }
+}
+
+extension SessionFolderCard {
+    @ViewBuilder
+    fileprivate func destination(_ title: String, parentID: UUID?) -> some View {
+        Button {
+            store.moveFolder(id: folder.id, to: parentID)
+        } label: {
+            if folder.parentID == parentID { Label(title, systemImage: "checkmark") } else { Text(title) }
+        }
+        .disabled(folder.parentID == parentID)
+    }
+}
+
+/// `folderID == nil` creates a folder inside `parentID`; otherwise edits that one.
+private struct SessionFolderDraft: Identifiable {
+    let id = UUID()
+    let folderID: UUID?
+    let parentID: UUID?
+    let name: String
+
+    init(folder: SessionGroup) {
+        folderID = folder.id
+        parentID = folder.parentID
+        name = folder.name
+    }
+
+    init(parentID: UUID?) {
+        folderID = nil
+        self.parentID = parentID
+        name = ""
+    }
+}
+
+private struct SessionFolderEditorSheet: View {
+    @EnvironmentObject private var store: ApplicationStore
+    let draft: SessionFolderDraft
+    let onClose: () -> Void
+    @State private var name: String
+    @State private var iconData: Data?
+    @State private var iconChanged = false
+    @State private var cropSource: ProfileIconCropSource?
+    @State private var errorMessage: String?
+    @FocusState private var focused: Bool
+
+    init(draft: SessionFolderDraft, onClose: @escaping () -> Void) {
+        self.draft = draft
+        self.onClose = onClose
+        _name = State(initialValue: draft.name)
+        _iconData = State(initialValue: draft.folderID.flatMap(ProfileIconStore.data(for:)))
+    }
+
+    private var validName: String? {
+        SessionFolders.validatedName(name, among: store.groups, parentID: draft.parentID, excluding: draft.folderID)
+    }
+
+    private var isDuplicate: Bool {
+        !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && validName == nil
+    }
+
+    var body: some View {
+        SnakeEditorSheet(
+            context: L10n.text("SSH 会话"),
+            title: draft.folderID == nil ? L10n.text("新建文件夹") : L10n.text("编辑文件夹"),
+            width: 480,
+            height: 400,
+            onClose: onClose
+        ) {
+            EditorSection(L10n.text("名称"), footnote: isDuplicate ? L10n.text("已有同名文件夹。") : nil) {
+                TextField(L10n.text("例如 生产服务器"), text: $name)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(size: 13))
+                    .focused($focused)
+                    .onSubmit(save)
+            }
+            EditorSection(L10n.text("图标")) {
+                HStack(spacing: 14) {
+                    SessionFolderIcon(image: iconData.flatMap(NSImage.init(data:)), size: 56)
+                    VStack(alignment: .leading, spacing: 8) {
+                        Button("选择图片…", systemImage: "photo") { chooseImage() }
+                            .buttonStyle(SnakeOutlineButtonStyle())
+                        if iconData != nil {
+                            Button("恢复默认图标") {
+                                iconData = nil
+                                iconChanged = true
+                            }
+                            .buttonStyle(.link)
+                        }
+                    }
+                }
+            }
+            if let errorMessage { Text(errorMessage).font(.system(size: 12)).foregroundStyle(.red) }
+        } leading: {
+            Button("取消", action: onClose).buttonStyle(SnakeOutlineButtonStyle())
+        } trailing: {
+            Button(draft.folderID == nil ? L10n.text("创建") : L10n.text("保存"), action: save)
+                .buttonStyle(SnakeOutlineButtonStyle(emphasized: true))
+                .keyboardShortcut(.defaultAction)
+                .disabled(validName == nil)
+        }
+        .onAppear { focused = true }
+        .sheet(item: $cropSource) { source in
+            ProfileIconCropView(image: source.image) { data in
+                iconData = data
+                iconChanged = true
+                cropSource = nil
+            } onCancel: {
+                cropSource = nil
+            }
+        }
+    }
+
+    private func chooseImage() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = [.image]
+        panel.prompt = L10n.text("选择照片")
+        panel.begin { response in
+            guard response == .OK, let url = panel.url, let image = NSImage(contentsOf: url) else { return }
+            Task { @MainActor in cropSource = ProfileIconCropSource(image: image) }
+        }
+    }
+
+    private func save() {
+        guard validName != nil else { return }
+        let folderID: UUID?
+        if let existing = draft.folderID {
+            folderID = store.renameFolder(id: existing, to: name) ? existing : nil
+        } else {
+            folderID = store.createFolder(named: name, in: draft.parentID)?.id
+        }
+        guard let folderID else { return }
+        if iconChanged {
+            do {
+                try store.setFolderIcon(iconData, for: folderID)
+            } catch {
+                errorMessage = L10n.format("文件夹已保存，但图标未能保存：%@", error.localizedDescription)
+                return
+            }
+        }
+        onClose()
+    }
 }
 
 private struct SessionProfileCard: View {
     @EnvironmentObject private var store: ApplicationStore
     let profile: SSHProfile
+    /// Shown only where cards from different folders mix, i.e. search results.
+    let folderName: String?
     let selected: Bool
     let onSelect: () -> Void
     let onEdit: () -> Void
@@ -383,11 +1003,12 @@ private struct SessionProfileCard: View {
                 Text(profile.connectionLabel)
                     .font(.system(size: 12, design: .monospaced))
                     .foregroundStyle(SnakeStyle.muted).lineLimit(1).truncationMode(.middle)
-                Text(profile.tags.isEmpty ? L10n.text("未设置标签") : profile.tags.joined(separator: "  ·  "))
-                    .font(.system(size: 11)).foregroundStyle(SnakeStyle.muted).lineLimit(1)
+                if let folderName {
+                    Label(folderName, systemImage: "folder")
+                        .font(.system(size: 11)).foregroundStyle(SnakeStyle.muted).lineLimit(1)
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(ProfileDragSourceRegion(profileID: profile.id))
             .contentShape(Rectangle())
             // Selection must not wait for the system double-click timeout.
             // Keep the independent double tap for opening a terminal, just as
@@ -414,6 +1035,13 @@ private struct SessionProfileCard: View {
             Button("新建终端", systemImage: "terminal") { onConnect(false) }
             Button("打开 SFTP", systemImage: "folder") { onConnect(true) }
             Divider()
+            Menu("移到文件夹") {
+                folderChoice(L10n.text("不放入文件夹"), folderID: nil)
+                if !store.groups.isEmpty { Divider() }
+                ForEach(store.folderPaths, id: \.folder.id) { target in
+                    folderChoice(target.path, folderID: target.folder.id)
+                }
+            }
             Button("修改", systemImage: "pencil", action: onEdit)
             Button("删除", systemImage: "trash", role: .destructive) { confirmsDeletion = true }
         }
@@ -423,6 +1051,19 @@ private struct SessionProfileCard: View {
         } message: {
             Text("将关闭相关终端和 SFTP 连接、禁用关联映射，并删除该会话保存的凭据。传输历史会保留会话快照。同时清理该会话已下载的远程文件副本，仅限 Snake 自己缓存的副本，不会改动目录中的其他内容。")
         }
+    }
+}
+
+extension SessionProfileCard {
+    @ViewBuilder
+    fileprivate func folderChoice(_ title: String, folderID: UUID?) -> some View {
+        let current = profile.groupID.flatMap { id in store.groups.contains { $0.id == id } ? id : nil }
+        Button {
+            store.move(profileID: profile.id, to: folderID)
+        } label: {
+            if current == folderID { Label(title, systemImage: "checkmark") } else { Text(title) }
+        }
+        .disabled(current == folderID)
     }
 }
 
@@ -533,7 +1174,9 @@ private struct WorkspaceTabContent: View {
         // tab at once (`keepAllAlive`), and a shared identity could let one tab's view
         // carry another tab's drop closures.
         .id(tabID)
-        .sheet(isPresented: $creatingProfile) { SessionEditorView(profile: nil).environmentObject(store) }
+        .sheet(isPresented: $creatingProfile) {
+            SessionEditorView(profile: nil, defaultFolderID: runtime.openFolderID).environmentObject(store)
+        }
         .sheet(item: $editingProfile) { SessionEditorView(profile: $0).environmentObject(store) }
         .sheet(isPresented: $creatingMapping) { MappingEditorView(mapping: nil).environmentObject(store) }
         .sheet(item: $editingMapping) { MappingEditorView(mapping: $0).environmentObject(store) }
@@ -2391,7 +3034,7 @@ private struct SessionEditorView: View {
     @State private var username: String
     @State private var authMethod: AuthMethod
     @StateObject private var credential = CredentialRevealController()
-    @State private var tags: String
+    @State private var folderID: UUID?
     @State private var symbolName: String
     @State private var customIconData: Data?
     @State private var cropSource: ProfileIconCropSource?
@@ -2403,7 +3046,7 @@ private struct SessionEditorView: View {
     @State private var errorMessage: String?
     @StateObject private var connectionTest = SessionConnectionTestController()
 
-    init(profile: SSHProfile?) {
+    init(profile: SSHProfile?, defaultFolderID: UUID? = nil) {
         originalProfile = profile
         profileID = profile?.id ?? UUID()
         _name = State(initialValue: profile?.name ?? "")
@@ -2411,7 +3054,7 @@ private struct SessionEditorView: View {
         _port = State(initialValue: String(profile?.port ?? 22))
         _username = State(initialValue: profile?.username ?? "")
         _authMethod = State(initialValue: profile?.authMethod ?? .password)
-        _tags = State(initialValue: SessionTags.format(profile?.tags ?? []))
+        _folderID = State(initialValue: profile == nil ? defaultFolderID : profile?.groupID)
         _symbolName = State(initialValue: profile?.symbolName ?? "server.rack")
         _customIconData = State(initialValue: profile?.usesCustomIcon == true ? ProfileIconStore.data(for: profile?.id ?? UUID()) : nil)
         _privateKeyBookmark = State(initialValue: profile?.privateKeyBookmark)
@@ -2542,7 +3185,7 @@ private struct SessionEditorView: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .top, spacing: 12) {
                 compactField(label: L10n.text("会话名称"), text: $name)
-                compactField(label: L10n.text("标签"), text: $tags, placeholder: L10n.text("空格分隔：生产 API"))
+                folderPicker
             }
             HStack(alignment: .top, spacing: 12) {
                 compactField(label: L10n.text("IP 或主机名"), text: $host, monospaced: true)
@@ -2620,6 +3263,19 @@ private struct SessionEditorView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
+    }
+
+    private var folderPicker: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("文件夹").font(.system(size: 11, weight: .medium)).foregroundStyle(SnakeStyle.muted)
+            Picker("文件夹", selection: $folderID) {
+                Text("不放入文件夹").tag(UUID?.none)
+                ForEach(store.folderPaths, id: \.folder.id) { target in Text(target.path).tag(Optional(target.folder.id)) }
+            }
+            .labelsHidden()
+            .frame(height: 32)
+        }
+        .frame(maxWidth: .infinity)
     }
 
     private func compactField(label: String, text: Binding<String>, placeholder: String = "", monospaced: Bool = false) -> some View {
@@ -2723,7 +3379,8 @@ private struct SessionEditorView: View {
         }
         let profile = SSHProfile(
             id: profileID,
-            groupID: nil,
+            // A folder deleted while the editor was open leaves the session at the top level.
+            groupID: folderID.flatMap { id in store.groups.contains { $0.id == id } ? id : nil },
             name: name,
             host: host,
             port: parsedPort,
@@ -2731,7 +3388,8 @@ private struct SessionEditorView: View {
             authMethod: authMethod,
             keychainAccount: originalProfile?.authMethod == authMethod ? originalProfile?.keychainAccount : nil,
             privateKeyBookmark: privateKeyBookmark,
-            tags: SessionTags.parse(tags),
+            // Tags are no longer edited; keep whatever an older version stored.
+            tags: originalProfile?.tags ?? [],
             symbolName: symbolName.isEmpty ? "server.rack" : symbolName,
             sortOrder: originalProfile?.sortOrder ?? store.profiles.count,
             savedPasswordID: authMethod == .password && !credential.hasUserEdits ? availableSavedPasswordID : nil

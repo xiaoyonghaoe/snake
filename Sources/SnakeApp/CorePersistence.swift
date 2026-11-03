@@ -28,7 +28,8 @@ final class CorePersistence {
     func loadGroups() throws -> [SessionGroup] {
         try database.groups().compactMap { group in
             guard let id = UUID(uuidString: group.id) else { return nil }
-            return SessionGroup(id: id, name: group.name, sortOrder: Int(group.sortOrder))
+            return SessionGroup(id: id, name: group.name, sortOrder: Int(group.sortOrder),
+                                parentID: group.parentId.flatMap(UUID.init(uuidString:)))
         }
     }
 
@@ -57,7 +58,8 @@ final class CorePersistence {
         try database.saveGroup(group: CoreSessionGroup(
             id: group.id.uuidString,
             name: group.name,
-            sortOrder: Int64(group.sortOrder)
+            sortOrder: Int64(group.sortOrder),
+            parentId: group.parentID?.uuidString
         ))
     }
 
@@ -185,7 +187,7 @@ final class CorePersistence {
         let existingGroupIDs = Set(try loadGroups().map(\.id))
         let existingProfileIDs = Set(try loadProfiles().map(\.id))
         let existingMappingIDs = Set(try loadMountMappings().map(\.id))
-        for group in groups where !existingGroupIDs.contains(group.id) { try save(group) }
+        for group in SessionFolders.parentsFirst(groups) where !existingGroupIDs.contains(group.id) { try save(group) }
         for profile in profiles where !existingProfileIDs.contains(profile.id) { try save(profile) }
         let allProfiles = try loadProfiles()
         for mapping in mappings where !existingMappingIDs.contains(mapping.id) {
@@ -198,7 +200,7 @@ final class CorePersistence {
         let expectedGroupIDs = Set(groups.map(\.id))
         let expectedProfileIDs = Set(profiles.map(\.id))
 
-        for group in groups { try save(group) }
+        for group in SessionFolders.parentsFirst(groups) { try save(group) }
         for profile in profiles { try save(profile) }
 
         for profile in try loadProfiles() where !expectedProfileIDs.contains(profile.id) {

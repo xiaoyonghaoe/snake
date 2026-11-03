@@ -158,13 +158,14 @@ final class WorkspaceDraggingTests: XCTestCase {
         source.openManager(.sessions)
         let runtime = try XCTUnwrap(source.selectedRuntime)
         runtime.searchQuery = "production"
-        runtime.selectedTags = ["prod"]
+        let folder = UUID()
+        runtime.openFolderID = folder
         let tab = try XCTUnwrap(source.bonsplit.allTabIds.first)
         let pane = try XCTUnwrap(target.activePaneID)
         XCTAssertTrue(fixture.owner.commitWorkspaceDrop(.tab(windowID: source.id, tabID: tab), target: .init(windowID: target.id, paneID: pane, placement: .center, previewRect: .zero), openSFTP: false))
         XCTAssertTrue(target.selectedRuntime === runtime)
         XCTAssertEqual(runtime.searchQuery, "production")
-        XCTAssertEqual(runtime.selectedTags, ["prod"])
+        XCTAssertEqual(runtime.openFolderID, folder)
         XCTAssertNil(runtime.profile)
         XCTAssertNil(runtime.terminal)
         XCTAssertNil(runtime.sftp)
@@ -202,10 +203,10 @@ final class WorkspaceDraggingTests: XCTestCase {
         XCTAssertEqual(first.searchFocusRequest, 2)
         XCTAssertEqual(state.tabs.count, 2)
         first.searchQuery = "one"
-        first.selectedTags = ["prod"]
+        first.openFolderID = UUID()
         state.openManager(.sessions)
         XCTAssertEqual(state.selectedRuntime?.searchQuery, "")
-        XCTAssertEqual(state.selectedRuntime?.selectedTags, [])
+        XCTAssertNil(state.selectedRuntime?.openFolderID)
         XCTAssertEqual(state.selectedRuntime?.searchFocusRequest, 1)
         while state.canCloseCurrentItem { XCTAssertTrue(state.closeCurrentItem()) }
         XCTAssertTrue(state.tabs.isEmpty)

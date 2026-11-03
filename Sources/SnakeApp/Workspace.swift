@@ -2195,7 +2195,10 @@ public final class WorkspaceTabRuntime: ObservableObject, Identifiable {
     public private(set) var terminal: TerminalRuntime?
     public private(set) var sftp: SFTPRuntime?
     @Published var searchQuery = ""
-    @Published var selectedTags = Set<String>()
+    /// The folder this session chooser shows; `nil` is the top level.
+    @Published var openFolderID: UUID?
+    /// A single click selects a folder card; double-click opens it.
+    @Published var selectedFolderID: UUID?
     @Published var selectedProfileID: UUID?
     @Published var selectedMappingID: UUID?
     @Published var searchFocusRequest = 0
@@ -3186,7 +3189,8 @@ extension WorkspaceWindowCoordinator: NSMenuItemValidation {
 
 @MainActor
 public final class SnakeAppDelegate: NSObject, NSApplicationDelegate {
-    public let store = ApplicationStore.shared
+    /// Lazy so constructing a delegate (as tests do) never opens the user's real data store.
+    public lazy var store = ApplicationStore.shared
     private var coordinator: WorkspaceWindowCoordinator?
     private var terminationPending = false
 
