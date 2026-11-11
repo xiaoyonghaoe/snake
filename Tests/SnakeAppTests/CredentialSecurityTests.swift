@@ -169,7 +169,7 @@ final class CredentialSecurityTests: XCTestCase {
 }
 
 @MainActor
-private final class FakeCredentialAuthentication: CredentialAuthenticating {
+final class FakeCredentialAuthentication: CredentialAuthenticating {
     var completion: CheckedContinuation<Void, Error>?
     var invalidated = false
     func authenticate() async throws {

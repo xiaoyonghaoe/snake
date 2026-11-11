@@ -26,7 +26,10 @@ enum CoreErrorText {
         "auth_password": "密码认证失败：%@",
         "auth_password_encoding_invalid": "密码认证失败：密码编码无效",
         "auth_private_key": "私钥认证失败：%@",
-        "auth_private_key_passphrase_invalid": "私钥认证失败：私钥口令编码无效"
+        "auth_private_key_passphrase_invalid": "私钥认证失败：私钥口令编码无效",
+        "ssh_direct_tcpip": "服务器拒绝转发：%@",
+        "tunnel_port_in_use": "本地端口已被占用，请换一个端口或先关闭占用它的程序",
+        "tunnel_listen": "无法监听本地端口：%@"
     ]
 
     /// Localized stage text, falling back to `fallback` plus the raw detail.

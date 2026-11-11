@@ -10,7 +10,7 @@ struct SnakeExecutable: App {
             SnakeSettingsView()
                 .environmentObject(appDelegate.store)
         }
-        .defaultSize(width: 640, height: 560)
+        .defaultSize(width: 900, height: 680)
         .windowResizability(.contentMinSize)
     }
 }

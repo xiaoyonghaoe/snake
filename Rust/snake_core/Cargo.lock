@@ -2042,6 +2042,7 @@ dependencies = [
  "futures",
  "hmac 0.12.1",
  "libc",
+ "rand",
  "rusqlite",
  "russh",
  "russh-sftp",

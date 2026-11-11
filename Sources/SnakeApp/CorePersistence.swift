@@ -87,13 +87,17 @@ final class CorePersistence {
     func loadSavedPasswords() throws -> [SavedPassword] {
         try database.savedPasswords().compactMap { record in
             guard let id = UUID(uuidString: record.id) else { return nil }
-            return SavedPassword(id: id, name: record.name, username: record.username)
+            return SavedPassword(
+                id: id, name: record.name, username: record.username,
+                createdAt: Date(timeIntervalSince1970: TimeInterval(record.createdAt)),
+                updatedAt: Date(timeIntervalSince1970: TimeInterval(record.updatedAt))
+            )
         }
     }
 
     func save(_ record: SavedPassword, selectedProfileIDs: [UUID], syncUsername: Bool) throws -> [UUID] {
         try database.saveSavedPasswordAndSync(
-            record: CoreSavedPassword(id: record.id.uuidString, name: record.name, username: record.username),
+            record: CoreSavedPassword(id: record.id.uuidString, name: record.name, username: record.username, createdAt: 0, updatedAt: 0),
             selectedProfileIds: selectedProfileIDs.map(\.uuidString),
             syncUsername: syncUsername
         ).compactMap(UUID.init(uuidString:))
@@ -103,8 +107,69 @@ final class CorePersistence {
         try database.deleteSavedPassword(id: id.uuidString)
     }
 
+    /// A new password is stored outside SQLite but is still an edit.
+    func touchSavedPassword(id: UUID) throws {
+        try database.touchSavedPassword(id: id.uuidString)
+    }
+
+    // MARK: Tunnels
+
+    func loadTunnels() throws -> [SSHTunnel] {
+        try database.tunnels().compactMap { record in
+            guard let id = UUID(uuidString: record.id) else { return nil }
+            return SSHTunnel(
+                id: id,
+                profileID: record.profileId.flatMap(UUID.init(uuidString:)),
+                localPort: Int(record.localPort),
+                remoteHost: record.remoteHost,
+                remotePort: Int(record.remotePort),
+                note: record.note,
+                autoStart: record.autoStart,
+                sortOrder: Int(record.sortOrder),
+                createdAt: Date(timeIntervalSince1970: TimeInterval(record.createdAt)),
+                updatedAt: Date(timeIntervalSince1970: TimeInterval(record.updatedAt))
+            )
+        }
+    }
+
+    func save(_ tunnel: SSHTunnel) throws {
+        try database.saveTunnel(tunnel: CoreSshTunnel(
+            id: tunnel.id.uuidString,
+            profileId: tunnel.profileID?.uuidString,
+            localPort: UInt16(clamping: tunnel.localPort),
+            remoteHost: tunnel.remoteHost,
+            remotePort: UInt16(clamping: tunnel.remotePort),
+            note: tunnel.note,
+            autoStart: tunnel.autoStart,
+            sortOrder: Int64(tunnel.sortOrder),
+            createdAt: 0,
+            updatedAt: 0
+        ))
+    }
+
+    func deleteTunnel(id: UUID) throws {
+        try database.deleteTunnel(id: id.uuidString)
+    }
+
     func deleteProfile(id: UUID) throws {
         try database.deleteProfile(id: id.uuidString)
+    }
+
+    /// Marks an edit that changed no stored column, such as a new password.
+    func touchProfile(id: UUID) throws {
+        try database.touchProfile(id: id.uuidString)
+    }
+
+    func loadProfileTimestamps() throws -> [UUID: SSHProfileTimestamps] {
+        var result: [UUID: SSHProfileTimestamps] = [:]
+        for row in try database.profileTimestamps() {
+            guard let id = UUID(uuidString: row.id) else { continue }
+            result[id] = SSHProfileTimestamps(
+                createdAt: Date(timeIntervalSince1970: TimeInterval(row.createdAt)),
+                updatedAt: Date(timeIntervalSince1970: TimeInterval(row.updatedAt))
+            )
+        }
+        return result
     }
 
     func loadMountMappings() throws -> [MountMapping] {
@@ -138,43 +203,6 @@ final class CorePersistence {
             enabled: mapping.enabled,
             lastError: mapping.lastError
         ))
-    }
-
-    func loadTransferJobs() throws -> [TransferJob] {
-        try database.transferJobs().compactMap { job in
-            guard let id = UUID(uuidString: job.id) else { return nil }
-            return TransferJob(
-                id: id,
-                sourceProfileName: job.sourceProfileName,
-                targetProfileName: job.targetProfileName,
-                sourcePath: job.sourcePath,
-                targetPath: job.targetPath,
-                totalBytes: job.totalBytes,
-                completedBytes: job.completedBytes,
-                state: TransferState(rawValue: job.state) ?? .interrupted,
-                errorMessage: job.errorMessage,
-                createdAt: Date(timeIntervalSince1970: TimeInterval(job.createdAt))
-            )
-        }
-    }
-
-    func save(_ job: TransferJob) throws {
-        try database.saveTransferJob(job: CoreTransferJob(
-            id: job.id.uuidString,
-            sourceProfileName: job.sourceProfileName,
-            targetProfileName: job.targetProfileName,
-            sourcePath: job.sourcePath,
-            targetPath: job.targetPath,
-            totalBytes: job.totalBytes,
-            completedBytes: job.completedBytes,
-            state: job.state.rawValue,
-            errorMessage: job.errorMessage,
-            createdAt: Int64(job.createdAt.timeIntervalSince1970)
-        ))
-    }
-
-    func deleteTransfer(id: UUID) throws {
-        try database.deleteTransferJob(id: id.uuidString)
     }
 
     func deleteMapping(id: UUID) throws {

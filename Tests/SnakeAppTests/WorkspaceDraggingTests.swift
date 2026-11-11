@@ -192,6 +192,21 @@ final class WorkspaceDraggingTests: XCTestCase {
         XCTAssertNil(mcp.sftp)
     }
 
+    /// Passwords moved out of Settings into a tab beside MCP, opened the same way.
+    func testPasswordTabIsSingleInstanceBesideMcp() throws {
+        let state = WorkspaceWindowState()
+        state.openManager(.sessions)
+        XCTAssertTrue(state.showManager(.passwords))
+        let passwords = try XCTUnwrap(state.selectedRuntime)
+        XCTAssertEqual(passwords.kind, .passwords)
+        XCTAssertEqual(passwords.title, L10n.text("密码管理"))
+        XCTAssertTrue(state.showManager(.mcp))
+        XCTAssertTrue(state.showManager(.passwords))
+        XCTAssertTrue(state.selectedRuntime === passwords)
+        XCTAssertEqual(state.tabs.count, 3)
+        XCTAssertNil(passwords.profile)
+    }
+
     func testSearchCreatesChooserOnlyWhenNeededAndFiltersAreIndependent() throws {
         let state = WorkspaceWindowState()
         state.openManager(.mounts)

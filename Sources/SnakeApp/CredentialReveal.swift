@@ -49,6 +49,30 @@ final class DeviceOwnerCredentialAuthentication: CredentialAuthenticating {
     func invalidate() { context.invalidate() }
 }
 
+/// After one successful check, further reveals within the window skip the
+/// prompt, like `sudo`'s grace period. Shared by every credential field.
+@MainActor
+final class CredentialAuthenticationGrace {
+    static let shared = CredentialAuthenticationGrace()
+
+    let duration: Duration
+    private let now: () -> ContinuousClock.Instant
+    private var approvedAt: ContinuousClock.Instant?
+
+    init(duration: Duration = .seconds(30), now: @escaping () -> ContinuousClock.Instant = { ContinuousClock.now }) {
+        self.duration = duration
+        self.now = now
+    }
+
+    var isActive: Bool {
+        guard let approvedAt else { return false }
+        return approvedAt.duration(to: now()) < duration
+    }
+
+    func recordApproval() { approvedAt = now() }
+    func revoke() { approvedAt = nil }
+}
+
 /// A form-lifetime draft distinguishes authenticated backfill from user edits.
 /// Hiding only masks the draft; reset/teardown erases it without graph re-entry.
 @MainActor
@@ -72,6 +96,8 @@ final class CredentialRevealController: @preconcurrency ObservableObject {
     private let read: (String) async throws -> Data?
     private let timeoutNanoseconds: UInt64
     private let focusReturnTimeoutNanoseconds: UInt64
+    /// `nil` asks every time (tests); the app's forms share `.shared`.
+    private let grace: CredentialAuthenticationGrace?
     private var authentication: (any CredentialAuthenticating)?
     private var requestID = UUID()
     private var requestTask: Task<Void, Never>?
@@ -83,6 +109,7 @@ final class CredentialRevealController: @preconcurrency ObservableObject {
     init(
         timeoutNanoseconds: UInt64 = 30_000_000_000,
         focusReturnTimeoutNanoseconds: UInt64 = 3_000_000_000,
+        grace: CredentialAuthenticationGrace? = nil,
         canPresent: @escaping () -> Bool = { false },
         makeAuthentication: @escaping () -> any CredentialAuthenticating = { DeviceOwnerCredentialAuthentication() },
         read: @escaping (String) async throws -> Data? = { account in
@@ -91,9 +118,16 @@ final class CredentialRevealController: @preconcurrency ObservableObject {
     ) {
         self.timeoutNanoseconds = timeoutNanoseconds
         self.focusReturnTimeoutNanoseconds = focusReturnTimeoutNanoseconds
+        self.grace = grace
         self.canPresent = canPresent
         self.makeAuthentication = makeAuthentication
         self.read = read
+    }
+
+    /// For app forms: one approval covers the next 30 seconds of reveals. A factory,
+    /// because passing arguments in a @StateObject initializer crashes the compiler.
+    static func sharingGrace() -> CredentialRevealController {
+        CredentialRevealController(grace: .shared)
     }
 
     func edit(_ value: String) {
@@ -120,8 +154,11 @@ final class CredentialRevealController: @preconcurrency ObservableObject {
                 // that gap can result in no system prompt at all.
                 try await self?.waitForPresentation(requestID: id)
                 guard let self, self.requestID == id, !Task.isCancelled else { return }
-                try await verifier.authenticate()
-                guard self.requestID == id, !Task.isCancelled else { return }
+                if self.grace?.isActive != true {
+                    try await verifier.authenticate()
+                    guard self.requestID == id, !Task.isCancelled else { return }
+                    self.grace?.recordApproval()
+                }
                 verifier.invalidate()
                 self.authentication = nil
                 self.isAuthenticating = false
@@ -280,7 +317,8 @@ struct CredentialInputView: View {
                         .font(.system(size: 11)).foregroundStyle(.secondary)
                 }
             }
-            HStack(spacing: 8) {
+            // The reveal control sits inside the field, like the system password fields.
+            HStack(spacing: 6) {
                 Group {
                     if reveal.isRevealed {
                         TextField("", text: text)
@@ -288,28 +326,43 @@ struct CredentialInputView: View {
                         SecureField(isPassphrase ? L10n.text("可选，留空保留原口令") : L10n.text("留空保留原密码"), text: text)
                     }
                 }
-                .textFieldStyle(.roundedBorder)
+                .textFieldStyle(.plain)
                 .font(.system(size: 13, design: .monospaced))
-                .frame(height: 32)
                 .focused($inputFocused)
                 .accessibilityLabel(isPassphrase ? L10n.text("私钥口令") : L10n.text("密码"))
+                if reveal.isLoading {
+                    ProgressView().controlSize(.mini)
+                }
                 Button {
                     if reveal.isLoading || reveal.isRevealed { reveal.hide() }
                     else { reveal.reveal(account: account) }
                 } label: {
-                    Label(
-                        reveal.isLoading ? L10n.text("取消验证") : (reveal.isRevealed ? L10n.text("隐藏") : L10n.text("查看")),
-                        systemImage: reveal.isLoading ? "xmark.circle" : (reveal.isRevealed ? "eye.slash" : "eye")
-                    )
-                    .fixedSize()
+                    Image(systemName: reveal.isLoading ? "xmark.circle.fill" : (reveal.isRevealed ? "eye.slash" : "eye"))
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(reveal.isRevealed ? SnakeStyle.action : SnakeStyle.muted)
+                        .frame(width: 24, height: 20)
+                        .contentShape(Rectangle())
                 }
-                .buttonStyle(SnakeOutlineButtonStyle())
+                .buttonStyle(.plain)
                 .disabled(!reveal.isLoading && !reveal.isRevealed && !reveal.canReveal(account: account))
-                .help("验证身份后在原输入框显示并编辑；30 秒后恢复隐藏，保留草稿")
-                if reveal.isLoading {
-                    ProgressView().controlSize(.small)
-                }
+                .help(reveal.isLoading ? L10n.text("取消验证")
+                      : reveal.isRevealed ? L10n.text("隐藏")
+                      : L10n.text("验证身份后在原输入框显示并编辑；30 秒后恢复隐藏，保留草稿"))
+                .accessibilityLabel(reveal.isLoading ? L10n.text("取消验证") : (reveal.isRevealed ? L10n.text("隐藏") : L10n.text("查看")))
             }
+            .padding(.leading, 7)
+            .padding(.trailing, 2)
+            // Matches the system rounded text fields beside it.
+            .frame(height: 22)
+            .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                    .stroke(inputFocused ? SnakeStyle.action.opacity(0.7) : Color.primary.opacity(0.18), lineWidth: inputFocused ? 2 : 0.5)
+            }
+            .shadow(color: .black.opacity(0.06), radius: 0.5, y: 0.5)
+            .contentShape(Rectangle())
+            .onTapGesture { inputFocused = true }
+            .frame(height: 32)
             if let error = reveal.errorMessage {
                 Text(error).font(.system(size: 11)).foregroundStyle(.red)
             }

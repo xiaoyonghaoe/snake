@@ -272,6 +272,13 @@ typedef void (*UniffiCallbackInterfaceCoreTransferObserverMethod0)(uint64_t, uin
     );
 
 #endif
+#ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_CORE_TUNNEL_OBSERVER_METHOD0
+#define UNIFFI_FFIDEF_CALLBACK_INTERFACE_CORE_TUNNEL_OBSERVER_METHOD0
+typedef void (*UniffiCallbackInterfaceCoreTunnelObserverMethod0)(uint64_t, RustBuffer, void* _Nonnull, 
+        RustCallStatus *_Nonnull uniffiCallStatus
+    );
+
+#endif
 #ifndef UNIFFI_FFIDEF_V_TABLE_CALLBACK_INTERFACE_CORE_TERMINAL_OBSERVER
 #define UNIFFI_FFIDEF_V_TABLE_CALLBACK_INTERFACE_CORE_TERMINAL_OBSERVER
 typedef struct UniffiVTableCallbackInterfaceCoreTerminalObserver {
@@ -287,6 +294,14 @@ typedef struct UniffiVTableCallbackInterfaceCoreTransferObserver {
     UniffiCallbackInterfaceCoreTransferObserverMethod0 _Nonnull onProgress;
     UniffiCallbackInterfaceFree _Nonnull uniffiFree;
 } UniffiVTableCallbackInterfaceCoreTransferObserver;
+
+#endif
+#ifndef UNIFFI_FFIDEF_V_TABLE_CALLBACK_INTERFACE_CORE_TUNNEL_OBSERVER
+#define UNIFFI_FFIDEF_V_TABLE_CALLBACK_INTERFACE_CORE_TUNNEL_OBSERVER
+typedef struct UniffiVTableCallbackInterfaceCoreTunnelObserver {
+    UniffiCallbackInterfaceCoreTunnelObserverMethod0 _Nonnull onClosed;
+    UniffiCallbackInterfaceFree _Nonnull uniffiFree;
+} UniffiVTableCallbackInterfaceCoreTunnelObserver;
 
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_FN_CLONE_COREDATABASE
@@ -339,9 +354,9 @@ void uniffi_snake_core_fn_method_coredatabase_delete_profile(void*_Nonnull ptr, 
 void uniffi_snake_core_fn_method_coredatabase_delete_saved_password(void*_Nonnull ptr, RustBuffer id, RustCallStatus *_Nonnull out_status
 );
 #endif
-#ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_FN_METHOD_COREDATABASE_DELETE_TRANSFER_JOB
-#define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_FN_METHOD_COREDATABASE_DELETE_TRANSFER_JOB
-void uniffi_snake_core_fn_method_coredatabase_delete_transfer_job(void*_Nonnull ptr, RustBuffer id, RustCallStatus *_Nonnull out_status
+#ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_FN_METHOD_COREDATABASE_DELETE_TUNNEL
+#define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_FN_METHOD_COREDATABASE_DELETE_TUNNEL
+void uniffi_snake_core_fn_method_coredatabase_delete_tunnel(void*_Nonnull ptr, RustBuffer id, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_FN_METHOD_COREDATABASE_FINISH_MCP_AUDIT
@@ -384,6 +399,11 @@ RustBuffer uniffi_snake_core_fn_method_coredatabase_mcp_tokens(void*_Nonnull ptr
 RustBuffer uniffi_snake_core_fn_method_coredatabase_mount_mappings(void*_Nonnull ptr, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_FN_METHOD_COREDATABASE_PROFILE_TIMESTAMPS
+#define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_FN_METHOD_COREDATABASE_PROFILE_TIMESTAMPS
+RustBuffer uniffi_snake_core_fn_method_coredatabase_profile_timestamps(void*_Nonnull ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_FN_METHOD_COREDATABASE_PROFILES
 #define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_FN_METHOD_COREDATABASE_PROFILES
 RustBuffer uniffi_snake_core_fn_method_coredatabase_profiles(void*_Nonnull ptr, RustCallStatus *_Nonnull out_status
@@ -414,9 +434,9 @@ void uniffi_snake_core_fn_method_coredatabase_save_profile(void*_Nonnull ptr, Ru
 RustBuffer uniffi_snake_core_fn_method_coredatabase_save_saved_password_and_sync(void*_Nonnull ptr, RustBuffer record, RustBuffer selected_profile_ids, int8_t sync_username, RustCallStatus *_Nonnull out_status
 );
 #endif
-#ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_FN_METHOD_COREDATABASE_SAVE_TRANSFER_JOB
-#define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_FN_METHOD_COREDATABASE_SAVE_TRANSFER_JOB
-void uniffi_snake_core_fn_method_coredatabase_save_transfer_job(void*_Nonnull ptr, RustBuffer job, RustCallStatus *_Nonnull out_status
+#ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_FN_METHOD_COREDATABASE_SAVE_TUNNEL
+#define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_FN_METHOD_COREDATABASE_SAVE_TUNNEL
+void uniffi_snake_core_fn_method_coredatabase_save_tunnel(void*_Nonnull ptr, RustBuffer tunnel, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_FN_METHOD_COREDATABASE_SAVED_PASSWORDS
@@ -434,9 +454,19 @@ void uniffi_snake_core_fn_method_coredatabase_set_mcp_token_revoked(void*_Nonnul
 void uniffi_snake_core_fn_method_coredatabase_touch_mcp_token(void*_Nonnull ptr, RustBuffer id, int64_t used_at, RustCallStatus *_Nonnull out_status
 );
 #endif
-#ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_FN_METHOD_COREDATABASE_TRANSFER_JOBS
-#define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_FN_METHOD_COREDATABASE_TRANSFER_JOBS
-RustBuffer uniffi_snake_core_fn_method_coredatabase_transfer_jobs(void*_Nonnull ptr, RustCallStatus *_Nonnull out_status
+#ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_FN_METHOD_COREDATABASE_TOUCH_PROFILE
+#define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_FN_METHOD_COREDATABASE_TOUCH_PROFILE
+void uniffi_snake_core_fn_method_coredatabase_touch_profile(void*_Nonnull ptr, RustBuffer id, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_FN_METHOD_COREDATABASE_TOUCH_SAVED_PASSWORD
+#define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_FN_METHOD_COREDATABASE_TOUCH_SAVED_PASSWORD
+void uniffi_snake_core_fn_method_coredatabase_touch_saved_password(void*_Nonnull ptr, RustBuffer id, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_FN_METHOD_COREDATABASE_TUNNELS
+#define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_FN_METHOD_COREDATABASE_TUNNELS
+RustBuffer uniffi_snake_core_fn_method_coredatabase_tunnels(void*_Nonnull ptr, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_FN_METHOD_COREDATABASE_UPDATE_MCP_TOKEN
@@ -462,21 +492,6 @@ void uniffi_snake_core_fn_method_coresftphandle_assemble_upload(void*_Nonnull pt
 #ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_FN_METHOD_CORESFTPHANDLE_CHECKSUM_CAPABILITY
 #define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_FN_METHOD_CORESFTPHANDLE_CHECKSUM_CAPABILITY
 RustBuffer uniffi_snake_core_fn_method_coresftphandle_checksum_capability(void*_Nonnull ptr, RustCallStatus *_Nonnull out_status
-);
-#endif
-#ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_FN_METHOD_CORESFTPHANDLE_COPY_FROM
-#define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_FN_METHOD_CORESFTPHANDLE_COPY_FROM
-void uniffi_snake_core_fn_method_coresftphandle_copy_from(void*_Nonnull ptr, void*_Nonnull source, RustBuffer source_path, RustBuffer destination_path, int8_t is_directory, RustCallStatus *_Nonnull out_status
-);
-#endif
-#ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_FN_METHOD_CORESFTPHANDLE_COPY_FROM_CONTROLLED
-#define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_FN_METHOD_CORESFTPHANDLE_COPY_FROM_CONTROLLED
-void uniffi_snake_core_fn_method_coresftphandle_copy_from_controlled(void*_Nonnull ptr, void*_Nonnull source, RustBuffer source_path, RustBuffer destination_path, int8_t is_directory, uint64_t total_bytes, void*_Nonnull control, uint64_t observer, RustCallStatus *_Nonnull out_status
-);
-#endif
-#ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_FN_METHOD_CORESFTPHANDLE_COPY_SYMBOLIC_LINK_FROM
-#define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_FN_METHOD_CORESFTPHANDLE_COPY_SYMBOLIC_LINK_FROM
-void uniffi_snake_core_fn_method_coresftphandle_copy_symbolic_link_from(void*_Nonnull ptr, void*_Nonnull source, RustBuffer source_path, RustBuffer destination_path, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_FN_METHOD_CORESFTPHANDLE_CREATE_DIRECTORY
@@ -512,6 +527,11 @@ void uniffi_snake_core_fn_method_coresftphandle_finalize_resumable_upload(void*_
 #ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_FN_METHOD_CORESFTPHANDLE_HOME_DIRECTORY
 #define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_FN_METHOD_CORESFTPHANDLE_HOME_DIRECTORY
 RustBuffer uniffi_snake_core_fn_method_coresftphandle_home_directory(void*_Nonnull ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_FN_METHOD_CORESFTPHANDLE_IS_CLOSED
+#define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_FN_METHOD_CORESFTPHANDLE_IS_CLOSED
+int8_t uniffi_snake_core_fn_method_coresftphandle_is_closed(void*_Nonnull ptr, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_FN_METHOD_CORESFTPHANDLE_LIST
@@ -670,6 +690,36 @@ void uniffi_snake_core_fn_method_coretransfercontrol_pause(void*_Nonnull ptr, Ru
 void uniffi_snake_core_fn_method_coretransfercontrol_resume(void*_Nonnull ptr, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_FN_CLONE_CORETUNNELHANDLE
+#define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_FN_CLONE_CORETUNNELHANDLE
+void*_Nonnull uniffi_snake_core_fn_clone_coretunnelhandle(void*_Nonnull ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_FN_FREE_CORETUNNELHANDLE
+#define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_FN_FREE_CORETUNNELHANDLE
+void uniffi_snake_core_fn_free_coretunnelhandle(void*_Nonnull ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_FN_METHOD_CORETUNNELHANDLE_ACTIVE_CONNECTIONS
+#define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_FN_METHOD_CORETUNNELHANDLE_ACTIVE_CONNECTIONS
+uint32_t uniffi_snake_core_fn_method_coretunnelhandle_active_connections(void*_Nonnull ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_FN_METHOD_CORETUNNELHANDLE_IS_CLOSED
+#define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_FN_METHOD_CORETUNNELHANDLE_IS_CLOSED
+int8_t uniffi_snake_core_fn_method_coretunnelhandle_is_closed(void*_Nonnull ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_FN_METHOD_CORETUNNELHANDLE_LOCAL_PORT
+#define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_FN_METHOD_CORETUNNELHANDLE_LOCAL_PORT
+uint16_t uniffi_snake_core_fn_method_coretunnelhandle_local_port(void*_Nonnull ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_FN_METHOD_CORETUNNELHANDLE_STOP
+#define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_FN_METHOD_CORETUNNELHANDLE_STOP
+void uniffi_snake_core_fn_method_coretunnelhandle_stop(void*_Nonnull ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_FN_INIT_CALLBACK_VTABLE_CORETERMINALOBSERVER
 #define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_FN_INIT_CALLBACK_VTABLE_CORETERMINALOBSERVER
 void uniffi_snake_core_fn_init_callback_vtable_coreterminalobserver(const UniffiVTableCallbackInterfaceCoreTerminalObserver* _Nonnull vtable
@@ -678,6 +728,21 @@ void uniffi_snake_core_fn_init_callback_vtable_coreterminalobserver(const Uniffi
 #ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_FN_INIT_CALLBACK_VTABLE_CORETRANSFEROBSERVER
 #define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_FN_INIT_CALLBACK_VTABLE_CORETRANSFEROBSERVER
 void uniffi_snake_core_fn_init_callback_vtable_coretransferobserver(const UniffiVTableCallbackInterfaceCoreTransferObserver* _Nonnull vtable
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_FN_INIT_CALLBACK_VTABLE_CORETUNNELOBSERVER
+#define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_FN_INIT_CALLBACK_VTABLE_CORETUNNELOBSERVER
+void uniffi_snake_core_fn_init_callback_vtable_coretunnelobserver(const UniffiVTableCallbackInterfaceCoreTunnelObserver* _Nonnull vtable
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_FN_FUNC_GENERATE_ED25519_KEY
+#define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_FN_FUNC_GENERATE_ED25519_KEY
+RustBuffer uniffi_snake_core_fn_func_generate_ed25519_key(RustBuffer comment, RustBuffer passphrase, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_FN_FUNC_IMPORT_PRIVATE_KEY
+#define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_FN_FUNC_IMPORT_PRIVATE_KEY
+RustBuffer uniffi_snake_core_fn_func_import_private_key(RustBuffer content, RustBuffer passphrase, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_FN_FUNC_OPEN_SFTP_PASSWORD
@@ -713,6 +778,16 @@ RustBuffer uniffi_snake_core_fn_func_run_command_password(RustBuffer host, uint1
 #ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_FN_FUNC_RUN_COMMAND_PRIVATE_KEY
 #define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_FN_FUNC_RUN_COMMAND_PRIVATE_KEY
 RustBuffer uniffi_snake_core_fn_func_run_command_private_key(RustBuffer host, uint16_t port, RustBuffer username, RustBuffer private_key_path, RustBuffer passphrase, RustBuffer known_hosts_path, RustBuffer command, RustBuffer cwd, uint64_t timeout_ms, uint64_t max_output_bytes, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_FN_FUNC_START_LOCAL_FORWARD_PASSWORD
+#define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_FN_FUNC_START_LOCAL_FORWARD_PASSWORD
+void*_Nonnull uniffi_snake_core_fn_func_start_local_forward_password(RustBuffer host, uint16_t port, RustBuffer username, RustBuffer password, RustBuffer known_hosts_path, RustBuffer accept_fingerprint, uint16_t local_port, RustBuffer remote_host, uint16_t remote_port, uint64_t observer, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_FN_FUNC_START_LOCAL_FORWARD_PRIVATE_KEY
+#define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_FN_FUNC_START_LOCAL_FORWARD_PRIVATE_KEY
+void*_Nonnull uniffi_snake_core_fn_func_start_local_forward_private_key(RustBuffer host, uint16_t port, RustBuffer username, RustBuffer private_key_path, RustBuffer passphrase, RustBuffer known_hosts_path, RustBuffer accept_fingerprint, uint16_t local_port, RustBuffer remote_host, uint16_t remote_port, uint64_t observer, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_FFI_SNAKE_CORE_RUSTBUFFER_ALLOC
@@ -995,6 +1070,18 @@ void ffi_snake_core_rust_future_free_void(uint64_t handle
 void ffi_snake_core_rust_future_complete_void(uint64_t handle, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_FUNC_GENERATE_ED25519_KEY
+#define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_FUNC_GENERATE_ED25519_KEY
+uint16_t uniffi_snake_core_checksum_func_generate_ed25519_key(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_FUNC_IMPORT_PRIVATE_KEY
+#define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_FUNC_IMPORT_PRIVATE_KEY
+uint16_t uniffi_snake_core_checksum_func_import_private_key(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_FUNC_OPEN_SFTP_PASSWORD
 #define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_FUNC_OPEN_SFTP_PASSWORD
 uint16_t uniffi_snake_core_checksum_func_open_sftp_password(void
@@ -1034,6 +1121,18 @@ uint16_t uniffi_snake_core_checksum_func_run_command_password(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_FUNC_RUN_COMMAND_PRIVATE_KEY
 #define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_FUNC_RUN_COMMAND_PRIVATE_KEY
 uint16_t uniffi_snake_core_checksum_func_run_command_private_key(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_FUNC_START_LOCAL_FORWARD_PASSWORD
+#define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_FUNC_START_LOCAL_FORWARD_PASSWORD
+uint16_t uniffi_snake_core_checksum_func_start_local_forward_password(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_FUNC_START_LOCAL_FORWARD_PRIVATE_KEY
+#define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_FUNC_START_LOCAL_FORWARD_PRIVATE_KEY
+uint16_t uniffi_snake_core_checksum_func_start_local_forward_private_key(void
     
 );
 #endif
@@ -1079,9 +1178,9 @@ uint16_t uniffi_snake_core_checksum_method_coredatabase_delete_saved_password(vo
     
 );
 #endif
-#ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_COREDATABASE_DELETE_TRANSFER_JOB
-#define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_COREDATABASE_DELETE_TRANSFER_JOB
-uint16_t uniffi_snake_core_checksum_method_coredatabase_delete_transfer_job(void
+#ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_COREDATABASE_DELETE_TUNNEL
+#define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_COREDATABASE_DELETE_TUNNEL
+uint16_t uniffi_snake_core_checksum_method_coredatabase_delete_tunnel(void
     
 );
 #endif
@@ -1133,6 +1232,12 @@ uint16_t uniffi_snake_core_checksum_method_coredatabase_mount_mappings(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_COREDATABASE_PROFILE_TIMESTAMPS
+#define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_COREDATABASE_PROFILE_TIMESTAMPS
+uint16_t uniffi_snake_core_checksum_method_coredatabase_profile_timestamps(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_COREDATABASE_PROFILES
 #define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_COREDATABASE_PROFILES
 uint16_t uniffi_snake_core_checksum_method_coredatabase_profiles(void
@@ -1169,9 +1274,9 @@ uint16_t uniffi_snake_core_checksum_method_coredatabase_save_saved_password_and_
     
 );
 #endif
-#ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_COREDATABASE_SAVE_TRANSFER_JOB
-#define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_COREDATABASE_SAVE_TRANSFER_JOB
-uint16_t uniffi_snake_core_checksum_method_coredatabase_save_transfer_job(void
+#ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_COREDATABASE_SAVE_TUNNEL
+#define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_COREDATABASE_SAVE_TUNNEL
+uint16_t uniffi_snake_core_checksum_method_coredatabase_save_tunnel(void
     
 );
 #endif
@@ -1193,9 +1298,21 @@ uint16_t uniffi_snake_core_checksum_method_coredatabase_touch_mcp_token(void
     
 );
 #endif
-#ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_COREDATABASE_TRANSFER_JOBS
-#define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_COREDATABASE_TRANSFER_JOBS
-uint16_t uniffi_snake_core_checksum_method_coredatabase_transfer_jobs(void
+#ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_COREDATABASE_TOUCH_PROFILE
+#define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_COREDATABASE_TOUCH_PROFILE
+uint16_t uniffi_snake_core_checksum_method_coredatabase_touch_profile(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_COREDATABASE_TOUCH_SAVED_PASSWORD
+#define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_COREDATABASE_TOUCH_SAVED_PASSWORD
+uint16_t uniffi_snake_core_checksum_method_coredatabase_touch_saved_password(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_COREDATABASE_TUNNELS
+#define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_COREDATABASE_TUNNELS
+uint16_t uniffi_snake_core_checksum_method_coredatabase_tunnels(void
     
 );
 #endif
@@ -1214,24 +1331,6 @@ uint16_t uniffi_snake_core_checksum_method_coresftphandle_assemble_upload(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORESFTPHANDLE_CHECKSUM_CAPABILITY
 #define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORESFTPHANDLE_CHECKSUM_CAPABILITY
 uint16_t uniffi_snake_core_checksum_method_coresftphandle_checksum_capability(void
-    
-);
-#endif
-#ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORESFTPHANDLE_COPY_FROM
-#define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORESFTPHANDLE_COPY_FROM
-uint16_t uniffi_snake_core_checksum_method_coresftphandle_copy_from(void
-    
-);
-#endif
-#ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORESFTPHANDLE_COPY_FROM_CONTROLLED
-#define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORESFTPHANDLE_COPY_FROM_CONTROLLED
-uint16_t uniffi_snake_core_checksum_method_coresftphandle_copy_from_controlled(void
-    
-);
-#endif
-#ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORESFTPHANDLE_COPY_SYMBOLIC_LINK_FROM
-#define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORESFTPHANDLE_COPY_SYMBOLIC_LINK_FROM
-uint16_t uniffi_snake_core_checksum_method_coresftphandle_copy_symbolic_link_from(void
     
 );
 #endif
@@ -1274,6 +1373,12 @@ uint16_t uniffi_snake_core_checksum_method_coresftphandle_finalize_resumable_upl
 #ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORESFTPHANDLE_HOME_DIRECTORY
 #define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORESFTPHANDLE_HOME_DIRECTORY
 uint16_t uniffi_snake_core_checksum_method_coresftphandle_home_directory(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORESFTPHANDLE_IS_CLOSED
+#define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORESFTPHANDLE_IS_CLOSED
+uint16_t uniffi_snake_core_checksum_method_coresftphandle_is_closed(void
     
 );
 #endif
@@ -1433,6 +1538,30 @@ uint16_t uniffi_snake_core_checksum_method_coretransfercontrol_resume(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORETUNNELHANDLE_ACTIVE_CONNECTIONS
+#define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORETUNNELHANDLE_ACTIVE_CONNECTIONS
+uint16_t uniffi_snake_core_checksum_method_coretunnelhandle_active_connections(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORETUNNELHANDLE_IS_CLOSED
+#define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORETUNNELHANDLE_IS_CLOSED
+uint16_t uniffi_snake_core_checksum_method_coretunnelhandle_is_closed(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORETUNNELHANDLE_LOCAL_PORT
+#define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORETUNNELHANDLE_LOCAL_PORT
+uint16_t uniffi_snake_core_checksum_method_coretunnelhandle_local_port(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORETUNNELHANDLE_STOP
+#define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORETUNNELHANDLE_STOP
+uint16_t uniffi_snake_core_checksum_method_coretunnelhandle_stop(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_CONSTRUCTOR_COREDATABASE_OPEN
 #define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_CONSTRUCTOR_COREDATABASE_OPEN
 uint16_t uniffi_snake_core_checksum_constructor_coredatabase_open(void
@@ -1460,6 +1589,12 @@ uint16_t uniffi_snake_core_checksum_method_coreterminalobserver_on_closed(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORETRANSFEROBSERVER_ON_PROGRESS
 #define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORETRANSFEROBSERVER_ON_PROGRESS
 uint16_t uniffi_snake_core_checksum_method_coretransferobserver_on_progress(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORETUNNELOBSERVER_ON_CLOSED
+#define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORETUNNELOBSERVER_ON_CLOSED
+uint16_t uniffi_snake_core_checksum_method_coretunnelobserver_on_closed(void
     
 );
 #endif

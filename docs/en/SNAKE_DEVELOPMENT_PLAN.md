@@ -9,9 +9,9 @@ Already delivered:
 - The AppKit/SwiftUI main window, session tree, unified terminal/SFTP tabs, Bonsplit split view, tab tearing into windows, and cross-window drop targets are implemented according to the high-fidelity prototype.
 - Double-clicking a session opens a terminal; the context menu offers opening a terminal/SFTP, editing, and delete with secondary confirmation; sessions can be dragged into peer groups.
 - During the current development phase, session passwords/private key passphrases are temporarily stored in a plaintext credential file with permissions `0600`, and SQLite stores only a credential reference; this will later be replaced by an external password tool adapter, while the private key still stores only a security-scoped bookmark.
-- The Rust `snake_core` is integrated into Swift through UniFFI and is responsible for groups, sessions, mappings, and transfer history in WAL SQLite; the legacy JSON configuration is migrated once.
+- The Rust `snake_core` is integrated into Swift through UniFFI and is responsible for groups, sessions, and mappings in WAL SQLite (transfers live only in memory; schema v5 drops `transfer_jobs`/`transfer_events`); the legacy JSON configuration is migrated once.
 - Real Rust/russh SFTP connections (russh-sftp with pipelined requests): password/private key authentication, Snake-managed `known_hosts`, first-time fingerprint confirmation, fingerprint change blocking, directory browsing, creation, renaming, deletion, upload, and cached download-then-open.
-- Finder file/folder selection and drag-in, real 1 MiB in-memory streaming transfer between SFTP panels, and progress, speed, pause, resume, and cancel driven by the Rust atomic controller; abnormal startup transitions to `interrupted`.
+- Finder file/folder selection and drag-in, transfers between SFTP tabs relayed through a local folder (download, then upload, then the relay files are deleted), and progress, speed, pause, resume, and cancel driven by the Rust atomic controller.
 - SFTP local upload supports resume and parallel chunking for large files: by default, files over 50 MB use 4 independent connections, and the threshold and concurrency can be adjusted in settings; on overwrite, chunks are first merged into a hidden remote staging file and then replace the real file through `mv -f`.
 - SFTP identifies symbolic links through `lstat/readlink`: the file table shows the link target, directory links can be entered, file links can be opened, deletion performs only `unlink`, and cross-SFTP copy preserves the original link target.
 - Remote permission editing supports recursively applying `chmod -R` to real folders; symbolic links do not offer the recursive option, avoiding modification of external directories across the link boundary.
@@ -267,7 +267,7 @@ Deleting a session requires secondary confirmation and executes in the following
 1. List active terminals, SFTP browsing connections, and dependent mappings.
 2. After the user confirms, stop active terminals and browsing connections.
 3. Disable dependent mappings, but keep the mapping records so the user can rebind them.
-4. Keep transfer history with session snapshots.
+4. Transfer records live only in memory per tab, so deleting a session touches no transfer data.
 5. Delete the session in a SQLite transaction and release associated foreign keys.
 6. After the database transaction succeeds, delete the Keychain credential and private key bookmark references.
 
@@ -508,13 +508,9 @@ Database settings:
 
 Stores host, port, algorithm, fingerprint, public key, and first confirmation time. A unique constraint is established on `host + port`.
 
-#### `transfer_jobs`
+#### `transfer_jobs` / `transfer_events` (removed)
 
-Stores source/target profile IDs, session snapshots, source/target paths, file type, total size, completed size, speed, state, conflict policy, error code, and timestamps.
-
-#### `transfer_events`
-
-Stores task state changes and diagnostic events containing no sensitive data.
+Schema v5 drops both tables: the records they held were never shown, and transfers now live only in memory per tab, cleared when the tab closes or the app quits.
 
 #### `mount_mappings`
 
@@ -752,7 +748,7 @@ Using an isolated OpenSSH/SFTP service, cover:
 - PTY input, output, resize, and remote exit.
 - File/folder upload, download, and resume.
 - Network interruption and task retry.
-- Streaming transfer between two remote servers.
+- Transfers between two remote servers relayed through a local folder.
 - Large directory listing and large file transfer.
 
 Mount tests use a mock sshfs/helper by default. Real macFUSE smoke tests run only on a controlled signed macOS machine.

@@ -585,7 +585,7 @@ public protocol CoreDatabaseProtocol: AnyObject, Sendable {
     
     func deleteSavedPassword(id: String) throws 
     
-    func deleteTransferJob(id: String) throws 
+    func deleteTunnel(id: String) throws 
     
     func finishMcpAudit(id: String, result: CoreMcpAuditResult) throws 
     
@@ -603,6 +603,8 @@ public protocol CoreDatabaseProtocol: AnyObject, Sendable {
     
     func mountMappings() throws  -> [CoreMountMapping]
     
+    func profileTimestamps() throws  -> [CoreProfileTimestamps]
+    
     func profiles() throws  -> [CoreSshProfile]
     
     func pruneMcpAudit(nowMs: Int64, retentionDays: UInt32, maxRecords: UInt32) throws  -> UInt64
@@ -615,7 +617,7 @@ public protocol CoreDatabaseProtocol: AnyObject, Sendable {
     
     func saveSavedPasswordAndSync(record: CoreSavedPassword, selectedProfileIds: [String], syncUsername: Bool) throws  -> [String]
     
-    func saveTransferJob(job: CoreTransferJob) throws 
+    func saveTunnel(tunnel: CoreSshTunnel) throws 
     
     func savedPasswords() throws  -> [CoreSavedPassword]
     
@@ -623,7 +625,11 @@ public protocol CoreDatabaseProtocol: AnyObject, Sendable {
     
     func touchMcpToken(id: String, usedAt: Int64) throws 
     
-    func transferJobs() throws  -> [CoreTransferJob]
+    func touchProfile(id: String) throws 
+    
+    func touchSavedPassword(id: String) throws 
+    
+    func tunnels() throws  -> [CoreSshTunnel]
     
     func updateMcpToken(id: String, name: String, expiresAt: Int64?, profileIds: [String]) throws 
     
@@ -739,8 +745,8 @@ open func deleteSavedPassword(id: String)throws   {try rustCallWithError(FfiConv
 }
 }
     
-open func deleteTransferJob(id: String)throws   {try rustCallWithError(FfiConverterTypeCoreError_lift) {
-    uniffi_snake_core_fn_method_coredatabase_delete_transfer_job(self.uniffiClonePointer(),
+open func deleteTunnel(id: String)throws   {try rustCallWithError(FfiConverterTypeCoreError_lift) {
+    uniffi_snake_core_fn_method_coredatabase_delete_tunnel(self.uniffiClonePointer(),
         FfiConverterString.lower(id),$0
     )
 }
@@ -808,6 +814,13 @@ open func mountMappings()throws  -> [CoreMountMapping]  {
 })
 }
     
+open func profileTimestamps()throws  -> [CoreProfileTimestamps]  {
+    return try  FfiConverterSequenceTypeCoreProfileTimestamps.lift(try rustCallWithError(FfiConverterTypeCoreError_lift) {
+    uniffi_snake_core_fn_method_coredatabase_profile_timestamps(self.uniffiClonePointer(),$0
+    )
+})
+}
+    
 open func profiles()throws  -> [CoreSshProfile]  {
     return try  FfiConverterSequenceTypeCoreSshProfile.lift(try rustCallWithError(FfiConverterTypeCoreError_lift) {
     uniffi_snake_core_fn_method_coredatabase_profiles(self.uniffiClonePointer(),$0
@@ -856,9 +869,9 @@ open func saveSavedPasswordAndSync(record: CoreSavedPassword, selectedProfileIds
 })
 }
     
-open func saveTransferJob(job: CoreTransferJob)throws   {try rustCallWithError(FfiConverterTypeCoreError_lift) {
-    uniffi_snake_core_fn_method_coredatabase_save_transfer_job(self.uniffiClonePointer(),
-        FfiConverterTypeCoreTransferJob_lower(job),$0
+open func saveTunnel(tunnel: CoreSshTunnel)throws   {try rustCallWithError(FfiConverterTypeCoreError_lift) {
+    uniffi_snake_core_fn_method_coredatabase_save_tunnel(self.uniffiClonePointer(),
+        FfiConverterTypeCoreSshTunnel_lower(tunnel),$0
     )
 }
 }
@@ -886,9 +899,23 @@ open func touchMcpToken(id: String, usedAt: Int64)throws   {try rustCallWithErro
 }
 }
     
-open func transferJobs()throws  -> [CoreTransferJob]  {
-    return try  FfiConverterSequenceTypeCoreTransferJob.lift(try rustCallWithError(FfiConverterTypeCoreError_lift) {
-    uniffi_snake_core_fn_method_coredatabase_transfer_jobs(self.uniffiClonePointer(),$0
+open func touchProfile(id: String)throws   {try rustCallWithError(FfiConverterTypeCoreError_lift) {
+    uniffi_snake_core_fn_method_coredatabase_touch_profile(self.uniffiClonePointer(),
+        FfiConverterString.lower(id),$0
+    )
+}
+}
+    
+open func touchSavedPassword(id: String)throws   {try rustCallWithError(FfiConverterTypeCoreError_lift) {
+    uniffi_snake_core_fn_method_coredatabase_touch_saved_password(self.uniffiClonePointer(),
+        FfiConverterString.lower(id),$0
+    )
+}
+}
+    
+open func tunnels()throws  -> [CoreSshTunnel]  {
+    return try  FfiConverterSequenceTypeCoreSshTunnel.lift(try rustCallWithError(FfiConverterTypeCoreError_lift) {
+    uniffi_snake_core_fn_method_coredatabase_tunnels(self.uniffiClonePointer(),$0
     )
 })
 }
@@ -967,12 +994,6 @@ public protocol CoreSftpHandleProtocol: AnyObject, Sendable {
     
     func checksumCapability() throws  -> CoreChecksumCapability
     
-    func copyFrom(source: CoreSftpHandle, sourcePath: String, destinationPath: String, isDirectory: Bool) throws 
-    
-    func copyFromControlled(source: CoreSftpHandle, sourcePath: String, destinationPath: String, isDirectory: Bool, totalBytes: UInt64, control: CoreTransferControl, observer: CoreTransferObserver) throws 
-    
-    func copySymbolicLinkFrom(source: CoreSftpHandle, sourcePath: String, destinationPath: String) throws 
-    
     func createDirectory(path: String) throws 
     
     func createFile(path: String) throws 
@@ -995,6 +1016,12 @@ public protocol CoreSftpHandleProtocol: AnyObject, Sendable {
     func finalizeResumableUpload(remotePartPaths: [String], remoteStagingPath: String, remoteTargetPath: String, overwrite: Bool) throws 
     
     func homeDirectory() throws  -> String
+    
+    /**
+     * The SSH connection under this handle ended, e.g. after a network drop;
+     * every further call would fail until a new handle is opened.
+     */
+    func isClosed()  -> Bool
     
     func list(path: String) throws  -> [CoreRemoteEntry]
     
@@ -1109,38 +1136,6 @@ open func checksumCapability()throws  -> CoreChecksumCapability  {
 })
 }
     
-open func copyFrom(source: CoreSftpHandle, sourcePath: String, destinationPath: String, isDirectory: Bool)throws   {try rustCallWithError(FfiConverterTypeCoreError_lift) {
-    uniffi_snake_core_fn_method_coresftphandle_copy_from(self.uniffiClonePointer(),
-        FfiConverterTypeCoreSftpHandle_lower(source),
-        FfiConverterString.lower(sourcePath),
-        FfiConverterString.lower(destinationPath),
-        FfiConverterBool.lower(isDirectory),$0
-    )
-}
-}
-    
-open func copyFromControlled(source: CoreSftpHandle, sourcePath: String, destinationPath: String, isDirectory: Bool, totalBytes: UInt64, control: CoreTransferControl, observer: CoreTransferObserver)throws   {try rustCallWithError(FfiConverterTypeCoreError_lift) {
-    uniffi_snake_core_fn_method_coresftphandle_copy_from_controlled(self.uniffiClonePointer(),
-        FfiConverterTypeCoreSftpHandle_lower(source),
-        FfiConverterString.lower(sourcePath),
-        FfiConverterString.lower(destinationPath),
-        FfiConverterBool.lower(isDirectory),
-        FfiConverterUInt64.lower(totalBytes),
-        FfiConverterTypeCoreTransferControl_lower(control),
-        FfiConverterCallbackInterfaceCoreTransferObserver_lower(observer),$0
-    )
-}
-}
-    
-open func copySymbolicLinkFrom(source: CoreSftpHandle, sourcePath: String, destinationPath: String)throws   {try rustCallWithError(FfiConverterTypeCoreError_lift) {
-    uniffi_snake_core_fn_method_coresftphandle_copy_symbolic_link_from(self.uniffiClonePointer(),
-        FfiConverterTypeCoreSftpHandle_lower(source),
-        FfiConverterString.lower(sourcePath),
-        FfiConverterString.lower(destinationPath),$0
-    )
-}
-}
-    
 open func createDirectory(path: String)throws   {try rustCallWithError(FfiConverterTypeCoreError_lift) {
     uniffi_snake_core_fn_method_coresftphandle_create_directory(self.uniffiClonePointer(),
         FfiConverterString.lower(path),$0
@@ -1205,6 +1200,17 @@ open func finalizeResumableUpload(remotePartPaths: [String], remoteStagingPath: 
 open func homeDirectory()throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeCoreError_lift) {
     uniffi_snake_core_fn_method_coresftphandle_home_directory(self.uniffiClonePointer(),$0
+    )
+})
+}
+    
+    /**
+     * The SSH connection under this handle ended, e.g. after a network drop;
+     * every further call would fail until a new handle is opened.
+     */
+open func isClosed() -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_snake_core_fn_method_coresftphandle_is_closed(self.uniffiClonePointer(),$0
     )
 })
 }
@@ -1730,6 +1736,172 @@ public func FfiConverterTypeCoreTransferControl_lift(_ pointer: UnsafeMutableRaw
 #endif
 public func FfiConverterTypeCoreTransferControl_lower(_ value: CoreTransferControl) -> UnsafeMutableRawPointer {
     return FfiConverterTypeCoreTransferControl.lower(value)
+}
+
+
+
+
+
+
+public protocol CoreTunnelHandleProtocol: AnyObject, Sendable {
+    
+    /**
+     * Local connections currently being forwarded.
+     */
+    func activeConnections()  -> UInt32
+    
+    func isClosed()  -> Bool
+    
+    /**
+     * The bound port; differs from the request only when it asked for 0.
+     */
+    func localPort()  -> UInt16
+    
+    /**
+     * Closes the listener, every forwarded connection and the SSH connection.
+     */
+    func stop() 
+    
+}
+open class CoreTunnelHandle: CoreTunnelHandleProtocol, @unchecked Sendable {
+    fileprivate let pointer: UnsafeMutableRawPointer!
+
+    /// Used to instantiate a [FFIObject] without an actual pointer, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoPointer {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromRawPointer pointer: UnsafeMutableRawPointer) {
+        self.pointer = pointer
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noPointer: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing [Pointer] the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noPointer: NoPointer) {
+        self.pointer = nil
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiClonePointer() -> UnsafeMutableRawPointer {
+        return try! rustCall { uniffi_snake_core_fn_clone_coretunnelhandle(self.pointer, $0) }
+    }
+    // No primary constructor declared for this class.
+
+    deinit {
+        guard let pointer = pointer else {
+            return
+        }
+
+        try! rustCall { uniffi_snake_core_fn_free_coretunnelhandle(pointer, $0) }
+    }
+
+    
+
+    
+    /**
+     * Local connections currently being forwarded.
+     */
+open func activeConnections() -> UInt32  {
+    return try!  FfiConverterUInt32.lift(try! rustCall() {
+    uniffi_snake_core_fn_method_coretunnelhandle_active_connections(self.uniffiClonePointer(),$0
+    )
+})
+}
+    
+open func isClosed() -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_snake_core_fn_method_coretunnelhandle_is_closed(self.uniffiClonePointer(),$0
+    )
+})
+}
+    
+    /**
+     * The bound port; differs from the request only when it asked for 0.
+     */
+open func localPort() -> UInt16  {
+    return try!  FfiConverterUInt16.lift(try! rustCall() {
+    uniffi_snake_core_fn_method_coretunnelhandle_local_port(self.uniffiClonePointer(),$0
+    )
+})
+}
+    
+    /**
+     * Closes the listener, every forwarded connection and the SSH connection.
+     */
+open func stop()  {try! rustCall() {
+    uniffi_snake_core_fn_method_coretunnelhandle_stop(self.uniffiClonePointer(),$0
+    )
+}
+}
+    
+
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeCoreTunnelHandle: FfiConverter {
+
+    typealias FfiType = UnsafeMutableRawPointer
+    typealias SwiftType = CoreTunnelHandle
+
+    public static func lift(_ pointer: UnsafeMutableRawPointer) throws -> CoreTunnelHandle {
+        return CoreTunnelHandle(unsafeFromRawPointer: pointer)
+    }
+
+    public static func lower(_ value: CoreTunnelHandle) -> UnsafeMutableRawPointer {
+        return value.uniffiClonePointer()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> CoreTunnelHandle {
+        let v: UInt64 = try readInt(&buf)
+        // The Rust code won't compile if a pointer won't fit in a UInt64.
+        // We have to go via `UInt` because that's the thing that's the size of a pointer.
+        let ptr = UnsafeMutableRawPointer(bitPattern: UInt(truncatingIfNeeded: v))
+        if (ptr == nil) {
+            throw UniffiInternalError.unexpectedNullPointer
+        }
+        return try lift(ptr!)
+    }
+
+    public static func write(_ value: CoreTunnelHandle, into buf: inout [UInt8]) {
+        // This fiddling is because `Int` is the thing that's the same size as a pointer.
+        // The Rust code won't compile if a pointer won't fit in a `UInt64`.
+        writeInt(&buf, UInt64(bitPattern: Int64(Int(bitPattern: lower(value)))))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCoreTunnelHandle_lift(_ pointer: UnsafeMutableRawPointer) throws -> CoreTunnelHandle {
+    return try FfiConverterTypeCoreTunnelHandle.lift(pointer)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCoreTunnelHandle_lower(_ value: CoreTunnelHandle) -> UnsafeMutableRawPointer {
+    return FfiConverterTypeCoreTunnelHandle.lower(value)
 }
 
 
@@ -2898,6 +3070,96 @@ public func FfiConverterTypeCoreMountMapping_lower(_ value: CoreMountMapping) ->
 }
 
 
+public struct CoreProfileTimestamps {
+    public var id: String
+    /**
+     * Unix seconds.
+     */
+    public var createdAt: Int64
+    /**
+     * Unix seconds of the last edit; reordering does not count.
+     */
+    public var updatedAt: Int64
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, 
+        /**
+         * Unix seconds.
+         */createdAt: Int64, 
+        /**
+         * Unix seconds of the last edit; reordering does not count.
+         */updatedAt: Int64) {
+        self.id = id
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+}
+
+#if compiler(>=6)
+extension CoreProfileTimestamps: Sendable {}
+#endif
+
+
+extension CoreProfileTimestamps: Equatable, Hashable {
+    public static func ==(lhs: CoreProfileTimestamps, rhs: CoreProfileTimestamps) -> Bool {
+        if lhs.id != rhs.id {
+            return false
+        }
+        if lhs.createdAt != rhs.createdAt {
+            return false
+        }
+        if lhs.updatedAt != rhs.updatedAt {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(createdAt)
+        hasher.combine(updatedAt)
+    }
+}
+
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeCoreProfileTimestamps: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> CoreProfileTimestamps {
+        return
+            try CoreProfileTimestamps(
+                id: FfiConverterString.read(from: &buf), 
+                createdAt: FfiConverterInt64.read(from: &buf), 
+                updatedAt: FfiConverterInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: CoreProfileTimestamps, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterInt64.write(value.createdAt, into: &buf)
+        FfiConverterInt64.write(value.updatedAt, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCoreProfileTimestamps_lift(_ buf: RustBuffer) throws -> CoreProfileTimestamps {
+    return try FfiConverterTypeCoreProfileTimestamps.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCoreProfileTimestamps_lower(_ value: CoreProfileTimestamps) -> RustBuffer {
+    return FfiConverterTypeCoreProfileTimestamps.lower(value)
+}
+
+
 public struct CoreRemoteEntry {
     public var name: String
     public var path: String
@@ -3020,13 +3282,29 @@ public struct CoreSavedPassword {
     public var id: String
     public var name: String
     public var username: String
+    /**
+     * Unix seconds; ignored when saving.
+     */
+    public var createdAt: Int64
+    /**
+     * Unix seconds of the last name, username or password change; ignored when saving.
+     */
+    public var updatedAt: Int64
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(id: String, name: String, username: String) {
+    public init(id: String, name: String, username: String, 
+        /**
+         * Unix seconds; ignored when saving.
+         */createdAt: Int64, 
+        /**
+         * Unix seconds of the last name, username or password change; ignored when saving.
+         */updatedAt: Int64) {
         self.id = id
         self.name = name
         self.username = username
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
     }
 }
 
@@ -3046,6 +3324,12 @@ extension CoreSavedPassword: Equatable, Hashable {
         if lhs.username != rhs.username {
             return false
         }
+        if lhs.createdAt != rhs.createdAt {
+            return false
+        }
+        if lhs.updatedAt != rhs.updatedAt {
+            return false
+        }
         return true
     }
 
@@ -3053,6 +3337,8 @@ extension CoreSavedPassword: Equatable, Hashable {
         hasher.combine(id)
         hasher.combine(name)
         hasher.combine(username)
+        hasher.combine(createdAt)
+        hasher.combine(updatedAt)
     }
 }
 
@@ -3067,7 +3353,9 @@ public struct FfiConverterTypeCoreSavedPassword: FfiConverterRustBuffer {
             try CoreSavedPassword(
                 id: FfiConverterString.read(from: &buf), 
                 name: FfiConverterString.read(from: &buf), 
-                username: FfiConverterString.read(from: &buf)
+                username: FfiConverterString.read(from: &buf), 
+                createdAt: FfiConverterInt64.read(from: &buf), 
+                updatedAt: FfiConverterInt64.read(from: &buf)
         )
     }
 
@@ -3075,6 +3363,8 @@ public struct FfiConverterTypeCoreSavedPassword: FfiConverterRustBuffer {
         FfiConverterString.write(value.id, into: &buf)
         FfiConverterString.write(value.name, into: &buf)
         FfiConverterString.write(value.username, into: &buf)
+        FfiConverterInt64.write(value.createdAt, into: &buf)
+        FfiConverterInt64.write(value.updatedAt, into: &buf)
     }
 }
 
@@ -3177,6 +3467,118 @@ public func FfiConverterTypeCoreSessionGroup_lift(_ buf: RustBuffer) throws -> C
 #endif
 public func FfiConverterTypeCoreSessionGroup_lower(_ value: CoreSessionGroup) -> RustBuffer {
     return FfiConverterTypeCoreSessionGroup.lower(value)
+}
+
+
+public struct CoreSshKey {
+    /**
+     * OpenSSH private key text, encrypted when a passphrase was given.
+     */
+    public var privateKey: String
+    public var algorithm: String
+    /**
+     * `SHA256:…`, as `ssh-keygen -l` prints it.
+     */
+    public var fingerprint: String
+    /**
+     * One `authorized_keys` line.
+     */
+    public var publicKey: String
+    public var encrypted: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * OpenSSH private key text, encrypted when a passphrase was given.
+         */privateKey: String, algorithm: String, 
+        /**
+         * `SHA256:…`, as `ssh-keygen -l` prints it.
+         */fingerprint: String, 
+        /**
+         * One `authorized_keys` line.
+         */publicKey: String, encrypted: Bool) {
+        self.privateKey = privateKey
+        self.algorithm = algorithm
+        self.fingerprint = fingerprint
+        self.publicKey = publicKey
+        self.encrypted = encrypted
+    }
+}
+
+#if compiler(>=6)
+extension CoreSshKey: Sendable {}
+#endif
+
+
+extension CoreSshKey: Equatable, Hashable {
+    public static func ==(lhs: CoreSshKey, rhs: CoreSshKey) -> Bool {
+        if lhs.privateKey != rhs.privateKey {
+            return false
+        }
+        if lhs.algorithm != rhs.algorithm {
+            return false
+        }
+        if lhs.fingerprint != rhs.fingerprint {
+            return false
+        }
+        if lhs.publicKey != rhs.publicKey {
+            return false
+        }
+        if lhs.encrypted != rhs.encrypted {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(privateKey)
+        hasher.combine(algorithm)
+        hasher.combine(fingerprint)
+        hasher.combine(publicKey)
+        hasher.combine(encrypted)
+    }
+}
+
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeCoreSshKey: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> CoreSshKey {
+        return
+            try CoreSshKey(
+                privateKey: FfiConverterString.read(from: &buf), 
+                algorithm: FfiConverterString.read(from: &buf), 
+                fingerprint: FfiConverterString.read(from: &buf), 
+                publicKey: FfiConverterString.read(from: &buf), 
+                encrypted: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: CoreSshKey, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.privateKey, into: &buf)
+        FfiConverterString.write(value.algorithm, into: &buf)
+        FfiConverterString.write(value.fingerprint, into: &buf)
+        FfiConverterString.write(value.publicKey, into: &buf)
+        FfiConverterBool.write(value.encrypted, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCoreSshKey_lift(_ buf: RustBuffer) throws -> CoreSshKey {
+    return try FfiConverterTypeCoreSshKey.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCoreSshKey_lower(_ value: CoreSshKey) -> RustBuffer {
+    return FfiConverterTypeCoreSshKey.lower(value)
 }
 
 
@@ -3338,69 +3740,81 @@ public func FfiConverterTypeCoreSshProfile_lower(_ value: CoreSshProfile) -> Rus
 }
 
 
-public struct CoreTransferJob {
+public struct CoreSshTunnel {
     public var id: String
-    public var sourceProfileName: String
-    public var targetProfileName: String
-    public var sourcePath: String
-    public var targetPath: String
-    public var totalBytes: Int64
-    public var completedBytes: Int64
-    public var state: String
-    public var errorMessage: String?
+    public var profileId: String?
+    public var localPort: UInt16
+    public var remoteHost: String
+    public var remotePort: UInt16
+    public var note: String
+    public var autoStart: Bool
+    public var sortOrder: Int64
+    /**
+     * Unix seconds; ignored when saving.
+     */
     public var createdAt: Int64
+    /**
+     * Unix seconds of the last edit; reordering does not count. Ignored when saving.
+     */
+    public var updatedAt: Int64
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(id: String, sourceProfileName: String, targetProfileName: String, sourcePath: String, targetPath: String, totalBytes: Int64, completedBytes: Int64, state: String, errorMessage: String?, createdAt: Int64) {
+    public init(id: String, profileId: String?, localPort: UInt16, remoteHost: String, remotePort: UInt16, note: String, autoStart: Bool, sortOrder: Int64, 
+        /**
+         * Unix seconds; ignored when saving.
+         */createdAt: Int64, 
+        /**
+         * Unix seconds of the last edit; reordering does not count. Ignored when saving.
+         */updatedAt: Int64) {
         self.id = id
-        self.sourceProfileName = sourceProfileName
-        self.targetProfileName = targetProfileName
-        self.sourcePath = sourcePath
-        self.targetPath = targetPath
-        self.totalBytes = totalBytes
-        self.completedBytes = completedBytes
-        self.state = state
-        self.errorMessage = errorMessage
+        self.profileId = profileId
+        self.localPort = localPort
+        self.remoteHost = remoteHost
+        self.remotePort = remotePort
+        self.note = note
+        self.autoStart = autoStart
+        self.sortOrder = sortOrder
         self.createdAt = createdAt
+        self.updatedAt = updatedAt
     }
 }
 
 #if compiler(>=6)
-extension CoreTransferJob: Sendable {}
+extension CoreSshTunnel: Sendable {}
 #endif
 
 
-extension CoreTransferJob: Equatable, Hashable {
-    public static func ==(lhs: CoreTransferJob, rhs: CoreTransferJob) -> Bool {
+extension CoreSshTunnel: Equatable, Hashable {
+    public static func ==(lhs: CoreSshTunnel, rhs: CoreSshTunnel) -> Bool {
         if lhs.id != rhs.id {
             return false
         }
-        if lhs.sourceProfileName != rhs.sourceProfileName {
+        if lhs.profileId != rhs.profileId {
             return false
         }
-        if lhs.targetProfileName != rhs.targetProfileName {
+        if lhs.localPort != rhs.localPort {
             return false
         }
-        if lhs.sourcePath != rhs.sourcePath {
+        if lhs.remoteHost != rhs.remoteHost {
             return false
         }
-        if lhs.targetPath != rhs.targetPath {
+        if lhs.remotePort != rhs.remotePort {
             return false
         }
-        if lhs.totalBytes != rhs.totalBytes {
+        if lhs.note != rhs.note {
             return false
         }
-        if lhs.completedBytes != rhs.completedBytes {
+        if lhs.autoStart != rhs.autoStart {
             return false
         }
-        if lhs.state != rhs.state {
-            return false
-        }
-        if lhs.errorMessage != rhs.errorMessage {
+        if lhs.sortOrder != rhs.sortOrder {
             return false
         }
         if lhs.createdAt != rhs.createdAt {
+            return false
+        }
+        if lhs.updatedAt != rhs.updatedAt {
             return false
         }
         return true
@@ -3408,15 +3822,15 @@ extension CoreTransferJob: Equatable, Hashable {
 
     public func hash(into hasher: inout Hasher) {
         hasher.combine(id)
-        hasher.combine(sourceProfileName)
-        hasher.combine(targetProfileName)
-        hasher.combine(sourcePath)
-        hasher.combine(targetPath)
-        hasher.combine(totalBytes)
-        hasher.combine(completedBytes)
-        hasher.combine(state)
-        hasher.combine(errorMessage)
+        hasher.combine(profileId)
+        hasher.combine(localPort)
+        hasher.combine(remoteHost)
+        hasher.combine(remotePort)
+        hasher.combine(note)
+        hasher.combine(autoStart)
+        hasher.combine(sortOrder)
         hasher.combine(createdAt)
+        hasher.combine(updatedAt)
     }
 }
 
@@ -3425,34 +3839,34 @@ extension CoreTransferJob: Equatable, Hashable {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-public struct FfiConverterTypeCoreTransferJob: FfiConverterRustBuffer {
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> CoreTransferJob {
+public struct FfiConverterTypeCoreSshTunnel: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> CoreSshTunnel {
         return
-            try CoreTransferJob(
+            try CoreSshTunnel(
                 id: FfiConverterString.read(from: &buf), 
-                sourceProfileName: FfiConverterString.read(from: &buf), 
-                targetProfileName: FfiConverterString.read(from: &buf), 
-                sourcePath: FfiConverterString.read(from: &buf), 
-                targetPath: FfiConverterString.read(from: &buf), 
-                totalBytes: FfiConverterInt64.read(from: &buf), 
-                completedBytes: FfiConverterInt64.read(from: &buf), 
-                state: FfiConverterString.read(from: &buf), 
-                errorMessage: FfiConverterOptionString.read(from: &buf), 
-                createdAt: FfiConverterInt64.read(from: &buf)
+                profileId: FfiConverterOptionString.read(from: &buf), 
+                localPort: FfiConverterUInt16.read(from: &buf), 
+                remoteHost: FfiConverterString.read(from: &buf), 
+                remotePort: FfiConverterUInt16.read(from: &buf), 
+                note: FfiConverterString.read(from: &buf), 
+                autoStart: FfiConverterBool.read(from: &buf), 
+                sortOrder: FfiConverterInt64.read(from: &buf), 
+                createdAt: FfiConverterInt64.read(from: &buf), 
+                updatedAt: FfiConverterInt64.read(from: &buf)
         )
     }
 
-    public static func write(_ value: CoreTransferJob, into buf: inout [UInt8]) {
+    public static func write(_ value: CoreSshTunnel, into buf: inout [UInt8]) {
         FfiConverterString.write(value.id, into: &buf)
-        FfiConverterString.write(value.sourceProfileName, into: &buf)
-        FfiConverterString.write(value.targetProfileName, into: &buf)
-        FfiConverterString.write(value.sourcePath, into: &buf)
-        FfiConverterString.write(value.targetPath, into: &buf)
-        FfiConverterInt64.write(value.totalBytes, into: &buf)
-        FfiConverterInt64.write(value.completedBytes, into: &buf)
-        FfiConverterString.write(value.state, into: &buf)
-        FfiConverterOptionString.write(value.errorMessage, into: &buf)
+        FfiConverterOptionString.write(value.profileId, into: &buf)
+        FfiConverterUInt16.write(value.localPort, into: &buf)
+        FfiConverterString.write(value.remoteHost, into: &buf)
+        FfiConverterUInt16.write(value.remotePort, into: &buf)
+        FfiConverterString.write(value.note, into: &buf)
+        FfiConverterBool.write(value.autoStart, into: &buf)
+        FfiConverterInt64.write(value.sortOrder, into: &buf)
         FfiConverterInt64.write(value.createdAt, into: &buf)
+        FfiConverterInt64.write(value.updatedAt, into: &buf)
     }
 }
 
@@ -3460,15 +3874,15 @@ public struct FfiConverterTypeCoreTransferJob: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-public func FfiConverterTypeCoreTransferJob_lift(_ buf: RustBuffer) throws -> CoreTransferJob {
-    return try FfiConverterTypeCoreTransferJob.lift(buf)
+public func FfiConverterTypeCoreSshTunnel_lift(_ buf: RustBuffer) throws -> CoreSshTunnel {
+    return try FfiConverterTypeCoreSshTunnel.lift(buf)
 }
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-public func FfiConverterTypeCoreTransferJob_lower(_ value: CoreTransferJob) -> RustBuffer {
-    return FfiConverterTypeCoreTransferJob.lower(value)
+public func FfiConverterTypeCoreSshTunnel_lower(_ value: CoreSshTunnel) -> RustBuffer {
+    return FfiConverterTypeCoreSshTunnel.lower(value)
 }
 
 // Note that we don't yet support `indirect` for enums.
@@ -3990,6 +4404,125 @@ public func FfiConverterCallbackInterfaceCoreTransferObserver_lower(_ v: CoreTra
     return FfiConverterCallbackInterfaceCoreTransferObserver.lower(v)
 }
 
+
+
+
+public protocol CoreTunnelObserver: AnyObject, Sendable {
+    
+    /**
+     * The SSH connection or the listener failed; not called after `stop()`.
+     */
+    func onClosed(message: String?) 
+    
+}
+
+
+// Put the implementation in a struct so we don't pollute the top-level namespace
+fileprivate struct UniffiCallbackInterfaceCoreTunnelObserver {
+
+    // Create the VTable using a series of closures.
+    // Swift automatically converts these into C callback functions.
+    //
+    // This creates 1-element array, since this seems to be the only way to construct a const
+    // pointer that we can pass to the Rust code.
+    static let vtable: [UniffiVTableCallbackInterfaceCoreTunnelObserver] = [UniffiVTableCallbackInterfaceCoreTunnelObserver(
+        onClosed: { (
+            uniffiHandle: UInt64,
+            message: RustBuffer,
+            uniffiOutReturn: UnsafeMutableRawPointer,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> () in
+                guard let uniffiObj = try? FfiConverterCallbackInterfaceCoreTunnelObserver.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.onClosed(
+                     message: try FfiConverterOptionString.lift(message)
+                )
+            }
+
+            
+            let writeReturn = { () }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
+        },
+        uniffiFree: { (uniffiHandle: UInt64) -> () in
+            let result = try? FfiConverterCallbackInterfaceCoreTunnelObserver.handleMap.remove(handle: uniffiHandle)
+            if result == nil {
+                print("Uniffi callback interface CoreTunnelObserver: handle missing in uniffiFree")
+            }
+        }
+    )]
+}
+
+private func uniffiCallbackInitCoreTunnelObserver() {
+    uniffi_snake_core_fn_init_callback_vtable_coretunnelobserver(UniffiCallbackInterfaceCoreTunnelObserver.vtable)
+}
+
+// FfiConverter protocol for callback interfaces
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterCallbackInterfaceCoreTunnelObserver {
+    fileprivate static let handleMap = UniffiHandleMap<CoreTunnelObserver>()
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+extension FfiConverterCallbackInterfaceCoreTunnelObserver : FfiConverter {
+    typealias SwiftType = CoreTunnelObserver
+    typealias FfiType = UInt64
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public static func lift(_ handle: UInt64) throws -> SwiftType {
+        try handleMap.get(handle: handle)
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public static func lower(_ v: SwiftType) -> UInt64 {
+        return handleMap.insert(obj: v)
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public static func write(_ v: SwiftType, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(v))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterCallbackInterfaceCoreTunnelObserver_lift(_ handle: UInt64) throws -> CoreTunnelObserver {
+    return try FfiConverterCallbackInterfaceCoreTunnelObserver.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterCallbackInterfaceCoreTunnelObserver_lower(_ v: CoreTunnelObserver) -> UInt64 {
+    return FfiConverterCallbackInterfaceCoreTunnelObserver.lower(v)
+}
+
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
@@ -4237,6 +4770,31 @@ fileprivate struct FfiConverterSequenceTypeCoreMountMapping: FfiConverterRustBuf
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeCoreProfileTimestamps: FfiConverterRustBuffer {
+    typealias SwiftType = [CoreProfileTimestamps]
+
+    public static func write(_ value: [CoreProfileTimestamps], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeCoreProfileTimestamps.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [CoreProfileTimestamps] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [CoreProfileTimestamps]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeCoreProfileTimestamps.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeCoreRemoteEntry: FfiConverterRustBuffer {
     typealias SwiftType = [CoreRemoteEntry]
 
@@ -4337,26 +4895,49 @@ fileprivate struct FfiConverterSequenceTypeCoreSshProfile: FfiConverterRustBuffe
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-fileprivate struct FfiConverterSequenceTypeCoreTransferJob: FfiConverterRustBuffer {
-    typealias SwiftType = [CoreTransferJob]
+fileprivate struct FfiConverterSequenceTypeCoreSshTunnel: FfiConverterRustBuffer {
+    typealias SwiftType = [CoreSshTunnel]
 
-    public static func write(_ value: [CoreTransferJob], into buf: inout [UInt8]) {
+    public static func write(_ value: [CoreSshTunnel], into buf: inout [UInt8]) {
         let len = Int32(value.count)
         writeInt(&buf, len)
         for item in value {
-            FfiConverterTypeCoreTransferJob.write(item, into: &buf)
+            FfiConverterTypeCoreSshTunnel.write(item, into: &buf)
         }
     }
 
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [CoreTransferJob] {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [CoreSshTunnel] {
         let len: Int32 = try readInt(&buf)
-        var seq = [CoreTransferJob]()
+        var seq = [CoreSshTunnel]()
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
-            seq.append(try FfiConverterTypeCoreTransferJob.read(from: &buf))
+            seq.append(try FfiConverterTypeCoreSshTunnel.read(from: &buf))
         }
         return seq
     }
+}
+/**
+ * A new Ed25519 key pair, the default `ssh-keygen` now uses.
+ */
+public func generateEd25519Key(comment: String, passphrase: String?)throws  -> CoreSshKey  {
+    return try  FfiConverterTypeCoreSshKey_lift(try rustCallWithError(FfiConverterTypeCoreError_lift) {
+    uniffi_snake_core_fn_func_generate_ed25519_key(
+        FfiConverterString.lower(comment),
+        FfiConverterOptionString.lower(passphrase),$0
+    )
+})
+}
+/**
+ * Accepts OpenSSH, PEM (PKCS#1/#8) and PuTTY keys. A passphrase given for an
+ * unencrypted key is ignored rather than added.
+ */
+public func importPrivateKey(content: String, passphrase: String?)throws  -> CoreSshKey  {
+    return try  FfiConverterTypeCoreSshKey_lift(try rustCallWithError(FfiConverterTypeCoreError_lift) {
+    uniffi_snake_core_fn_func_import_private_key(
+        FfiConverterString.lower(content),
+        FfiConverterOptionString.lower(passphrase),$0
+    )
+})
 }
 /**
  * Opens an SFTP handle. Browsing shares the pooled connection; `dedicated`
@@ -4465,6 +5046,39 @@ public func runCommandPrivateKey(host: String, port: UInt16, username: String, p
     )
 })
 }
+public func startLocalForwardPassword(host: String, port: UInt16, username: String, password: Data, knownHostsPath: String, acceptFingerprint: String?, localPort: UInt16, remoteHost: String, remotePort: UInt16, observer: CoreTunnelObserver)throws  -> CoreTunnelHandle  {
+    return try  FfiConverterTypeCoreTunnelHandle_lift(try rustCallWithError(FfiConverterTypeCoreError_lift) {
+    uniffi_snake_core_fn_func_start_local_forward_password(
+        FfiConverterString.lower(host),
+        FfiConverterUInt16.lower(port),
+        FfiConverterString.lower(username),
+        FfiConverterData.lower(password),
+        FfiConverterString.lower(knownHostsPath),
+        FfiConverterOptionString.lower(acceptFingerprint),
+        FfiConverterUInt16.lower(localPort),
+        FfiConverterString.lower(remoteHost),
+        FfiConverterUInt16.lower(remotePort),
+        FfiConverterCallbackInterfaceCoreTunnelObserver_lower(observer),$0
+    )
+})
+}
+public func startLocalForwardPrivateKey(host: String, port: UInt16, username: String, privateKeyPath: String, passphrase: Data?, knownHostsPath: String, acceptFingerprint: String?, localPort: UInt16, remoteHost: String, remotePort: UInt16, observer: CoreTunnelObserver)throws  -> CoreTunnelHandle  {
+    return try  FfiConverterTypeCoreTunnelHandle_lift(try rustCallWithError(FfiConverterTypeCoreError_lift) {
+    uniffi_snake_core_fn_func_start_local_forward_private_key(
+        FfiConverterString.lower(host),
+        FfiConverterUInt16.lower(port),
+        FfiConverterString.lower(username),
+        FfiConverterString.lower(privateKeyPath),
+        FfiConverterOptionData.lower(passphrase),
+        FfiConverterString.lower(knownHostsPath),
+        FfiConverterOptionString.lower(acceptFingerprint),
+        FfiConverterUInt16.lower(localPort),
+        FfiConverterString.lower(remoteHost),
+        FfiConverterUInt16.lower(remotePort),
+        FfiConverterCallbackInterfaceCoreTunnelObserver_lower(observer),$0
+    )
+})
+}
 
 private enum InitializationResult {
     case ok
@@ -4480,6 +5094,12 @@ private let initializationResult: InitializationResult = {
     let scaffolding_contract_version = ffi_snake_core_uniffi_contract_version()
     if bindings_contract_version != scaffolding_contract_version {
         return InitializationResult.contractVersionMismatch
+    }
+    if (uniffi_snake_core_checksum_func_generate_ed25519_key() != 16764) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_snake_core_checksum_func_import_private_key() != 23541) {
+        return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_snake_core_checksum_func_open_sftp_password() != 2429) {
         return InitializationResult.apiChecksumMismatch
@@ -4500,6 +5120,12 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_snake_core_checksum_func_run_command_private_key() != 62835) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_snake_core_checksum_func_start_local_forward_password() != 1645) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_snake_core_checksum_func_start_local_forward_private_key() != 4491) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_snake_core_checksum_method_coredatabase_create_mcp_token() != 45191) {
@@ -4523,7 +5149,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_snake_core_checksum_method_coredatabase_delete_saved_password() != 16151) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_snake_core_checksum_method_coredatabase_delete_transfer_job() != 56295) {
+    if (uniffi_snake_core_checksum_method_coredatabase_delete_tunnel() != 30770) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_snake_core_checksum_method_coredatabase_finish_mcp_audit() != 56229) {
@@ -4550,6 +5176,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_snake_core_checksum_method_coredatabase_mount_mappings() != 48194) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_snake_core_checksum_method_coredatabase_profile_timestamps() != 11875) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_snake_core_checksum_method_coredatabase_profiles() != 8051) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -4568,7 +5197,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_snake_core_checksum_method_coredatabase_save_saved_password_and_sync() != 35547) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_snake_core_checksum_method_coredatabase_save_transfer_job() != 47680) {
+    if (uniffi_snake_core_checksum_method_coredatabase_save_tunnel() != 54543) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_snake_core_checksum_method_coredatabase_saved_passwords() != 44641) {
@@ -4580,7 +5209,13 @@ private let initializationResult: InitializationResult = {
     if (uniffi_snake_core_checksum_method_coredatabase_touch_mcp_token() != 48718) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_snake_core_checksum_method_coredatabase_transfer_jobs() != 63195) {
+    if (uniffi_snake_core_checksum_method_coredatabase_touch_profile() != 33669) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_snake_core_checksum_method_coredatabase_touch_saved_password() != 20485) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_snake_core_checksum_method_coredatabase_tunnels() != 27107) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_snake_core_checksum_method_coredatabase_update_mcp_token() != 18226) {
@@ -4590,15 +5225,6 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_snake_core_checksum_method_coresftphandle_checksum_capability() != 56382) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_snake_core_checksum_method_coresftphandle_copy_from() != 29939) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_snake_core_checksum_method_coresftphandle_copy_from_controlled() != 57638) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_snake_core_checksum_method_coresftphandle_copy_symbolic_link_from() != 18327) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_snake_core_checksum_method_coresftphandle_create_directory() != 53080) {
@@ -4620,6 +5246,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_snake_core_checksum_method_coresftphandle_home_directory() != 30653) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_snake_core_checksum_method_coresftphandle_is_closed() != 38998) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_snake_core_checksum_method_coresftphandle_list() != 50805) {
@@ -4700,6 +5329,18 @@ private let initializationResult: InitializationResult = {
     if (uniffi_snake_core_checksum_method_coretransfercontrol_resume() != 6448) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_snake_core_checksum_method_coretunnelhandle_active_connections() != 8536) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_snake_core_checksum_method_coretunnelhandle_is_closed() != 64252) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_snake_core_checksum_method_coretunnelhandle_local_port() != 44074) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_snake_core_checksum_method_coretunnelhandle_stop() != 53554) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_snake_core_checksum_constructor_coredatabase_open() != 59473) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -4715,9 +5356,13 @@ private let initializationResult: InitializationResult = {
     if (uniffi_snake_core_checksum_method_coretransferobserver_on_progress() != 38825) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_snake_core_checksum_method_coretunnelobserver_on_closed() != 22555) {
+        return InitializationResult.apiChecksumMismatch
+    }
 
     uniffiCallbackInitCoreTerminalObserver()
     uniffiCallbackInitCoreTransferObserver()
+    uniffiCallbackInitCoreTunnelObserver()
     return InitializationResult.ok
 }()
 

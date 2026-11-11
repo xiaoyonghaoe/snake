@@ -9,7 +9,7 @@ public enum AuthMethod: String, Codable, CaseIterable, Identifiable, Sendable {
     public var label: String {
         switch self {
         case .password: L10n.text("密码")
-        case .privateKey: L10n.text("私钥")
+        case .privateKey: L10n.text("密钥")
         }
     }
 }
@@ -143,15 +143,28 @@ public struct SSHProfile: Identifiable, Codable, Hashable, Sendable {
     public var usesCustomIcon: Bool { symbolName == Self.customIconSymbolName }
 }
 
+/// When a session was created and last edited, as SQLite records them; reordering
+/// or moving it in the list is not an edit.
+public struct SSHProfileTimestamps: Hashable, Sendable {
+    public var createdAt: Date
+    public var updatedAt: Date
+}
+
 public struct SavedPassword: Identifiable, Hashable, Sendable {
     public var id: UUID
     public var name: String
     public var username: String
+    /// `nil` until the entry has been stored.
+    public var createdAt: Date?
+    /// The last name, username or password change.
+    public var updatedAt: Date?
 
-    public init(id: UUID = UUID(), name: String, username: String) {
+    public init(id: UUID = UUID(), name: String, username: String, createdAt: Date? = nil, updatedAt: Date? = nil) {
         self.id = id
         self.name = name
         self.username = username
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
     }
 
     public var credentialAccount: String { "library/\(id.uuidString)/password" }
@@ -324,10 +337,7 @@ public struct RemoteFileTransferPayload: Codable, Sendable {
 }
 
 public struct TransferJob: Identifiable, Hashable, Sendable {
-    /// Persisted sentinel for transfers that originate on, or target, this Mac.
-    ///
-    /// It is stored data rather than interface text, so it must never be
-    /// localized: changing it would orphan existing records.
+    /// Endpoint name for transfers that originate on, or target, this Mac.
     public static let localEndpointName = "本机"
 
     public var id: UUID
@@ -411,10 +421,98 @@ public struct MountMapping: Identifiable, Codable, Hashable, Sendable {
     }
 }
 
+/// A local port forward (`ssh -L`): `127.0.0.1:localPort` reaches
+/// `remoteHost:remotePort` as seen from the session's server.
+public struct SSHTunnel: Identifiable, Hashable, Sendable {
+    public var id: UUID
+    /// `nil` once the session was deleted; the tunnel waits to be rebound.
+    public var profileID: UUID?
+    public var localPort: Int
+    public var remoteHost: String
+    public var remotePort: Int
+    public var note: String
+    public var autoStart: Bool
+    public var sortOrder: Int
+    /// `nil` until the tunnel has been stored.
+    public var createdAt: Date?
+    public var updatedAt: Date?
+
+    public init(
+        id: UUID = UUID(),
+        profileID: UUID? = nil,
+        localPort: Int,
+        remoteHost: String = "127.0.0.1",
+        remotePort: Int,
+        note: String = "",
+        autoStart: Bool = false,
+        sortOrder: Int = 0,
+        createdAt: Date? = nil,
+        updatedAt: Date? = nil
+    ) {
+        self.id = id
+        self.profileID = profileID
+        self.localPort = localPort
+        self.remoteHost = remoteHost
+        self.remotePort = remotePort
+        self.note = note
+        self.autoStart = autoStart
+        self.sortOrder = sortOrder
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+
+    public var localAddress: String { "127.0.0.1:\(localPort)" }
+
+    public var remoteAddress: String {
+        remoteHost.contains(":") ? "[\(remoteHost)]:\(remotePort)" : "\(remoteHost):\(remotePort)"
+    }
+
+    /// Fields whose change requires a running tunnel to restart.
+    func sameEndpoint(as other: SSHTunnel) -> Bool {
+        profileID == other.profileID && localPort == other.localPort
+            && remoteHost == other.remoteHost && remotePort == other.remotePort
+    }
+}
+
+public enum TunnelState: Hashable, Sendable {
+    case stopped
+    case starting
+    case running(connections: Int)
+    /// The SSH connection dropped; the user reconnects by hand.
+    case disconnected(String)
+    case failed(String)
+
+    public var label: String {
+        switch self {
+        case .stopped: L10n.text("未启动")
+        case .starting: L10n.text("正在连接")
+        case .running(let connections):
+            connections == 0 ? L10n.text("运行中") : L10n.format("运行中 · %@ 个连接", connections)
+        case .disconnected: L10n.text("已断开")
+        case .failed: L10n.text("启动失败")
+        }
+    }
+
+    public var detail: String? {
+        switch self {
+        case .disconnected(let message), .failed(let message): message
+        default: nil
+        }
+    }
+
+    public var isActive: Bool {
+        switch self {
+        case .starting, .running: true
+        default: false
+        }
+    }
+}
+
 public enum WorkspaceTabKind: Hashable, Sendable {
     case sessions
     case mounts
     case mcp
+    case passwords
     case terminal(profileID: UUID)
     case sftp(profileID: UUID)
 
@@ -423,6 +521,7 @@ public enum WorkspaceTabKind: Hashable, Sendable {
         case .sessions: "square.grid.2x2"
         case .mounts: "externaldrive"
         case .mcp: "point.3.connected.trianglepath.dotted"
+        case .passwords: "key.horizontal"
         case .terminal: "terminal"
         case .sftp: "folder"
         }

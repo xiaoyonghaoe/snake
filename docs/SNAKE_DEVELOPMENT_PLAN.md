@@ -9,9 +9,9 @@
 - 按高保真原型实现 AppKit/SwiftUI 主窗口、会话树、统一终端/SFTP 标签、Bonsplit 分屏、标签撕出窗口和跨窗口落点。
 - 会话双击打开终端，右键打开终端/SFTP/修改/二次确认删除；会话可拖入同级分组。
 - 当前开发阶段会话密码/私钥口令暂存于权限为 `0600` 的明文凭据文件，SQLite 仅保存 credential reference；后续替换为外部密码工具适配器，私钥仍只保存 security-scoped bookmark。
-- Rust `snake_core` 通过 UniFFI 接入 Swift，负责 WAL SQLite 中的分组、会话、映射和传输历史；旧 JSON 配置会一次性迁移。
+- Rust `snake_core` 通过 UniFFI 接入 Swift，负责 WAL SQLite 中的分组、会话和映射（传输任务只在内存中，schema v5 起删除 `transfer_jobs`/`transfer_events`）；旧 JSON 配置会一次性迁移。
 - Rust/russh SFTP 真实连接（russh-sftp，请求流水线）：密码/私钥认证、Snake 自管 `known_hosts`、首次指纹确认、指纹变化阻断、目录浏览、创建、重命名、删除、上传、缓存下载打开。
-- Finder 文件/文件夹选择和拖入、SFTP 面板间真实 1 MiB 内存流式互传，以及由 Rust 原子控制器驱动的进度、速度、暂停、继续、取消；异常启动转 `interrupted`。
+- Finder 文件/文件夹选择和拖入、SFTP 标签间经本机中转目录的互传（先下载再上传，结束后删除中转文件），以及由 Rust 原子控制器驱动的进度、速度、暂停、继续、取消。
 - SFTP 本地上传支持断点续传和大文件并行分片：默认超过 50 MB 使用 4 个独立连接，阈值与并发数可在设置中调整；覆盖时先合并到远端隐藏暂存文件，再通过 `mv -f` 替换正式文件。
 - SFTP 通过 `lstat/readlink` 识别软连接：文件表展示链接目标，目录链接可进入、文件链接可打开、删除只执行 `unlink`，跨 SFTP 复制保留原始链接目标。
 - 远程权限编辑支持对真实文件夹递归应用 `chmod -R`；软连接不会开放递归选项，避免越过链接边界修改外部目录。
@@ -267,7 +267,7 @@ WorkspaceTabRuntime
 1. 列出活动终端、SFTP 浏览连接和依赖映射。
 2. 用户确认后停止活动终端和浏览连接。
 3. 禁用依赖映射，但保留映射记录供用户重新绑定。
-4. 保留带会话快照的传输历史。
+4. 传输记录只在内存中按标签保存，删除会话不涉及传输数据。
 5. 在 SQLite 事务中删除会话并解除关联外键。
 6. 数据库事务成功后删除 Keychain 凭据和私钥 bookmark 引用。
 
@@ -508,13 +508,9 @@ SSHFS 参数应包含严格主机密钥校验、Snake `known_hosts`、重连、S
 
 保存 host、port、algorithm、fingerprint、公钥和首次确认时间。`host + port` 建立唯一约束。
 
-#### `transfer_jobs`
+#### `transfer_jobs` / `transfer_events`（已移除）
 
-保存来源/目标 profile ID、会话快照、来源/目标路径、文件类型、总量、完成量、速度、状态、冲突策略、错误码和时间戳。
-
-#### `transfer_events`
-
-保存任务状态变化和不含敏感数据的诊断事件。
+schema v5 删除这两张表：写入的记录从未在界面显示，传输任务只在内存中按标签保存，关闭标签或退出应用后清空。
 
 #### `mount_mappings`
 
@@ -752,7 +748,7 @@ delete_mount_mapping(id)
 - PTY 输入、输出、resize 和远端退出。
 - 文件/文件夹上传、下载和续传。
 - 网络中断和任务重试。
-- 两台远程服务器之间的流式传输。
+- 两台远程服务器之间经本机中转目录的传输。
 - 大目录列表和大文件传输。
 
 挂载测试默认使用模拟 sshfs/helper。真实 macFUSE 冒烟测试只在受控签名 macOS 机器上执行。
