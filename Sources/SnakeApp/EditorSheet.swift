@@ -159,3 +159,34 @@ struct EditorValueBox<Accessory: View>: View {
         .overlay { RoundedRectangle(cornerRadius: 7, style: .continuous).stroke(SnakeStyle.hairline, lineWidth: 1) }
     }
 }
+
+enum SnakeTimestamp {
+    private static let formatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd HH:mm"
+        return formatter
+    }()
+
+    static func string(_ date: Date) -> String { formatter.string(from: date) }
+}
+
+/// "创建 …" over "修改 …" in small monospaced type, for list rows and sheet footers.
+struct TimestampStack: View {
+    let created: Date?
+    let updated: Date?
+
+    var body: some View {
+        if let created {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(L10n.format("创建 %@", SnakeTimestamp.string(created)))
+                Text(L10n.format("修改 %@", SnakeTimestamp.string(updated ?? created)))
+            }
+            .font(.system(size: 11, design: .monospaced))
+            .foregroundStyle(SnakeStyle.muted)
+            .lineLimit(1)
+            .fixedSize()
+            .textSelection(.enabled)
+        }
+    }
+}

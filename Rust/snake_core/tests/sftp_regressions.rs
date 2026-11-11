@@ -108,56 +108,6 @@ fn publication_uses_exact_target_and_preserves_conflicting_directories() {
 
 #[test]
 #[ignore = "requires a disposable loopback sshd"]
-fn directory_copy_rejects_descendants_and_resolves_symlink_aliases() {
-    let root = tempfile::tempdir().unwrap();
-    let hosts = root.path().join("known_hosts");
-    let source = connect(&hosts);
-    let destination = connect(&hosts);
-    let folder = root.path().join("source");
-    fs::create_dir(&folder).unwrap();
-    fs::write(folder.join("data"), b"content").unwrap();
-    let alias = root.path().join("alias");
-    std::os::unix::fs::symlink(&folder, &alias).unwrap();
-    for path in [&folder, &alias] {
-        let nested = path.join("child");
-        let result = destination.copy_from_controlled(
-            Arc::clone(&source),
-            folder.display().to_string(),
-            nested.display().to_string(),
-            true,
-            7,
-            CoreTransferControl::new(),
-            Box::new(Observer),
-        );
-        assert!(matches!(result, Err(CoreError::InvalidInput { .. })));
-        assert!(!nested.exists());
-        assert!(destination
-            .copy_from(
-                Arc::clone(&source),
-                folder.display().to_string(),
-                nested.display().to_string(),
-                true
-            )
-            .is_err());
-        assert!(!nested.exists());
-    }
-    let sibling = root.path().join("source2");
-    destination
-        .copy_from_controlled(
-            source,
-            folder.display().to_string(),
-            sibling.display().to_string(),
-            true,
-            7,
-            CoreTransferControl::new(),
-            Box::new(Observer),
-        )
-        .unwrap();
-    assert_eq!(fs::read(sibling.join("data")).unwrap(), b"content");
-}
-
-#[test]
-#[ignore = "requires a disposable loopback sshd"]
 fn resumable_upload_keeps_verified_prefix_and_new_jobs_use_separate_parts() {
     let root = tempfile::tempdir().unwrap();
     let handle = connect(&root.path().join("known_hosts"));
@@ -198,4 +148,50 @@ fn resumable_upload_keeps_verified_prefix_and_new_jobs_use_separate_parts() {
         .unwrap();
     assert_eq!(fs::read(target).unwrap(), fs::read(local).unwrap());
     assert_eq!(fs::read(stale).unwrap(), b"AAAAAAAA");
+}
+
+#[test]
+#[ignore = "requires a disposable loopback sshd"]
+fn listing_resolves_links_without_following_them_as_entries() {
+    let root = tempfile::tempdir().unwrap();
+    let handle = connect(&root.path().join("known_hosts"));
+    let base = root.path().join("listing");
+    fs::create_dir(&base).unwrap();
+    fs::write(base.join("file.txt"), b"12345").unwrap();
+    fs::create_dir(base.join("folder")).unwrap();
+    std::os::unix::fs::symlink(base.join("folder"), base.join("to-folder")).unwrap();
+    std::os::unix::fs::symlink(base.join("file.txt"), base.join("to-file")).unwrap();
+    std::os::unix::fs::symlink(base.join("missing"), base.join("broken")).unwrap();
+
+    let entries = handle.list(base.display().to_string()).unwrap();
+    let entry = |name: &str| entries.iter().find(|entry| entry.name == name).unwrap();
+    assert_eq!(entries.len(), 5);
+    assert!(entry("folder").is_directory && !entry("folder").is_symbolic_link);
+    assert!(!entry("file.txt").is_directory && entry("file.txt").size == 5);
+    assert!(entry("to-folder").is_symbolic_link && entry("to-folder").is_directory);
+    assert_eq!(entry("to-folder").link_target.as_deref(), Some(base.join("folder").to_str().unwrap()));
+    assert!(entry("to-file").is_symbolic_link && !entry("to-file").is_directory && entry("to-file").size == 5);
+    assert!(entry("broken").is_symbolic_link && !entry("broken").is_directory);
+    // Directories, then names: links to folders sort with folders.
+    assert_eq!(entries.iter().map(|entry| entry.name.as_str()).collect::<Vec<_>>(),
+               ["folder", "to-folder", "broken", "file.txt", "to-file"]);
+}
+
+/// Also needs SNAKE_SSHD_PID: killing that sshd's session children drops the
+/// connection the way a network failure would.
+#[test]
+#[ignore = "requires a disposable loopback sshd"]
+fn handle_reports_closed_after_the_connection_drops() {
+    let pid = std::env::var("SNAKE_SSHD_PID").expect("disposable sshd pid");
+    let root = tempfile::tempdir().unwrap();
+    let handle = connect(&root.path().join("known_hosts"));
+    assert!(!handle.is_closed());
+    handle.home_directory().unwrap();
+    std::process::Command::new("pkill").args(["-P", &pid]).status().unwrap();
+    for _ in 0..200 {
+        if handle.is_closed() { break; }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    assert!(handle.is_closed(), "a dropped connection must be visible so the tab can reconnect");
+    assert!(handle.list("/".into()).is_err());
 }

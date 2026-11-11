@@ -102,6 +102,16 @@ impl FileStat {
     }
 }
 
+/// One directory entry as `Sftp::list` returns it.
+pub(crate) struct ListedEntry {
+    pub(crate) path: PathBuf,
+    /// The entry itself, never followed.
+    pub(crate) stat: FileStat,
+    pub(crate) link_target: Option<PathBuf>,
+    /// What a symbolic link points at, when that can be read.
+    pub(crate) target_stat: Option<FileStat>,
+}
+
 fn wire_path(path: &Path) -> Result<String> {
     path.to_str()
         .map(str::to_owned)
@@ -177,9 +187,44 @@ impl Sftp {
                     Err(error) => break Err(SshError::from(error)),
                 }
             };
-            let _ = self.raw.close(handle).await;
+            // Nothing waits on a directory handle's close; awaiting it only added a
+            // round trip to every folder that was opened.
+            let raw = Arc::clone(&self.raw);
+            crate::ssh::runtime().spawn(async move {
+                let _ = raw.close(handle).await;
+            });
             result.map(|_| entries)
         })
+    }
+
+    /// Lists `path` with symbolic links resolved.
+    ///
+    /// OpenSSH already sends lstat attributes with every READDIR name, so an entry is
+    /// lstat'ed again only when the server left its type out. The follow-up requests
+    /// are pipelined: a listing costs a few round trips however many entries it has,
+    /// instead of one to three per entry, which made remote directories slow to open.
+    pub(crate) fn list(&self, path: &Path) -> Result<Vec<ListedEntry>> {
+        let entries = self.readdir(path)?;
+        let raw = &self.raw;
+        Ok(block_on(futures::future::join_all(entries.into_iter().map(|(path, listed)| async move {
+            let Ok(wire) = wire_path(&path) else {
+                return ListedEntry { path, stat: listed, link_target: None, target_stat: None };
+            };
+            let stat = match listed.perm {
+                Some(_) => listed,
+                None => raw.lstat(wire.clone()).await.map(|reply| FileStat::from_attributes(&reply.attrs)).unwrap_or(listed),
+            };
+            let (link_target, target_stat) = if stat.file_type().is_symlink() {
+                let (target, followed) = futures::join!(raw.readlink(wire.clone()), raw.stat(wire));
+                (
+                    target.ok().and_then(|name| first_name(name).ok()),
+                    followed.ok().map(|reply| FileStat::from_attributes(&reply.attrs)),
+                )
+            } else {
+                (None, None)
+            };
+            ListedEntry { path, stat, link_target, target_stat }
+        }))))
     }
 
     pub(crate) fn stat(&self, path: &Path) -> Result<FileStat> {
@@ -226,15 +271,6 @@ impl Sftp {
     pub(crate) fn realpath(&self, path: &Path) -> Result<PathBuf> {
         let wire = wire_path(path)?;
         first_name(block_on(self.raw.realpath(wire))?)
-    }
-
-    /// Creates a link at `link` whose contents are `target`. OpenSSH reads the
-    /// two SSH_FXP_SYMLINK fields in reverse, so the target goes first, as
-    /// libssh2 also sent it.
-    pub(crate) fn symlink(&self, target: &Path, link: &Path) -> Result<()> {
-        let (target, link) = (wire_path(target)?, wire_path(link)?);
-        block_on(self.raw.symlink(target, link))?;
-        Ok(())
     }
 
     /// Plain SSH_FXP_RENAME: fails when the destination exists.

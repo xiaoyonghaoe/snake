@@ -16,7 +16,12 @@ use std::time::{Duration, Instant};
 
 /// Unused pooled connections stay open this long for quick new tabs.
 const POOL_IDLE_GRACE: Duration = Duration::from_secs(30);
-const KEEPALIVE_INTERVAL: Duration = Duration::from_secs(10);
+/// With `keepalive_max` 3, a dead link is noticed after about 15–20 seconds, so a
+/// dropped terminal starts reconnecting without a long silent wait.
+const KEEPALIVE_INTERVAL: Duration = Duration::from_secs(5);
+/// A proxy accepts TCP at once even when the server is unreachable, so the
+/// handshake bounds how long one connection attempt can hang.
+const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
 
 pub(crate) fn runtime() -> &'static tokio::runtime::Runtime {
     static RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
@@ -228,7 +233,6 @@ pub(crate) struct Connection {
     /// Always `Some` until `Drop` takes it to disconnect in the background.
     handle: Option<client::Handle<ClientHandler>>,
     pub(crate) security: CoreConnectionSecurity,
-    pub(crate) server_address: std::net::SocketAddr,
 }
 
 impl Connection {
@@ -245,6 +249,19 @@ impl Connection {
             .channel_open_session()
             .await
             .map_err(|error| ssh_connection_stage_error("ssh_channel", error.into()))
+    }
+
+    /// Asks the server to connect to `host:port` on our behalf (`ssh -L`).
+    pub(crate) async fn open_direct_tcpip(
+        &self,
+        host: &str,
+        port: u16,
+        originator_port: u16,
+    ) -> Result<russh::Channel<client::Msg>, CoreError> {
+        self.handle()
+            .channel_open_direct_tcpip(host, u32::from(port), "127.0.0.1", u32::from(originator_port))
+            .await
+            .map_err(|error| ssh_connection_stage_error("ssh_direct_tcpip", error.into()))
     }
 }
 
@@ -263,7 +280,6 @@ struct Handshake {
     handle: client::Handle<ClientHandler>,
     host_key: Vec<u8>,
     names: Option<[String; 5]>,
-    server_address: std::net::SocketAddr,
 }
 
 /// TCP connect, SSH handshake and host-key verification.
@@ -281,7 +297,6 @@ async fn handshake(
         .await
         .map_err(|error| io_connection_stage_error("tcp_connect", std::io::Error::other(error)))??;
     tune_terminal_socket(&stream);
-    let server_address = stream.peer_addr().map_err(|error| io_connection_stage_error("tcp_stream", error))?;
     stream.set_nonblocking(true).map_err(|error| io_connection_stage_error("tcp_stream", error))?;
     let stream = tokio::net::TcpStream::from_std(stream).map_err(|error| io_connection_stage_error("tcp_stream", error))?;
 
@@ -293,7 +308,7 @@ async fn handshake(
         accept_fingerprint: accept_fingerprint.map(str::to_owned),
         state: Arc::clone(&state),
     };
-    let result = tokio::time::timeout(Duration::from_secs(20), client::connect_stream(client_config(), stream, handler)).await;
+    let result = tokio::time::timeout(HANDSHAKE_TIMEOUT, client::connect_stream(client_config(), stream, handler)).await;
     let mut state = std::mem::take(&mut *state.lock().unwrap_or_else(|poison| poison.into_inner()));
     if let Some(verdict) = state.verdict.take() {
         return Err(verdict);
@@ -306,7 +321,7 @@ async fn handshake(
         }
     };
     let host_key = state.host_key.take().ok_or_else(missing_host_key)?;
-    Ok(Handshake { handle, host_key, names: state.names.take(), server_address })
+    Ok(Handshake { handle, host_key, names: state.names.take() })
 }
 
 fn missing_host_key() -> CoreError {
@@ -333,7 +348,7 @@ pub(crate) fn probe(host: &str, port: u16) -> Result<CoreHostKey, CoreError> {
             accept_fingerprint: None,
             state: Arc::clone(&state),
         };
-        let result = tokio::time::timeout(Duration::from_secs(20), client::connect_stream(client_config(), stream, handler)).await;
+        let result = tokio::time::timeout(HANDSHAKE_TIMEOUT, client::connect_stream(client_config(), stream, handler)).await;
         let key = state.lock().unwrap_or_else(|poison| poison.into_inner()).host_key.take();
         match (key, result) {
             (Some(key), _) => Ok(known_hosts::host_key_record(host, port, &key)),
@@ -394,7 +409,7 @@ async fn connect_async(
     known_hosts_path: &str,
     accept_fingerprint: Option<&str>,
 ) -> Result<Arc<Connection>, CoreError> {
-    let Handshake { mut handle, host_key, names, server_address } =
+    let Handshake { mut handle, host_key, names } =
         handshake(host, port, known_hosts_path, accept_fingerprint).await?;
     authenticate(&mut handle, username, credential).await?;
     let [kex, key, cipher, mut client_mac, mut server_mac] = names.unwrap_or_default();
@@ -411,7 +426,7 @@ async fn connect_async(
         Some(&client_mac),
         Some(&server_mac),
     );
-    Ok(Arc::new(Connection { handle: Some(handle), security, server_address }))
+    Ok(Arc::new(Connection { handle: Some(handle), security }))
 }
 
 // MARK: - Pool

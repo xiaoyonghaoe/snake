@@ -186,7 +186,7 @@ private struct SnakeToolbar: View {
                     .font(.system(size: 14, weight: .medium))
             }
             .buttonStyle(SnakeIconButtonStyle(selected: windowState.selectedRuntime?.kind == .mounts, minSize: CGSize(width: 34, height: 30)))
-            .help("打开磁盘映射").accessibilityLabel("打开磁盘映射")
+            .help("打开磁盘映射与 SSH 隧道").accessibilityLabel("打开磁盘映射与 SSH 隧道")
 
             Button { windowState.showManager(.mcp) } label: {
                 Image(systemName: WorkspaceTabKind.mcp.symbolName)
@@ -194,6 +194,13 @@ private struct SnakeToolbar: View {
             }
             .buttonStyle(SnakeIconButtonStyle(selected: windowState.selectedRuntime?.kind == .mcp, minSize: CGSize(width: 34, height: 30)))
             .help("打开 MCP 服务").accessibilityLabel("打开 MCP 服务")
+
+            Button { windowState.showManager(.passwords) } label: {
+                Image(systemName: WorkspaceTabKind.passwords.symbolName)
+                    .font(.system(size: 14, weight: .medium))
+            }
+            .buttonStyle(SnakeIconButtonStyle(selected: windowState.selectedRuntime?.kind == .passwords, minSize: CGSize(width: 34, height: 30)))
+            .help("打开密码管理").accessibilityLabel("打开密码管理")
 
         }
         .padding(.horizontal, 4)
@@ -287,24 +294,32 @@ private struct SessionCatalogView: View {
 
     var body: some View {
         GeometryReader { geometry in
-            let columns = [GridItem(.adaptive(minimum: min(280, max(1, geometry.size.width - 32))), spacing: 16)]
+            let columns = [GridItem(.adaptive(minimum: min(240, max(1, geometry.size.width - 32))), spacing: 12)]
             ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
+                VStack(alignment: .leading, spacing: 16) {
+                    // One row: where you are, search, and what you can create here.
                     ViewThatFits(in: .horizontal) {
-                        HStack(alignment: .bottom) {
+                        HStack(spacing: 12) {
                             heading
-                            Spacer(minLength: 16)
+                            Spacer(minLength: 12)
+                            searchField.frame(minWidth: 220, maxWidth: 340)
                             actions
                         }
-                        VStack(alignment: .leading, spacing: 12) { heading; actions }
+                        VStack(alignment: .leading, spacing: 10) {
+                            heading
+                            HStack(spacing: 10) { searchField; actions }
+                        }
                     }
-                    searchField
                     content(columns: columns)
                 }
-                .padding(geometry.size.width < 500 ? 16 : 24)
+                .padding(geometry.size.width < 500 ? 16 : 20)
                 .coordinateSpace(name: Self.space)
                 .onPreferenceChange(CatalogFrameKey.self) { frames = $0 }
                 .overlay(alignment: .topLeading) { dragPreview }
+                // Fill the page so a right click on empty space below the cards still lands here.
+                .frame(maxWidth: .infinity, minHeight: geometry.size.height, alignment: .topLeading)
+                .contentShape(Rectangle())
+                .snakeContextMenu { blankAreaMenu }
             }
         }
         .background(SnakeStyle.canvas)
@@ -322,6 +337,14 @@ private struct SessionCatalogView: View {
             } else {
                 NSCursor.pop()
             }
+        }
+        .onAppear {
+            guard !runtime.restoredLastFolder else { return }
+            runtime.restoredLastFolder = true
+            if runtime.openFolderID == nil { runtime.openFolderID = store.lastSessionFolderID }
+        }
+        .onChange(of: runtime.openFolderID) { _, folderID in
+            store.lastSessionFolderID = folderID
         }
         .task(id: runtime.searchFocusRequest) {
             guard runtime.searchFocusRequest > 0 else { return }
@@ -354,24 +377,42 @@ private struct SessionCatalogView: View {
         }
     }
 
+    /// `‹ SSH 会话 › 父文件夹 › [icon] 名称 · 5 个会话 ✎ 🗑` on one line.
     @ViewBuilder
     private var heading: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        HStack(spacing: 8) {
             if let folder = openFolder {
                 breadcrumbs(to: folder)
-                HStack(spacing: 10) {
-                    SessionFolderIcon(image: ProfileIconStore.image(for: folder.id), size: 30)
-                    Text(folder.name).lineLimit(1)
+                HStack(spacing: 7) {
+                    SessionFolderIcon(image: ProfileIconStore.image(for: folder.id), size: 22)
+                    Text(folder.name).font(.system(size: 16, weight: .bold)).lineLimit(1)
                 }
-                .font(.system(size: 22, weight: .bold))
+                .layoutPriority(1)
                 Text(contentsSummary(of: folder.id))
-                    .font(.system(size: 13)).foregroundStyle(SnakeStyle.muted)
+                    .font(.system(size: 12)).foregroundStyle(SnakeStyle.muted)
+                    .lineLimit(1)
+                HStack(spacing: 2) {
+                    Button { folderEditor = SessionFolderDraft(folder: folder) } label: { Image(systemName: "pencil") }
+                        .help("编辑文件夹").accessibilityLabel("编辑文件夹")
+                    Button { pendingFolderDeletion = folder } label: { Image(systemName: "trash") }
+                        .help("删除文件夹").accessibilityLabel("删除文件夹")
+                }
+                .buttonStyle(SnakeIconButtonStyle())
             } else {
-                Text("SSH 会话").font(.system(size: 22, weight: .bold))
-                Text("双击文件夹打开；按住卡片拖动可调整顺序，或把会话拖进文件夹。")
-                    .font(.system(size: 13)).foregroundStyle(SnakeStyle.muted)
+                Text("SSH 会话").font(.system(size: 17, weight: .bold)).lineLimit(1)
+                Text(topLevelSummary)
+                    .font(.system(size: 12)).foregroundStyle(SnakeStyle.muted)
+                    .lineLimit(1)
+                    .help("双击文件夹打开；按住卡片拖动可调整顺序，或把会话拖进文件夹。")
             }
         }
+        .fixedSize(horizontal: true, vertical: false)
+    }
+
+    private var topLevelSummary: String {
+        let sessions = L10n.plural("%@ 个会话", count: store.profiles.count, store.profiles.count)
+        guard !store.groups.isEmpty else { return sessions }
+        return L10n.plural("%@ 个文件夹", count: store.groups.count, store.groups.count) + " · " + sessions
     }
 
     /// Every level above the open folder; each opens that level and accepts drops.
@@ -380,11 +421,6 @@ private struct SessionCatalogView: View {
         let levels: [(id: UUID?, title: String)] = [(nil, L10n.text("SSH 会话"))] + ancestors.map { ($0.id, $0.name) }
         return HStack(spacing: 2) {
             ForEach(Array(levels.enumerated()), id: \.offset) { index, level in
-                if index > 0 {
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(SnakeStyle.muted)
-                }
                 Button { runtime.openFolderID = level.id } label: {
                     HStack(spacing: 4) {
                         if index == 0 {
@@ -395,33 +431,46 @@ private struct SessionCatalogView: View {
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(SnakeStyle.action)
                     .padding(.horizontal, 6)
-                    .padding(.vertical, 3)
+                    .padding(.vertical, 4)
                     .background(dropHighlight(.crumb(level.id)), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .background(frameReader(.crumb(level.id)))
                 .help("打开这一层；把卡片拖到这里可移到这一层")
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(SnakeStyle.muted)
             }
         }
-        .padding(.horizontal, -6)
     }
 
     private var actions: some View {
         HStack(spacing: 8) {
-            if let folder = openFolder {
-                Button("编辑…", systemImage: "pencil") { folderEditor = SessionFolderDraft(folder: folder) }
-                    .buttonStyle(SnakeOutlineButtonStyle())
-                Button("删除文件夹…", systemImage: "trash") { pendingFolderDeletion = folder }
-                    .buttonStyle(SnakeOutlineButtonStyle())
-            }
-            Button("新建文件夹", systemImage: "folder.badge.plus") {
+            Button(openFolder == nil ? L10n.text("新建文件夹") : L10n.text("新建子文件夹"), systemImage: "folder.badge.plus") {
                 folderEditor = SessionFolderDraft(parentID: openFolder?.id)
             }
             .buttonStyle(SnakeOutlineButtonStyle())
             newProfileButton
         }
         .fixedSize(horizontal: true, vertical: false)
+    }
+
+    /// Right click on empty space; cards keep their own menus.
+    @ViewBuilder
+    private var blankAreaMenu: some View {
+        Button(openFolder == nil ? L10n.text("新建 SSH 会话") : L10n.text("在此文件夹新建 SSH 会话"),
+               systemImage: "plus", action: onNewProfile)
+        Button(openFolder == nil ? L10n.text("新建文件夹") : L10n.text("在此文件夹新建子文件夹"),
+               systemImage: "folder.badge.plus") {
+            folderEditor = SessionFolderDraft(parentID: openFolder?.id)
+        }
+        if let folder = openFolder {
+            Section("当前文件夹") {
+                Button("返回上一层", systemImage: "arrow.up") { runtime.openFolderID = folder.parentID }
+                Button("编辑文件夹", systemImage: "pencil") { folderEditor = SessionFolderDraft(folder: folder) }
+            }
+        }
     }
 
     private var newProfileButton: some View {
@@ -437,7 +486,8 @@ private struct SessionCatalogView: View {
                 .textFieldStyle(.plain).focused($searchFocused)
                 .accessibilityIdentifier("session-catalog-search")
         }
-        .padding(10)
+        .padding(.horizontal, 10)
+        .frame(height: 32)
         .background(SnakeStyle.raisedSurface, in: RoundedRectangle(cornerRadius: 7))
         .overlay { RoundedRectangle(cornerRadius: 7).stroke(SnakeStyle.hairline, lineWidth: 1) }
         // Inside a folder the search field doubles as a wide "move up" target while
@@ -493,7 +543,7 @@ private struct SessionCatalogView: View {
             }
             if !folders.isEmpty {
                 section(L10n.text("文件夹")) {
-                    LazyVGrid(columns: columns, spacing: 16) {
+                    LazyVGrid(columns: columns, spacing: 12) {
                         ForEach(folders) { folder in
                             draggable(.folder(folder.id)) { folderCard(folder) }
                         }
@@ -550,14 +600,14 @@ private struct SessionCatalogView: View {
     }
 
     private func section<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(title).font(.system(size: 15, weight: .semibold))
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title).font(.system(size: 12, weight: .semibold)).foregroundStyle(SnakeStyle.muted)
             content()
         }
     }
 
     private func profileGrid(_ profiles: [SSHProfile], columns: [GridItem], showsFolder: Bool) -> some View {
-        LazyVGrid(columns: columns, spacing: 16) {
+        LazyVGrid(columns: columns, spacing: 12) {
             ForEach(profiles) { profile in
                 draggable(.profile(profile.id)) { profileCard(profile, showsFolder: showsFolder) }
             }
@@ -789,20 +839,21 @@ private struct SessionFolderCard: View {
     @State private var hovering = false
 
     var body: some View {
-        let shape = RoundedRectangle(cornerRadius: 12, style: .continuous)
-        HStack(spacing: 14) {
-            SessionFolderIcon(image: ProfileIconStore.image(for: folder.id), size: 44)
-            VStack(alignment: .leading, spacing: 3) {
-                Text(folder.name).font(.system(size: 15, weight: .semibold)).lineLimit(1)
+        let shape = RoundedRectangle(cornerRadius: 10, style: .continuous)
+        HStack(spacing: 12) {
+            SessionFolderIcon(image: ProfileIconStore.image(for: folder.id), size: 34)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(folder.name).font(.system(size: 13, weight: .semibold)).lineLimit(1)
                 Text(summary)
-                    .font(.system(size: 12)).foregroundStyle(SnakeStyle.muted).lineLimit(1)
+                    .font(.system(size: 11)).foregroundStyle(SnakeStyle.muted).lineLimit(1)
             }
             Spacer(minLength: 0)
             Image(systemName: "chevron.right")
-                .font(.system(size: 12, weight: .semibold))
+                .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(SnakeStyle.muted)
         }
-        .padding(14)
+        .padding(.horizontal, 12)
+        .frame(minHeight: SessionCatalogMetrics.cardHeight)
         .background(isDropTarget ? SnakeStyle.action.opacity(0.14)
                     : (selected ? SnakeStyle.selectedRow.opacity(0.55) : SnakeStyle.raisedSurface), in: shape)
         .overlay {
@@ -817,19 +868,23 @@ private struct SessionFolderCard: View {
             onOpen()
         }
         .simultaneousGesture(TapGesture().onEnded(onSelect))
-        .contextMenu {
+        .snakeContextMenu {
             Button("打开", systemImage: "folder", action: onOpen)
-            Button("编辑…", systemImage: "pencil", action: onEdit)
-            Menu("移到文件夹") {
-                destination(L10n.text("最外层"), parentID: nil)
-                let targets = store.folderPaths.filter { !SessionFolders.isWithin($0.folder.id, folder.id, in: store.groups) }
-                if !targets.isEmpty { Divider() }
-                ForEach(targets, id: \.folder.id) { target in
-                    destination(target.path, parentID: target.folder.id)
+            Section("管理") {
+                Button("编辑文件夹", systemImage: "pencil", action: onEdit)
+                Menu {
+                    destination(L10n.text("最外层"), parentID: nil)
+                    let targets = store.folderPaths.filter { !SessionFolders.isWithin($0.folder.id, folder.id, in: store.groups) }
+                    if !targets.isEmpty { Divider() }
+                    ForEach(targets, id: \.folder.id) { target in
+                        destination(target.path, parentID: target.folder.id)
+                    }
+                } label: {
+                    Label("移到文件夹", systemImage: "arrowshape.turn.up.right")
                 }
             }
             Divider()
-            Button("删除文件夹…", systemImage: "trash", role: .destructive, action: onDelete)
+            Button("删除文件夹", systemImage: "trash", role: .destructive, action: onDelete)
         }
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
@@ -981,6 +1036,11 @@ private struct SessionFolderEditorSheet: View {
     }
 }
 
+/// Shared by folder and session cards so both grids line up.
+private enum SessionCatalogMetrics {
+    static let cardHeight: CGFloat = 58
+}
+
 private struct SessionProfileCard: View {
     @EnvironmentObject private var store: ApplicationStore
     let profile: SSHProfile
@@ -991,65 +1051,70 @@ private struct SessionProfileCard: View {
     let onEdit: () -> Void
     let onConnect: (Bool) -> Void
     @State private var confirmsDeletion = false
+    @State private var hovering = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(spacing: 12) {
-                    ProfileIconView(profile: profile, size: 38, cornerRadius: 9)
-                    Text(profile.name).font(.system(size: 15, weight: .semibold)).lineLimit(1)
-                    Spacer(minLength: 0)
-                }
+        let shape = RoundedRectangle(cornerRadius: 10, style: .continuous)
+        HStack(spacing: 12) {
+            ProfileIconView(profile: profile, size: 34, cornerRadius: 8)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(profile.name).font(.system(size: 13, weight: .semibold)).lineLimit(1)
                 Text(profile.connectionLabel)
-                    .font(.system(size: 12, design: .monospaced))
+                    .font(.system(size: 11, design: .monospaced))
                     .foregroundStyle(SnakeStyle.muted).lineLimit(1).truncationMode(.middle)
                 if let folderName {
                     Label(folderName, systemImage: "folder")
                         .font(.system(size: 11)).foregroundStyle(SnakeStyle.muted).lineLimit(1)
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(Rectangle())
-            // Selection must not wait for the system double-click timeout.
-            // Keep the independent double tap for opening a terminal, just as
-            // SFTP rows select immediately while also supporting double-open.
-            .onTapGesture(count: 2) {
-                onSelect()
-                onConnect(false)
-            }
-            .simultaneousGesture(TapGesture().onEnded {
-                onSelect()
-            })
-            HStack(spacing: 8) {
-                Button("新建终端", systemImage: "terminal") { onConnect(false) }
-                    .buttonStyle(SnakeOutlineButtonStyle(emphasized: true))
-                Button("SFTP", systemImage: "folder") { onConnect(true) }
-                    .buttonStyle(SnakeOutlineButtonStyle())
-                Spacer(minLength: 0)
-            }
+            Spacer(minLength: 0)
         }
-        .padding(16)
-        .background(SnakeStyle.raisedSurface, in: RoundedRectangle(cornerRadius: 10))
-        .overlay { RoundedRectangle(cornerRadius: 10).stroke(selected ? SnakeStyle.action : SnakeStyle.hairline, lineWidth: selected ? 1.5 : 1) }
-        .contextMenu {
-            Button("新建终端", systemImage: "terminal") { onConnect(false) }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .frame(minHeight: SessionCatalogMetrics.cardHeight)
+        .background(selected ? SnakeStyle.selectedRow.opacity(0.55) : SnakeStyle.raisedSurface, in: shape)
+        .overlay {
+            shape.stroke(selected ? SnakeStyle.action : (hovering ? SnakeStyle.action.opacity(0.45) : SnakeStyle.hairline),
+                         lineWidth: selected ? 1.5 : 1)
+        }
+        .contentShape(shape)
+        .onHover { hovering = $0 }
+        // Double-click opens a terminal; SFTP lives in the context menu. Selection must
+        // not wait for the system double-click timeout, so a single tap selects at once.
+        .onTapGesture(count: 2) {
+            onSelect()
+            onConnect(false)
+        }
+        .simultaneousGesture(TapGesture().onEnded {
+            onSelect()
+        })
+        .snakeContextMenu {
+            Button("打开终端", systemImage: "terminal") { onConnect(false) }
             Button("打开 SFTP", systemImage: "folder") { onConnect(true) }
-            Divider()
-            Menu("移到文件夹") {
-                folderChoice(L10n.text("不放入文件夹"), folderID: nil)
-                if !store.groups.isEmpty { Divider() }
-                ForEach(store.folderPaths, id: \.folder.id) { target in
-                    folderChoice(target.path, folderID: target.folder.id)
+            Section("管理") {
+                Button("编辑会话", systemImage: "pencil", action: onEdit)
+                Button("复制 SSH 命令", systemImage: "doc.on.doc") {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(TerminalContextMenu.sshCommand(for: profile), forType: .string)
+                }
+                Menu {
+                    folderChoice(L10n.text("不放入文件夹"), folderID: nil)
+                    if !store.groups.isEmpty { Divider() }
+                    ForEach(store.folderPaths, id: \.folder.id) { target in
+                        folderChoice(target.path, folderID: target.folder.id)
+                    }
+                } label: {
+                    Label("移到文件夹", systemImage: "arrowshape.turn.up.right")
                 }
             }
-            Button("修改", systemImage: "pencil", action: onEdit)
-            Button("删除", systemImage: "trash", role: .destructive) { confirmsDeletion = true }
+            Divider()
+            Button("删除会话", systemImage: "trash", role: .destructive) { confirmsDeletion = true }
         }
         .alert("删除 SSH 会话？", isPresented: $confirmsDeletion) {
             Button("取消", role: .cancel) {}
             Button("删除", role: .destructive) { store.delete(profile: profile) }
         } message: {
-            Text("将关闭相关终端和 SFTP 连接、禁用关联映射，并删除该会话保存的凭据。传输历史会保留会话快照。同时清理该会话已下载的远程文件副本，仅限 Snake 自己缓存的副本，不会改动目录中的其他内容。")
+            Text("将关闭相关终端和 SFTP 连接、禁用关联映射，并删除该会话保存的凭据。同时清理该会话已下载的远程文件副本，仅限 Snake 自己缓存的副本，不会改动目录中的其他内容。")
         }
     }
 }
@@ -1152,6 +1217,9 @@ private struct WorkspaceTabContent: View {
                 McpSettingsPane(mcp: store.mcp)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(SnakeStyle.canvas)
+            case .passwords:
+                PasswordManagerPane()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             case .terminal, .sftp:
                 FinderUploadSurface(
                     content: connectionContent
@@ -1348,6 +1416,16 @@ private struct TerminalTabView: View {
     @EnvironmentObject private var store: ApplicationStore
     @Environment(\.colorScheme) private var colorScheme
 
+    /// The card stays after a failed attempt (unless a host key prompt is up).
+    private var showsConnectionCard: Bool {
+        switch runtime.state {
+        case .connecting: true
+        case .connected: runtime.awaitingFirstOutput
+        case .failed: runtime.pendingHostKey == nil && runtime.errorMessage != nil
+        default: false
+        }
+    }
+
 
     var body: some View {
         VStack(spacing: 0) {
@@ -1368,18 +1446,7 @@ private struct TerminalTabView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             if runtime.launchRequested {
-                if runtime.state == .connecting {
-                    HStack(spacing: 8) {
-                        ProgressView().controlSize(.small)
-                        Text(runtime.connectionStatusText)
-                        Spacer()
-                    }
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(terminalForeground.opacity(0.82))
-                    .padding(.horizontal, 14)
-                    .frame(height: 34)
-                    .background(SnakeStyle.action.opacity(0.16))
-                } else if let error = runtime.errorMessage {
+                if runtime.state == .disconnected, let error = runtime.errorMessage {
                     HStack(spacing: 8) {
                         Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
                         Text(error).lineLimit(2)
@@ -1398,7 +1465,8 @@ private struct TerminalTabView: View {
                     theme: terminalTheme,
                     fontName: store.terminalFontName,
                     fontSize: store.terminalFontSize,
-                    usesMetal: store.terminalMetalRenderingEnabled
+                    usesMetal: store.terminalMetalRenderingEnabled,
+                    store: store
                 )
                     // Keep text off the window edges; the inset uses the theme background.
                     .padding(.leading, 12)
@@ -1406,6 +1474,27 @@ private struct TerminalTabView: View {
                     .padding(.vertical, 8)
                     .background(terminalBackground)
                     .background(FinderUploadArea())
+                    .overlay {
+                        if showsConnectionCard {
+                            ConnectingAnimation(
+                                title: runtime.profile.name,
+                                detail: runtime.profile.connectionLabel,
+                                status: runtime.connectionStatusText,
+                                foreground: terminalForeground,
+                                surface: terminalForeground.opacity(0.07),
+                                backdrop: terminalBackground,
+                                failure: runtime.state == .failed ? runtime.errorMessage : nil,
+                                onCancel: runtime.state == .connecting ? { runtime.cancelConnecting() } : nil,
+                                onRetry: { runtime.retryConnection() },
+                                onShowLog: { runtime.showsLog = true }
+                            )
+                            .transition(.opacity)
+                        }
+                    }
+                    .animation(.easeOut(duration: 0.2), value: showsConnectionCard)
+                    .sheet(isPresented: $runtime.showsLog) {
+                        ConnectionLogSheet(log: runtime.log, title: runtime.profile.name, onClose: { runtime.showsLog = false })
+                    }
             } else {
                 TerminalPreview(runtime: runtime, theme: terminalTheme)
             }
@@ -1475,6 +1564,15 @@ private struct SFTPBrowserView: View {
     /// Whether this tab is the one on screen in its pane; Finder drops are refused
     /// otherwise, because every tab's content stays alive in the hierarchy.
     var isOnScreen: () -> Bool = { true }
+
+    /// The card stays after a failed connection (unless a host key prompt is up).
+    private var showsConnectionCard: Bool {
+        switch runtime.connectionState {
+        case .connecting: true
+        case .failed: runtime.pendingHostKey == nil && runtime.errorMessage != nil
+        default: false
+        }
+    }
     @State private var creationKind: RemoteItemCreationKind?
     @State private var creationDestination: SFTPDirectoryDestination?
     @State private var newItemName = ""
@@ -1483,6 +1581,7 @@ private struct SFTPBrowserView: View {
     @State private var isSearchPresented = false
     @State private var navigationNotice: String?
     @State private var navigationNoticeID = UUID()
+    @State private var showsLog = false
     @FocusState private var isEditingPath: Bool
     @FocusState private var isEditingSearch: Bool
 
@@ -1492,17 +1591,7 @@ private struct SFTPBrowserView: View {
 
             if isSearchPresented { searchBar }
 
-            if runtime.connectionState == .connecting {
-                HStack(spacing: 8) {
-                    ProgressView().controlSize(.small)
-                    Text("正在建立安全 SFTP 连接…")
-                    Spacer()
-                }
-                .font(.system(size: 12, weight: .medium))
-                .padding(.horizontal, 14)
-                .frame(height: 34)
-                .background(SnakeStyle.action.opacity(0.07))
-            } else if let loadingPath = runtime.loadingPath {
+            if runtime.connectionState != .connecting, let loadingPath = runtime.loadingPath {
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
                     Text(L10n.format("正在打开 %@", loadingPath))
@@ -1535,7 +1624,9 @@ private struct SFTPBrowserView: View {
                 .padding(.horizontal, 14)
                 .frame(height: 34)
                 .background(SnakeStyle.action.opacity(0.07))
-            } else if let error = runtime.deletionError ?? runtime.errorMessage ?? runtime.uploader.errorMessage {
+            } else if let error = runtime.deletionError
+                        ?? (runtime.connectionState == .failed ? nil : runtime.errorMessage)
+                        ?? runtime.uploader.errorMessage {
                 HStack(spacing: 8) {
                     Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
                     Text(error).lineLimit(2).help(error)
@@ -1566,6 +1657,26 @@ private struct SFTPBrowserView: View {
                 onUploadFiles: { chooseFiles(allowsDirectories: false) },
                 onUploadDirectory: { chooseFiles(allowsDirectories: true) }
             )
+            .overlay {
+                if showsConnectionCard {
+                    ConnectingAnimation(
+                        title: runtime.profile.name,
+                        detail: runtime.profile.connectionLabel,
+                        status: L10n.text("正在建立安全 SFTP 连接…"),
+                        failure: runtime.connectionState == .failed ? runtime.errorMessage : nil,
+                        onCancel: { runtime.cancelConnecting() },
+                        onRetry: { runtime.retryLastOperation() },
+                        onShowLog: { showsLog = true }
+                    )
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(SnakeStyle.canvas.opacity(0.85))
+                    .transition(.opacity)
+                }
+            }
+            .animation(.easeOut(duration: 0.2), value: showsConnectionCard)
+            .sheet(isPresented: $showsLog) {
+                ConnectionLogSheet(log: runtime.log, title: runtime.profile.name, onClose: { showsLog = false })
+            }
         }
         .background(uploadConflictAlert)
         .sheet(item: Binding(get: { runtime.uploader.pendingDownloadConflict }, set: { if $0 == nil { runtime.uploader.resolveDownloadConflict(.cancel) } })) { conflict in
@@ -1900,29 +2011,33 @@ private struct SFTPFileTable: View {
                                     runtime.fileSelection.click(file.id, order: visibleEntryIDs, command: flags.contains(.command), shift: flags.contains(.shift))
                             })
                             .onDrag { remoteFileProvider(for: file) }
-                            .contextMenu {
+                            .snakeContextMenu {
                                 Button(file.isDirectory ? L10n.text("打开文件夹") : L10n.text("打开"), systemImage: file.isDirectory ? "folder" : "arrow.up.forward.app") {
                                     onOpen(file)
                                 }
-                                Button("下载…", systemImage: "square.and.arrow.down") {
+                                Button("下载", systemImage: "square.and.arrow.down") {
                                     runtime.fileSelection.contextClick(file.id, order: visibleEntryIDs)
                                     chooseDownloadDirectory()
                                 }
                                 .disabled(runtime.directoryActionDestination == nil)
-                                Divider()
                                 if file.isDirectory {
-                                    creationAndUploadMenu
-                                    Divider()
+                                    Section("新建与上传") { creationAndUploadMenu }
                                 }
-                                Button("重命名…", systemImage: "pencil") {
-                                    renamingFile = file
-                                    renameText = file.name
-                                }
-                                Button("修改权限…", systemImage: "lock.shield") {
-                                    permissionsFile = file
+                                Section("管理") {
+                                    Button("重命名", systemImage: "pencil") {
+                                        renamingFile = file
+                                        renameText = file.name
+                                    }
+                                    Button("修改权限", systemImage: "lock.shield") {
+                                        permissionsFile = file
+                                    }
+                                    Button("复制路径", systemImage: "doc.on.doc") {
+                                        NSPasteboard.general.clearContents()
+                                        NSPasteboard.general.setString(file.path, forType: .string)
+                                    }
                                 }
                                 Divider()
-                                Button("删除…", systemImage: "trash", role: .destructive) {
+                                Button("删除", systemImage: "trash", role: .destructive) {
                                     focusFileList()
                                     runtime.fileSelection.contextClick(file.id, order: visibleEntryIDs)
                                     requestDeletion()
@@ -1939,7 +2054,7 @@ private struct SFTPFileTable: View {
                                 focusFileList()
                                 runtime.fileSelection = SFTPSelection()
                             }
-                            .contextMenu { emptyAreaContextMenu }
+                            .snakeContextMenu { emptyAreaContextMenu }
                     }
                 }
                 if isFiltering && visibleEntries.isEmpty && runtime.loadingPath == nil {
@@ -2105,21 +2220,25 @@ private struct SFTPFileTable: View {
     @ViewBuilder
     private var emptyAreaContextMenu: some View {
         creationAndUploadMenu
-        Divider()
-        Button("刷新", systemImage: "arrow.clockwise") { runtime.refresh() }
-            .disabled(runtime.connectionState == .connecting)
+        Section("当前目录") {
+            Button("刷新", systemImage: "arrow.clockwise") { runtime.refresh() }
+                .disabled(runtime.connectionState == .connecting)
+            Button("复制路径", systemImage: "doc.on.doc") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(runtime.currentPath, forType: .string)
+            }
+        }
     }
 
     @ViewBuilder
     private var creationAndUploadMenu: some View {
-        Button("新建文件…", systemImage: "doc.badge.plus") { onCreateFile() }
+        Button("新建文件", systemImage: "doc.badge.plus") { onCreateFile() }
             .disabled(runtime.directoryActionDestination == nil)
-        Button("新建文件夹…", systemImage: "folder.badge.plus") { onCreateDirectory() }
+        Button("新建文件夹", systemImage: "folder.badge.plus") { onCreateDirectory() }
             .disabled(runtime.directoryActionDestination == nil)
-        Divider()
-        Button("上传文件…", systemImage: "square.and.arrow.up") { onUploadFiles() }
+        Button("上传文件", systemImage: "square.and.arrow.up") { onUploadFiles() }
             .disabled(runtime.directoryActionDestination == nil)
-        Button("上传文件夹…", systemImage: "folder.badge.plus") { onUploadDirectory() }
+        Button("上传文件夹", systemImage: "square.and.arrow.up.on.square") { onUploadDirectory() }
             .disabled(runtime.directoryActionDestination == nil)
     }
 
@@ -2437,7 +2556,7 @@ private struct UploadHistoryRow: View {
                     Text("\(record.isDownload ? "↓" : "↑") \(record.fileName)")
                         .font(.system(size: 12, weight: .semibold))
                         .lineLimit(1)
-                    Text(record.remotePath)
+                    Text(record.relaySource.map { "\($0) · \(record.remotePath)" } ?? record.remotePath)
                         .font(.system(size: 9, design: .monospaced))
                         .foregroundStyle(SnakeStyle.muted)
                         .lineLimit(1)
@@ -2484,7 +2603,10 @@ private struct UploadHistoryRow: View {
             case .queued, .scanning:
                 controlButton("xmark", L10n.text("取消")) { uploader.cancel(jobID: record.jobID, store: store) }
             case .failed, .interrupted, .cancelled:
-                controlButton("arrow.clockwise", L10n.text("重试")) { uploader.retry(jobID: record.jobID, store: store) }
+                // Relay files are deleted when the copy ends; drag again instead.
+                if !record.isRelay {
+                    controlButton("arrow.clockwise", L10n.text("重试")) { uploader.retry(jobID: record.jobID, store: store) }
+                }
             case .succeeded:
                 EmptyView()
             }
@@ -2709,6 +2831,7 @@ private struct MountWorkspaceView: View {
     let onNewMapping: () -> Void
     let onEditMapping: (MountMapping) -> Void
     @State private var dependencyStatus = MountDependencyStatus.detect()
+    @State private var tunnelEditor: TunnelEditorDraft?
 
     private var selectedMapping: MountMapping? {
         store.mountMappings.first { $0.id == runtime.selectedMappingID } ?? store.mountMappings.first
@@ -2725,12 +2848,25 @@ private struct MountWorkspaceView: View {
             Divider()
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
-                    dependencyBanner
-                    VStack(alignment: .leading, spacing: 12) {
-                        mappingTable
-                        if let mapping = selectedMapping {
-                            MappingDetailCard(mapping: mapping, onEdit: { onEditMapping(mapping) })
+                    switch runtime.mountSection {
+                    case .mappings:
+                        dependencyBanner
+                        VStack(alignment: .leading, spacing: 12) {
+                            mappingTable
+                            if let mapping = selectedMapping {
+                                MappingDetailCard(mapping: mapping, onEdit: { onEditMapping(mapping) })
+                            }
                         }
+                    case .tunnels:
+                        TunnelTable(
+                            tunnels: store.tunnels,
+                            runtime: runtime,
+                            onNew: { tunnelEditor = TunnelEditorDraft() },
+                            onEdit: { tunnelEditor = TunnelEditorDraft(tunnel: $0) }
+                        )
+                        Text("本地端口只监听 127.0.0.1，只有这台 Mac 能访问。SSH 断开后隧道停在「已断开」，需要手动重连。")
+                            .font(.system(size: 11))
+                            .foregroundStyle(SnakeStyle.muted)
                     }
                 }
                 .padding(24)
@@ -2738,7 +2874,12 @@ private struct MountWorkspaceView: View {
             }
         }
         .background(SnakeStyle.canvas)
-        .alert("磁盘映射操作未完成", isPresented: Binding(
+        .sheet(item: $tunnelEditor) { draft in
+            TunnelEditorSheet(tunnels: store.tunnels, tunnel: draft.tunnel, onClose: { tunnelEditor = nil })
+                .environmentObject(store)
+                .environment(\.locale, store.appLanguage.locale)
+        }
+        .alert(runtime.mountSection == .mappings ? L10n.text("磁盘映射操作未完成") : L10n.text("隧道操作未完成"), isPresented: Binding(
             get: { store.mountActionError != nil },
             set: { if !$0 { store.mountActionError = nil } }
         )) {
@@ -2804,22 +2945,42 @@ private struct MountWorkspaceView: View {
     }
 
     private var heading: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text("磁盘映射").font(.system(size: 22, weight: .bold))
-            Text("让远程目录像本地磁盘一样出现在 Finder 中。")
-                .font(.system(size: 13)).foregroundStyle(SnakeStyle.muted)
+        HStack(alignment: .center, spacing: 18) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(runtime.mountSection == .mappings ? L10n.text("磁盘映射") : L10n.text("SSH 隧道"))
+                    .font(.system(size: 22, weight: .bold))
+                Text(runtime.mountSection == .mappings
+                     ? L10n.text("让远程目录像本地磁盘一样出现在 Finder 中。")
+                     : L10n.text("把服务器那边的端口映射到本机端口（ssh -L）。"))
+                    .font(.system(size: 13)).foregroundStyle(SnakeStyle.muted)
+            }
+            Picker("", selection: $runtime.mountSection) {
+                Text("磁盘映射").tag(MountWorkspaceSection.mappings)
+                Text("SSH 隧道").tag(MountWorkspaceSection.tunnels)
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .fixedSize()
         }
     }
+    @ViewBuilder
     private var actions: some View {
-        HStack {
-            Button("刷新状态", systemImage: "arrow.clockwise") {
-                dependencyStatus = .detect()
-                store.refreshMountStates()
-            }.buttonStyle(SnakeOutlineButtonStyle())
-            Button("新增映射", systemImage: "plus", action: onNewMapping)
+        switch runtime.mountSection {
+        case .mappings:
+            HStack {
+                Button("刷新状态", systemImage: "arrow.clockwise") {
+                    dependencyStatus = .detect()
+                    store.refreshMountStates()
+                }.buttonStyle(SnakeOutlineButtonStyle())
+                Button("新增映射", systemImage: "plus", action: onNewMapping)
+                    .buttonStyle(SnakeOutlineButtonStyle(emphasized: true))
+            }
+            .fixedSize(horizontal: true, vertical: false)
+        case .tunnels:
+            Button("新增隧道", systemImage: "plus") { tunnelEditor = TunnelEditorDraft() }
                 .buttonStyle(SnakeOutlineButtonStyle(emphasized: true))
+                .fixedSize()
         }
-        .fixedSize(horizontal: true, vertical: false)
     }
 }
 
@@ -2896,10 +3057,11 @@ private struct MappingTableRow: View {
         .background(isSelected ? SnakeStyle.selectedRow.opacity(0.75) : .clear)
         .contentShape(Rectangle())
         .onTapGesture(perform: action)
-        .contextMenu {
-            Button("编辑映射…", action: onEdit)
+        .snakeContextMenu {
+            Button("编辑映射", systemImage: "pencil", action: onEdit)
                 .disabled(mapping.state == .mounting)
-            Button("删除映射…", role: .destructive) { requestDeletion() }
+            Divider()
+            Button("删除映射", systemImage: "trash", role: .destructive) { requestDeletion() }
                 .disabled(checkingDeletion)
         }
         .alert(deletionRequiresUnmount
@@ -3033,7 +3195,7 @@ private struct SessionEditorView: View {
     @State private var port: String
     @State private var username: String
     @State private var authMethod: AuthMethod
-    @StateObject private var credential = CredentialRevealController()
+    @StateObject private var credential = CredentialRevealController.sharingGrace()
     @State private var folderID: UUID?
     @State private var symbolName: String
     @State private var customIconData: Data?
@@ -3043,7 +3205,10 @@ private struct SessionEditorView: View {
     @State private var privateKeyUnavailable = false
     @State private var selectedSavedPasswordID: UUID?
     @State private var selectedFromLibraryThisEdit = false
+    /// A key picked from 密钥管理 in this edit; its passphrase is copied on save.
+    @State private var pickedKeyID: UUID?
     @State private var errorMessage: String?
+    @State private var showsIconPicker = false
     @StateObject private var connectionTest = SessionConnectionTestController()
 
     init(profile: SSHProfile?, defaultFolderID: UUID? = nil) {
@@ -3061,40 +3226,53 @@ private struct SessionEditorView: View {
         _selectedSavedPasswordID = State(initialValue: profile?.savedPasswordID)
     }
 
+    /// Numeric dates read the same in every interface language.
+    private static let timestampFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        return formatter
+    }()
+
     var body: some View {
+        // Sized to its content rather than a fixed frame, so short forms leave no empty band.
         VStack(spacing: 0) {
-            HStack {
-                Text(originalProfile == nil ? L10n.text("新增会话") : L10n.text("编辑会话"))
-                    .font(.system(size: 20, weight: .bold))
+            HStack(alignment: .center, spacing: 12) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("SSH 会话").font(.system(size: 11, weight: .semibold)).foregroundStyle(SnakeStyle.muted)
+                    Text(originalProfile == nil ? L10n.text("新增会话") : L10n.text("编辑会话"))
+                        .font(.system(size: 18, weight: .bold))
+                }
                 Spacer()
                 Button { dismiss() } label: { Image(systemName: "xmark") }
                     .buttonStyle(SnakeIconButtonStyle())
                     .keyboardShortcut(.cancelAction)
+                    .help("关闭").accessibilityLabel("关闭")
             }
             .padding(.horizontal, 20)
-            .frame(height: 60)
-            .background(SnakeStyle.canvas)
+            .frame(height: 58)
             Divider()
 
-            HStack(alignment: .top, spacing: 16) {
-                ScrollView {
-                    iconColumn
-                        .padding(.vertical, 16)
-                }
-                .scrollBounceBehavior(.basedOnSize)
-                .frame(width: 188)
-
-                Divider()
-
-                ScrollView {
-                    editorFields
-                        .padding(.vertical, 16)
-                        .padding(.trailing, 2)
-                }
-                .scrollBounceBehavior(.basedOnSize)
+            VStack(alignment: .leading, spacing: 12) {
+                editorFields
+                SessionConnectionTestFeedback(state: connectionTest.state)
             }
-            .padding(.horizontal, 20)
-            .frame(maxHeight: .infinity)
+            .padding(20)
+
+            if let timestamps = store.profileTimestamps[profileID] {
+                Divider()
+                HStack(spacing: 20) {
+                    Label(L10n.format("创建 %@", Self.timestampFormatter.string(from: timestamps.createdAt)), systemImage: "calendar.badge.plus")
+                    Label(L10n.format("最近更新 %@", Self.timestampFormatter.string(from: timestamps.updatedAt)), systemImage: "clock.arrow.circlepath")
+                    Spacer(minLength: 0)
+                }
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundStyle(SnakeStyle.muted)
+                .textSelection(.enabled)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 10)
+                .help("只有修改会话内容或密码才更新；调整顺序不算修改")
+            }
 
             Divider()
             HStack {
@@ -3109,10 +3287,11 @@ private struct SessionEditorView: View {
                 Button("保存会话") { save() }.buttonStyle(SnakeOutlineButtonStyle(emphasized: true))
             }
             .padding(.horizontal, 20)
-            .frame(height: 56)
-            .background(SnakeStyle.canvas)
+            .frame(height: 54)
         }
-        .frame(width: 840, height: 600)
+        .frame(width: 600)
+        .fixedSize(horizontal: false, vertical: true)
+        .background(SnakeStyle.canvas)
         .onChange(of: authMethod) { _, _ in
             credential.reset()
             selectedSavedPasswordID = nil
@@ -3145,123 +3324,214 @@ private struct SessionEditorView: View {
         }
     }
 
-    private var iconColumn: some View {
-        VStack(spacing: 12) {
+    /// The avatar doubles as the icon chooser, so the form needs no icon column.
+    private var iconButton: some View {
+        Button { showsIconPicker = true } label: {
             editorIconPreview
-            Text("会话图标").font(.system(size: 12, weight: .semibold))
-            HStack(spacing: 8) {
-                ForEach(["server.rack", "terminal", "cylinder", "cloud"], id: \.self) { symbol in
-                    Button {
-                        symbolName = symbol
-                        customIconData = nil
-                    } label: {
-                        Image(systemName: symbol)
-                            .font(.system(size: 15, weight: .medium))
-                            .foregroundStyle(symbolName == symbol ? SnakeStyle.action : SnakeStyle.muted)
-                            .frame(width: 36, height: 32)
-                            .background(symbolName == symbol ? SnakeStyle.selectedRow : Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 7))
-                            .overlay { RoundedRectangle(cornerRadius: 7).stroke(SnakeStyle.hairline, lineWidth: 1) }
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("会话图标 " + symbol)
+                .overlay(alignment: .bottomTrailing) {
+                    Image(systemName: "pencil.circle.fill")
+                        .font(.system(size: 15))
+                        .symbolRenderingMode(.palette)
+                        .foregroundStyle(.white, SnakeStyle.ink.opacity(0.7))
+                        .offset(x: 4, y: 4)
                 }
-            }
-            Button { selectProfileImage() } label: {
-                Label(customIconData == nil ? L10n.text("选择照片…") : L10n.text("重新选择照片…"), systemImage: "photo.badge.plus")
-                    .lineLimit(1)
-                    .fixedSize(horizontal: true, vertical: false)
-            }
-            .buttonStyle(SnakeOutlineButtonStyle(emphasized: symbolName == SSHProfile.customIconSymbolName))
-            .frame(maxWidth: .infinity)
-            Text("选择后可裁剪为会话头像")
-                .font(.system(size: 11)).foregroundStyle(SnakeStyle.muted)
-            SessionConnectionTestFeedback(state: connectionTest.state)
-                .padding(.top, 4)
         }
-        .frame(maxWidth: .infinity)
+        .buttonStyle(.plain)
+        .help("更换会话图标")
+        .accessibilityLabel("会话图标")
+        .popover(isPresented: $showsIconPicker, arrowEdge: .bottom) {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("会话图标").font(.system(size: 12, weight: .semibold))
+                HStack(spacing: 8) {
+                    ForEach(["server.rack", "terminal", "cylinder", "cloud"], id: \.self) { symbol in
+                        Button {
+                            symbolName = symbol
+                            customIconData = nil
+                            showsIconPicker = false
+                        } label: {
+                            Image(systemName: symbol)
+                                .font(.system(size: 15, weight: .medium))
+                                .foregroundStyle(symbolName == symbol ? SnakeStyle.action : SnakeStyle.muted)
+                                .frame(width: 36, height: 32)
+                                .background(symbolName == symbol ? SnakeStyle.selectedRow : Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 7))
+                                .overlay { RoundedRectangle(cornerRadius: 7).stroke(SnakeStyle.hairline, lineWidth: 1) }
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("会话图标 " + symbol)
+                    }
+                }
+                Button {
+                    showsIconPicker = false
+                    selectProfileImage()
+                } label: {
+                    Label(customIconData == nil ? L10n.text("选择照片…") : L10n.text("重新选择照片…"), systemImage: "photo.badge.plus")
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
+                }
+                .buttonStyle(SnakeOutlineButtonStyle(emphasized: symbolName == SSHProfile.customIconSymbolName))
+                Text("选择后可裁剪为会话头像")
+                    .font(.system(size: 11)).foregroundStyle(SnakeStyle.muted)
+            }
+            .padding(14)
+        }
     }
 
     private var editorFields: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .top, spacing: 12) {
+            HStack(alignment: .bottom, spacing: 12) {
+                iconButton
                 compactField(label: L10n.text("会话名称"), text: $name)
                 folderPicker
             }
             HStack(alignment: .top, spacing: 12) {
                 compactField(label: L10n.text("IP 或主机名"), text: $host, monospaced: true)
                 compactField(label: L10n.text("端口"), text: $port, monospaced: true)
-                    .frame(width: 100)
+                    .frame(width: 96)
             }
             HStack(alignment: .top, spacing: 12) {
                 compactField(label: L10n.text("用户名"), text: $username, monospaced: true)
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("认证方式").font(.system(size: 11, weight: .medium)).foregroundStyle(SnakeStyle.muted)
-                    Picker("认证方式", selection: $authMethod) {
+                    Text("密码类型").font(.system(size: 11, weight: .medium)).foregroundStyle(SnakeStyle.muted)
+                    Picker("密码类型", selection: $authMethod) {
                         ForEach(AuthMethod.allCases) { method in Text(method.label).tag(method) }
                     }
                     .labelsHidden()
-                    .pickerStyle(.segmented)
+                    .pickerStyle(.menu)
                     .frame(height: 32)
                 }
                 .frame(maxWidth: .infinity)
             }
-            if authMethod == .privateKey {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("私钥文件").font(.system(size: 11, weight: .medium)).foregroundStyle(SnakeStyle.muted)
-                    HStack(spacing: 8) {
-                        ScrollView(.horizontal) {
-                            Text(privateKeyPath ?? L10n.text("选择本机私钥文件"))
-                                .font(.system(size: 12, design: .monospaced))
-                                .textSelection(.enabled)
-                                .lineLimit(1)
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        Button("选择…") { selectPrivateKey() }.buttonStyle(SnakeOutlineButtonStyle())
-                    }
-                    .padding(.leading, 10)
-                    .frame(height: 32)
-                    .overlay { RoundedRectangle(cornerRadius: 6).stroke(SnakeStyle.hairline) }
-                    if privateKeyUnavailable {
-                        Text("私钥文件不可用，请重新选择。")
-                            .font(.system(size: 11)).foregroundStyle(.orange)
-                    }
+            // Same rows for both types so switching never changes the sheet's height:
+            // where the secret comes from on the left, the secret itself on the right.
+            HStack(alignment: .top, spacing: 12) {
+                Group {
+                    if authMethod == .privateKey { keyPicker } else { savedPasswordPicker }
                 }
-            } else {
-                HStack(spacing: 8) {
-                    Menu {
-                        ForEach(store.savedPasswords) { item in
-                            Button("\(item.name) · \(item.username)") {
-                                credential.reset()
-                                username = item.username
-                                selectedSavedPasswordID = item.id
-                                selectedFromLibraryThisEdit = true
-                            }
-                        }
-                    } label: {
-                        Label("从密码管理填入", systemImage: "key.horizontal")
-                    }
-                    .disabled(store.savedPasswords.isEmpty)
-                    if let id = selectedSavedPasswordID,
-                       let item = store.savedPasswords.first(where: { $0.id == id }) {
-                        Text(L10n.format("已关联：%@", item.name))
-                            .font(.system(size: 11)).foregroundStyle(SnakeStyle.muted)
-                    }
+                .frame(maxWidth: .infinity)
+                CredentialInputView(account: savedCredentialAccount, isPassphrase: authMethod == .privateKey, reveal: credential)
+                    .frame(maxWidth: .infinity)
+            }
+            VStack(alignment: .leading, spacing: 5) {
+                credentialDetail
+                    .frame(height: 16, alignment: .leading)
+                HStack(spacing: 6) {
+                    Image(systemName: "lock.shield").foregroundStyle(SnakeStyle.secure)
+                    Text(authMethod == .password
+                         ? L10n.text("加密保存 · 查看需身份验证；隐藏后保留编辑草稿。")
+                         : L10n.text("私钥仅保存访问书签；口令加密保存，查看需身份验证。"))
                 }
+                .frame(height: 16, alignment: .leading)
+                .foregroundStyle(SnakeStyle.muted)
             }
-            CredentialInputView(account: savedCredentialAccount, isPassphrase: authMethod == .privateKey, reveal: credential)
-            HStack(alignment: .top, spacing: 6) {
-                Image(systemName: "lock.shield").foregroundStyle(SnakeStyle.secure)
-                Text(authMethod == .password
-                     ? L10n.text("加密保存 · 查看需身份验证；隐藏后保留编辑草稿。")
-                     : L10n.text("私钥仅保存访问书签；口令加密保存，查看需身份验证。"))
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .font(.system(size: 11)).foregroundStyle(SnakeStyle.muted)
+            .font(.system(size: 11))
+            .lineLimit(1)
+            .truncationMode(.middle)
             if let errorMessage {
                 Text(errorMessage)
                     .font(.system(size: 12)).foregroundStyle(.red)
                     .fixedSize(horizontal: false, vertical: true)
             }
+        }
+    }
+
+    /// Library keys first; a file picked from disk shows by name.
+    private var keyPicker: some View {
+        let libraryKey = store.sshKey(forBookmark: privateKeyBookmark)
+        return VStack(alignment: .leading, spacing: 6) {
+            Text("密钥").font(.system(size: 11, weight: .medium)).foregroundStyle(SnakeStyle.muted)
+            HStack(spacing: 8) {
+                Picker("密钥", selection: Binding<String>(
+                    get: {
+                        if let libraryKey { return libraryKey.id.uuidString }
+                        return privateKeyBookmark == nil ? "" : "file"
+                    },
+                    set: { value in
+                        if value == "choose" {
+                            selectPrivateKey()
+                        } else if let id = UUID(uuidString: value), let key = store.sshKeys.first(where: { $0.id == id }) {
+                            pickLibraryKey(key)
+                        }
+                    }
+                )) {
+                    if privateKeyBookmark == nil {
+                        Text("请选择密钥").tag("")
+                    }
+                    ForEach(store.sshKeys) { key in
+                        Text("\(key.name) · \(key.algorithmLabel)").tag(key.id.uuidString)
+                    }
+                    if privateKeyBookmark != nil, libraryKey == nil {
+                        Text(privateKeyPath.map { ($0 as NSString).lastPathComponent } ?? L10n.text("本机私钥文件")).tag("file")
+                    }
+                    Divider()
+                    Text("选择本机文件…").tag("choose")
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .frame(maxWidth: .infinity)
+                Button { selectPrivateKey() } label: { Image(systemName: "folder") }
+                    .buttonStyle(SnakeIconButtonStyle(minSize: CGSize(width: 32, height: 30)))
+                    .help("选择本机私钥文件…")
+                    .accessibilityLabel("选择本机私钥文件…")
+            }
+            .frame(height: 32)
+        }
+    }
+
+    /// Fills the username and a copy of the password from 密码管理; 手动输入 unlinks.
+    private var savedPasswordPicker: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("常用账号").font(.system(size: 11, weight: .medium)).foregroundStyle(SnakeStyle.muted)
+            Picker("常用账号", selection: Binding<UUID?>(
+                get: { selectedSavedPasswordID.flatMap { id in store.savedPasswords.contains { $0.id == id } ? id : nil } },
+                set: { id in
+                    credential.reset()
+                    if let id, let item = store.savedPasswords.first(where: { $0.id == id }) {
+                        username = item.username
+                        selectedSavedPasswordID = item.id
+                        selectedFromLibraryThisEdit = true
+                    } else {
+                        selectedSavedPasswordID = nil
+                        selectedFromLibraryThisEdit = false
+                    }
+                }
+            )) {
+                Text("手动输入").tag(UUID?.none)
+                if !store.savedPasswords.isEmpty { Divider() }
+                ForEach(store.savedPasswords) { item in
+                    Text("\(item.name) · \(item.username)").tag(Optional(item.id))
+                }
+            }
+            .labelsHidden()
+            .pickerStyle(.menu)
+            .frame(height: 32)
+        }
+    }
+
+    /// One line under the row in both modes, so the sheet keeps its height.
+    @ViewBuilder
+    private var credentialDetail: some View {
+        if authMethod == .privateKey {
+            if privateKeyUnavailable {
+                Label("私钥文件不可用，请重新选择。", systemImage: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+            } else if let key = store.sshKey(forBookmark: privateKeyBookmark) {
+                Label("\(key.algorithmLabel)  \(key.fingerprint)", systemImage: "key.viewfinder")
+                    .foregroundStyle(SnakeStyle.muted).textSelection(.enabled)
+            } else if let privateKeyPath {
+                Label(privateKeyPath, systemImage: "doc").foregroundStyle(SnakeStyle.muted).textSelection(.enabled)
+            } else {
+                Label(store.sshKeys.isEmpty
+                      ? L10n.text("密钥管理中还没有密钥，可在密码管理的「密钥」页导入或生成，或选择本机文件。")
+                      : L10n.text("从密钥管理选用，或选择本机私钥文件。"), systemImage: "info.circle")
+                    .foregroundStyle(SnakeStyle.muted)
+            }
+        } else if let id = selectedSavedPasswordID, let item = store.savedPasswords.first(where: { $0.id == id }) {
+            Label(L10n.format("已关联「%@」：单独改用户名或密码会解除关联。", item.name), systemImage: "link")
+                .foregroundStyle(SnakeStyle.muted)
+        } else {
+            Label(store.savedPasswords.isEmpty
+                  ? L10n.text("在密码管理里保存常用账号后，可在这里一键填入。")
+                  : L10n.text("选择常用账号会自动填入用户名和密码。"), systemImage: "info.circle")
+                .foregroundStyle(SnakeStyle.muted)
         }
     }
 
@@ -3298,19 +3568,23 @@ private struct SessionEditorView: View {
                 .resizable()
                 .interpolation(.high)
                 .scaledToFill()
-                .frame(width: 88, height: 88)
-                .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-                .overlay { RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(Color.white.opacity(0.24), lineWidth: 1) }
+                .frame(width: 51, height: 51)
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .overlay { RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Color.white.opacity(0.24), lineWidth: 1) }
         } else {
             Image(systemName: symbolName.isEmpty || symbolName == SSHProfile.customIconSymbolName ? "server.rack" : symbolName)
-                .font(.system(size: 33, weight: .medium))
+                .font(.system(size: 21, weight: .medium))
                 .foregroundStyle(.white)
-                .frame(width: 88, height: 88)
-                .background(SnakeStyle.action, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+                .frame(width: 51, height: 51)
+                .background(SnakeStyle.action, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         }
     }
 
     private var savedCredentialAccount: String? {
+        if authMethod == .privateKey, let pickedKeyID,
+           let key = store.sshKeys.first(where: { $0.id == pickedKeyID }) {
+            return key.hasPassphrase ? key.passphraseAccount : nil
+        }
         if selectedFromLibraryThisEdit,
            let id = selectedSavedPasswordID,
            let item = store.savedPasswords.first(where: { $0.id == id }) { return item.credentialAccount }
@@ -3362,11 +3636,34 @@ private struct SessionEditorView: View {
             guard response == .OK, let url = panel.url else { return }
             do {
                 let bookmark = try url.bookmarkData(options: [.withSecurityScope], includingResourceValuesForKeys: nil, relativeTo: nil)
-                Task { @MainActor in privateKeyBookmark = bookmark }
+                Task { @MainActor in
+                    privateKeyBookmark = bookmark
+                    pickedKeyID = nil
+                }
             } catch {
                 Task { @MainActor in errorMessage = L10n.text("无法保存私钥访问授权。") }
             }
         }
+    }
+
+    private func pickLibraryKey(_ key: SSHKeyRecord) {
+        do {
+            privateKeyBookmark = try store.sshKeyBookmark(for: key.id)
+            pickedKeyID = key.id
+            credential.reset()
+            errorMessage = nil
+        } catch {
+            errorMessage = L10n.text("无法保存私钥访问授权。")
+        }
+    }
+
+    /// The library key's passphrase becomes this session's own copy, as a saved
+    /// password does, unless the user typed a different one.
+    private func libraryPassphrase() throws -> String? {
+        guard authMethod == .privateKey, !credential.hasUserEdits, let pickedKeyID,
+              let key = store.sshKeys.first(where: { $0.id == pickedKeyID }), key.hasPassphrase,
+              let data = try CredentialStore.readData(account: key.passphraseAccount) else { return nil }
+        return String(data: data, encoding: .utf8)
     }
 
     private func save() {
@@ -3402,7 +3699,7 @@ private struct SessionEditorView: View {
                 }
                 try ProfileIconStore.save(customIconData, for: profile.id)
             }
-            try store.save(profile: profile, credential: credential.valueToSave,
+            try store.save(profile: profile, credential: credential.valueToSave ?? libraryPassphrase(),
                            fromSavedPassword: selectedFromLibraryThisEdit && !credential.hasUserEdits ? availableSavedPasswordID : nil)
             if !profile.usesCustomIcon, originalProfile?.usesCustomIcon == true {
                 ProfileIconStore.delete(for: profile.id)
@@ -3895,6 +4192,8 @@ struct SettingsPane<Content: View>: View {
                 content
             }
             .formStyle(.grouped)
+            // The window's canvas shows through, so the form has no shorter grey slab.
+            .scrollContentBackground(.hidden)
         }
     }
 }
@@ -3917,271 +4216,120 @@ struct SettingsFooter: View {
     }
 }
 
-private struct PendingPasswordSave: Identifiable {
-    let id = UUID()
-    let record: SavedPassword
-    let password: String?
-    let linkedProfiles: [SSHProfile]
-}
-
-private struct SavedPasswordSettingsPane: View {
-    @EnvironmentObject private var store: ApplicationStore
-    @StateObject private var credential = CredentialRevealController()
-    @State private var editingID: UUID?
-    @State private var name = ""
-    @State private var username = ""
-    @State private var pendingSave: PendingPasswordSave?
-    @State private var confirmsDelete = false
-    @State private var message: String?
-
-    private var editingRecord: SavedPassword? { store.savedPasswords.first { $0.id == editingID } }
-
-    var body: some View {
-        HStack(spacing: 0) {
-            sidebar
-            Divider()
-            editor
-        }
-        .background(SnakeStyle.canvas)
-        .sheet(item: $pendingSave) { pending in
-            PasswordSyncSelectionSheet(pending: pending) { selected in
-                commit(pending.record, password: pending.password, selected: selected)
-                pendingSave = nil
-            } onCancel: { pendingSave = nil }
-            .environmentObject(store)
-        }
-        .confirmationDialog("删除此密码条目？", isPresented: $confirmsDelete) {
-            Button("删除密码条目", role: .destructive) { deleteCurrent() }
-            Button("取消", role: .cancel) {}
-        } message: {
-            Text(L10n.format("将解除 %@ 个会话的关联，但保留会话各自的账号和密码。",
-                             editingRecord.map { store.linkedProfiles(for: $0.id).count } ?? 0))
-        }
-        .onDisappear { credential.reset() }
-    }
-
-    private var sidebar: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack {
-                Text("密码管理").font(.system(size: 15, weight: .semibold))
-                Spacer()
-                Button { startNew() } label: { Image(systemName: "plus") }
-                    .buttonStyle(SnakeIconButtonStyle())
-                    .help("新增常用账号")
-            }
-            .padding(.horizontal, 14)
-            .frame(height: 46)
-            Divider()
-            ScrollView {
-                LazyVStack(spacing: 2) {
-                    ForEach(store.savedPasswords) { item in passwordRow(item) }
-                }
-                .padding(8)
-            }
-            if store.savedPasswords.isEmpty {
-                Text("还没有保存常用账号")
-                    .font(.system(size: 11)).foregroundStyle(SnakeStyle.muted)
-                    .padding(.horizontal, 14)
-            }
-        }
-        .frame(width: 210)
-        .background(SnakeStyle.chromeFrost)
-    }
-
-    private func passwordRow(_ item: SavedPassword) -> some View {
-        Button { select(item) } label: {
-            HStack(spacing: 9) {
-                Image(systemName: "key.horizontal.fill")
-                    .foregroundStyle(editingID == item.id ? SnakeStyle.action : SnakeStyle.muted)
-                    .frame(width: 18)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(item.name).font(.system(size: 12, weight: .medium)).lineLimit(1)
-                    Text(L10n.format("%@ · %@ 个会话", item.username, store.linkedProfiles(for: item.id).count))
-                        .font(.system(size: 10)).foregroundStyle(SnakeStyle.muted).lineLimit(1)
-                }
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, 10)
-            .frame(height: 48)
-            .background(editingID == item.id ? SnakeStyle.selectedRow : Color.clear,
-                        in: RoundedRectangle(cornerRadius: 7))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-    }
-
-    private var editor: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                HStack(alignment: .firstTextBaseline) {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(editingRecord == nil ? L10n.text("新增密码") : L10n.text("编辑密码"))
-                            .font(.system(size: 19, weight: .semibold))
-                        Text("独立加密保存；关联会话持有自己的密码副本。")
-                            .font(.system(size: 11)).foregroundStyle(SnakeStyle.muted)
-                    }
-                    Spacer()
-                    Image(systemName: "lock.shield")
-                        .font(.system(size: 17)).foregroundStyle(SnakeStyle.secure)
-                }
-                VStack(alignment: .leading, spacing: 10) {
-                    labeledField("名称", text: $name)
-                    labeledField("用户名", text: $username)
-                    CredentialInputView(account: editingRecord?.credentialAccount, isPassphrase: false, reveal: credential)
-                }
-                if let editingRecord {
-                    Text(L10n.format("当前关联 %@ 个 SSH 会话。修改账号或密码时可选择同步的会话；未选择的保持原值。",
-                                     store.linkedProfiles(for: editingRecord.id).count))
-                        .font(.system(size: 11)).foregroundStyle(SnakeStyle.muted)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                if let message {
-                    Text(message).font(.system(size: 11))
-                        .foregroundStyle(message == L10n.text("已保存") ? SnakeStyle.secure : Color.red)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                HStack {
-                    if editingRecord != nil {
-                        Button("删除…", role: .destructive) { confirmsDelete = true }
-                            .buttonStyle(SnakeOutlineButtonStyle())
-                    }
-                    Spacer()
-                    Button("保存密码") { prepareSave() }
-                        .buttonStyle(SnakeOutlineButtonStyle(emphasized: true))
-                }
-            }
-            .padding(22)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    private func labeledField(_ title: String, text: Binding<String>) -> some View {
-        VStack(alignment: .leading, spacing: 5) {
-            Text(title).font(.system(size: 11, weight: .medium)).foregroundStyle(SnakeStyle.muted)
-            TextField(title, text: text).textFieldStyle(.roundedBorder).frame(height: 30)
-        }
-    }
-
-    private func startNew() {
-        editingID = nil; name = ""; username = ""; message = nil; credential.reset()
-    }
-
-    private func select(_ item: SavedPassword) {
-        editingID = item.id; name = item.name; username = item.username; message = nil; credential.reset()
-    }
-
-    private func prepareSave() {
-        let record = SavedPassword(id: editingID ?? UUID(), name: name.trimmingCharacters(in: .whitespacesAndNewlines),
-                                   username: username.trimmingCharacters(in: .whitespacesAndNewlines))
-        let password = credential.valueToSave
-        let old = editingRecord
-        guard !record.name.isEmpty, !record.username.isEmpty,
-              old != nil || password != nil else {
-            message = ApplicationStoreError.invalidSavedPassword.localizedDescription
-            return
-        }
-        let linked = store.linkedProfiles(for: record.id)
-        if !linked.isEmpty && (old?.username != record.username || password != nil) {
-            pendingSave = PendingPasswordSave(record: record, password: password, linkedProfiles: linked)
-        } else {
-            commit(record, password: password, selected: [])
-        }
-    }
-
-    private func commit(_ record: SavedPassword, password: String?, selected: Set<UUID>) {
-        do {
-            let skipped = try store.saveSavedPassword(record, password: password, selectedProfileIDs: selected)
-            editingID = record.id
-            name = record.name
-            username = record.username
-            credential.reset()
-            message = skipped.isEmpty ? L10n.text("已保存") : L10n.text("已保存；部分会话状态变化，已跳过同步。")
-        } catch { message = error.localizedDescription }
-    }
-
-    private func deleteCurrent() {
-        guard let item = editingRecord else { return }
-        do { try store.deleteSavedPassword(item); startNew() }
-        catch { message = error.localizedDescription }
-    }
-}
-
-private struct PasswordSyncSelectionSheet: View {
-    let pending: PendingPasswordSave
-    let onCommit: (Set<UUID>) -> Void
-    let onCancel: () -> Void
-    @State private var selected: Set<UUID> = []
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text("同步关联会话").font(.system(size: 19, weight: .semibold))
-            Text("只同步本次修改的账号或密码。默认不选择；未选择的会话仍保持关联与原凭据。")
-                .font(.system(size: 11)).foregroundStyle(SnakeStyle.muted)
-            ScrollView {
-                VStack(alignment: .leading, spacing: 6) {
-                    ForEach(pending.linkedProfiles) { profile in
-                        Toggle(isOn: Binding(get: { selected.contains(profile.id) }, set: { value in
-                            if value { selected.insert(profile.id) } else { selected.remove(profile.id) }
-                        })) {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(profile.name).font(.system(size: 12, weight: .medium))
-                                Text(profile.connectionLabel).font(.system(size: 10, design: .monospaced)).foregroundStyle(SnakeStyle.muted)
-                            }
-                        }
-                        .toggleStyle(.checkbox)
-                        .padding(.vertical, 4)
-                    }
-                }
-            }
-            Divider()
-            HStack {
-                Button("取消", action: onCancel).buttonStyle(SnakeOutlineButtonStyle())
-                Spacer()
-                Button("仅保存密码库") { onCommit([]) }.buttonStyle(SnakeOutlineButtonStyle())
-                Button("更新所选") { onCommit(selected) }
-                    .buttonStyle(SnakeOutlineButtonStyle(emphasized: true))
-                    .disabled(selected.isEmpty)
-            }
-        }
-        .padding(20)
-        .frame(width: 480, height: 360)
-        .background(SnakeStyle.canvas)
-    }
-}
-
 public struct SnakeSettingsView: View {
     @EnvironmentObject private var store: ApplicationStore
     @State private var shortcutError: String?
     @State private var remoteOpenUsage: RemoteOpenCacheReport?
     @State private var remoteOpenError: String?
     @State private var confirmsRemoteOpenClear = false
+    @State private var serverRelayError: String?
+    @State private var section: SettingsSection = .appearance
 
     public init() {}
 
-    public var body: some View {
-        TabView {
-            appearancePane
-                .tabItem { Label("外观", systemImage: "circle.lefthalf.filled") }
+    /// Settings use a sidebar like System Settings: every pane gets the full width
+    /// instead of sharing a narrow tab strip. Passwords moved to their own tab.
+    enum SettingsSection: CaseIterable, Identifiable {
+        case appearance, transfer, shortcuts, terminal
+        var id: Self { self }
 
-            SavedPasswordSettingsPane()
-                .tabItem { Label("密码", systemImage: "key.fill") }
-
-            transferPane
-                .tabItem { Label("传输", systemImage: "arrow.up.arrow.down") }
-
-            shortcutPane
-                .tabItem { Label("快捷键", systemImage: "command") }
-
-            terminalPane
-                // `textformat` has a script-dependent glyph and renders as
-                // 「格式」whenever the bundle resolves to Chinese; `terminal`
-                // is a pictogram and reads the same in every language.
-                .tabItem { Label("终端", systemImage: "terminal") }
+        var title: String {
+            switch self {
+            case .appearance: L10n.text("外观")
+            case .transfer: L10n.text("传输")
+            case .shortcuts: L10n.text("快捷键")
+            case .terminal: L10n.text("终端")
+            }
         }
-        .frame(minWidth: 560, idealWidth: 640, minHeight: 460, idealHeight: 560)
+
+        var detail: String {
+            switch self {
+            case .appearance: L10n.text("应用外观与界面语言")
+            case .transfer: L10n.text("SFTP 并行传输、打开远程文件与服务器互传")
+            case .shortcuts: L10n.text("工作区与 SFTP 快捷键")
+            case .terminal: L10n.text("终端配色、字体与渲染")
+            }
+        }
+
+        /// `terminal` is a pictogram; `textformat` would render as 「格式」 in Chinese.
+        var symbol: String {
+            switch self {
+            case .appearance: "circle.lefthalf.filled"
+            case .transfer: "arrow.up.arrow.down"
+            case .shortcuts: "command"
+            case .terminal: "terminal"
+            }
+        }
+
+        var tint: Color {
+            switch self {
+            case .appearance: .indigo
+            case .transfer: .blue
+            case .shortcuts: .gray
+            case .terminal: .teal
+            }
+        }
+    }
+
+    public var body: some View {
+        HStack(spacing: 0) {
+            settingsSidebar
+            Divider()
+            VStack(alignment: .leading, spacing: 0) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(section.title).font(.system(size: 20, weight: .bold))
+                    Text(section.detail).font(.system(size: 12)).foregroundStyle(SnakeStyle.muted)
+                }
+                // Lines the title up with the grouped form's section boxes below it.
+                .padding(.horizontal, 50)
+                .padding(.top, 22)
+                .padding(.bottom, 2)
+                Group {
+                    switch section {
+                    case .appearance: appearancePane
+                    case .transfer: transferPane
+                    case .shortcuts: shortcutPane
+                    case .terminal: terminalPane
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            .background(SnakeStyle.canvas)
+        }
+        .frame(minWidth: 780, idealWidth: 900, minHeight: 560, idealHeight: 680)
         .background(SettingsModalAnchor())
         .environment(\.locale, store.appLanguage.locale)
         .preferredColorScheme(store.isDarkAppearancePreferred ? .dark : .light)
+    }
+
+    private var settingsSidebar: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            ForEach(SettingsSection.allCases) { item in
+                Button { section = item } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: item.symbol)
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .frame(width: 24, height: 24)
+                            .background(item.tint.gradient, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                        Text(item.title).font(.system(size: 13, weight: section == item ? .semibold : .regular))
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, 8)
+                    .frame(height: 34)
+                    .background(section == item ? SnakeStyle.selectedRow : Color.clear,
+                                in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(section == item ? [.isSelected] : [])
+            }
+            Spacer()
+        }
+        .padding(10)
+        .padding(.top, 8)
+        .frame(width: 200)
+        .background(SnakeStyle.chromeFrost)
     }
 
     // MARK: - Panes
@@ -4294,6 +4442,37 @@ public struct SnakeSettingsView: View {
             } footer: {
                 SettingsFooter("打开远程文件时先下载到该目录再交给系统打开；Snake 只清理自己下载的副本，不会改动所选目录中的其他内容。默认位置是系统缓存目录。")
             }
+            Section {
+                LabeledContent("中转目录") {
+                    HStack(spacing: 8) {
+                        Text(store.serverRelayDirectoryPath)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .foregroundStyle(.secondary)
+                            .help(store.serverRelayDirectoryPath)
+                        Button("选择…") { chooseServerRelayDirectory() }
+                        if store.serverRelayDirectoryBookmark != nil {
+                            Button("恢复默认") { serverRelayError = store.setServerRelayDirectory(nil) }
+                        }
+                    }
+                }
+                if let serverRelayError {
+                    Label(serverRelayError, systemImage: "exclamationmark.triangle.fill")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.red)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if let notice = store.serverRelayNotice {
+                    Label(notice, systemImage: "exclamationmark.triangle")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.orange)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            } header: {
+                Text("服务器互传")
+            } footer: {
+                SettingsFooter("把文件从一个 SFTP 标签拖到另一台服务器时，先下载到该目录，再上传到目标服务器；上传结束后（无论成功、失败或取消）立即删除本次中转文件，失败后需重新拖动。中转需要与文件大小相当的本地空间，不传输软链接。默认位置是系统缓存目录。")
+            }
         }
         .task { await refreshRemoteOpenUsage() }
         .confirmationDialog("确定要清理已下载的远程文件副本吗？", isPresented: $confirmsRemoteOpenClear, titleVisibility: .visible) {
@@ -4343,6 +4522,21 @@ public struct SnakeSettingsView: View {
                 remoteOpenError = store.setRemoteOpenDirectory(url)
                 await refreshRemoteOpenUsage()
             }
+        }
+    }
+
+    private func chooseServerRelayDirectory() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.canCreateDirectories = true
+        panel.prompt = L10n.text("选择")
+        panel.message = L10n.text("选择服务器互传时存放中转文件的目录。")
+        panel.directoryURL = URL(fileURLWithPath: store.serverRelayDirectoryPath, isDirectory: true)
+        panel.begin { response in
+            guard response == .OK, let url = panel.url else { return }
+            Task { @MainActor in serverRelayError = store.setServerRelayDirectory(url) }
         }
     }
 

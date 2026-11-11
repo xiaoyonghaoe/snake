@@ -659,7 +659,8 @@ private struct McpAuditPane: View {
         }
         .contextMenu(forSelectionType: String.self) { ids in
             if let id = ids.first, let record = records.first(where: { $0.id == id }) {
-                Button("复制命令") { copy(record.command) }
+                Button("复制命令", systemImage: "doc.on.doc") { copy(record.command) }
+                    .labelStyle(.titleAndIcon)
             }
         }
         .overlay {

@@ -10,11 +10,15 @@ struct TerminalShellStartup {
     private let echoToken = Data("__snake_cwd".utf8)
     private var buffered = Data()
     private var releasedCount = 0
+    /// After a reconnect the login banner was already read once; only the prompt
+    /// that follows the hook is shown.
+    private let hidesBanner: Bool
     private(set) var isComplete = false
     static let bufferLimit = 64 * 1_024
 
-    init?(shellName: String, identifier: UUID = UUID()) {
+    init?(shellName: String, identifier: UUID = UUID(), hidesBanner: Bool = false) {
         guard let hook = TerminalShellIntegration.hookCommand(for: shellName) else { return nil }
+        self.hidesBanner = hidesBanner
         let marker = "777;snake-ready=\(identifier.uuidString)"
         command = Data((hook.trimmingCharacters(in: .newlines)
             + "; printf '\\033]\(marker)\\007'\n").utf8)
@@ -30,7 +34,7 @@ struct TerminalShellStartup {
             // The initial prompt has not been rendered yet. Keep complete login
             // banner lines, then let the next prompt appear once, even when a
             // long hostname would have wrapped across several terminal rows.
-            var output = Data(Self.banner(in: setup, echo: echo).dropFirst(releasedCount))
+            var output = hidesBanner ? Data() : Data(Self.banner(in: setup, echo: echo).dropFirst(releasedCount))
             output.append(Self.directoryReports(in: echo.map { Data(setup[$0.lowerBound...]) } ?? setup))
             output.append(buffered[ready.upperBound...])
             buffered.removeAll()
@@ -51,7 +55,7 @@ struct TerminalShellStartup {
         let banner = Self.banner(in: buffered, echo: echo)
         let output = Data(banner.dropFirst(releasedCount))
         releasedCount = banner.count
-        return output
+        return hidesBanner ? Data() : output
     }
 
     mutating func finish() -> Data {

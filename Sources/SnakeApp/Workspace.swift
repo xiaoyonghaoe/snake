@@ -50,7 +50,15 @@ public final class TerminalRuntime: ObservableObject, Identifiable {
     @Published public private(set) var remoteTitle: String?
     @Published public private(set) var securityInfo: CoreConnectionSecurity?
     @Published public private(set) var currentRemoteDirectory: String?
-    @Published public private(set) var connectionStatusText = L10n.text("正在建立 Rust SSH PTY 连接…")
+    @Published public private(set) var connectionStatusText = L10n.text("正在建立 SSH 连接…")
+    /// Connected, but the shell's first output is still held back while the
+    /// directory hook starts; the connecting animation stays up until it shows.
+    @Published private(set) var awaitingFirstOutput = false
+    /// Every connection attempt in this tab, shown from the connecting card.
+    let log = ConnectionLog()
+    /// The connection log sheet; opened from the connecting card or the context menu.
+    @Published var showsLog = false
+    private var contextMenu: TerminalContextMenu?
     private let ioQueue: DispatchQueue
     private var terminalView: TerminalView?
     private var terminalDelegate: RustTerminalViewBridge?
@@ -70,6 +78,8 @@ public final class TerminalRuntime: ObservableObject, Identifiable {
     private var autoReconnect: Task<Void, Never>?
     private var autoReconnectAttempts = 0
     private var connectedAt: ContinuousClock.Instant?
+    /// This tab already showed a session, so the next one skips the login banner.
+    private var isReconnecting = false
     /// Pauses before each automatic reconnection after an unexpected drop.
     static let autoReconnectDelays: [Duration] = [.milliseconds(500), .seconds(2), .seconds(5)]
     private var uploaderCancellable: AnyCancellable?
@@ -91,7 +101,7 @@ public final class TerminalRuntime: ObservableObject, Identifiable {
         pendingHostKey = nil
         securityInfo = nil
         currentRemoteDirectory = nil
-        connectionStatusText = L10n.text("正在建立 Rust SSH PTY 连接…")
+        connectionStatusText = L10n.text("正在建立 SSH 连接…")
         if let terminalView {
             startIfNeeded(terminalView)
         }
@@ -106,7 +116,8 @@ public final class TerminalRuntime: ObservableObject, Identifiable {
         guard let prompt = pendingHostKey else { return }
         pendingHostKey = nil
         state = .connecting
-        connectionStatusText = L10n.text("正在建立 Rust SSH PTY 连接…")
+        connectionStatusText = L10n.text("正在建立 SSH 连接…")
+        log.append(.info, L10n.text("已确认信任该主机指纹，继续连接"))
         connect(accepting: prompt.fingerprint)
     }
 
@@ -114,6 +125,20 @@ public final class TerminalRuntime: ObservableObject, Identifiable {
         pendingHostKey = nil
         state = .failed
         errorMessage = L10n.text("未信任主机密钥，终端连接已取消。")
+        log.append(.warning, L10n.text("未信任主机密钥，终端连接已取消。"))
+    }
+
+    /// Abandons the attempt in progress, including a pending automatic reconnect.
+    /// The core call may still finish in the background; its result is discarded.
+    public func cancelConnecting() {
+        guard state == .connecting else { return }
+        connectionAttemptID = UUID()
+        isStarting = false
+        autoReconnectAttempts = 0
+        stopHandle()
+        state = .failed
+        errorMessage = L10n.text("已取消连接。")
+        log.append(.warning, L10n.text("已取消连接。"))
     }
 
     public func stop() {
@@ -137,8 +162,38 @@ public final class TerminalRuntime: ObservableObject, Identifiable {
         let delegate = RustTerminalViewBridge(runtime: self)
         terminalView.terminalDelegate = delegate
         terminalDelegate = delegate
+        let contextMenu = TerminalContextMenu(runtime: self)
+        terminalView.menu = contextMenu.menu
+        self.contextMenu = contextMenu
         self.terminalView = terminalView
         return terminalView
+    }
+
+    /// Lets the context menu reach the store, which owns uploads and windows.
+    func attach(store: ApplicationStore) {
+        contextMenu?.store = store
+    }
+
+    /// Picks files or folders and uploads them to the shell's current directory,
+    /// or asks for one when the shell has not reported it.
+    func chooseFilesToUpload(store: ApplicationStore) {
+        guard state == .connected, let window = terminalView?.window, window.attachedSheet == nil else { return }
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = true
+        panel.prompt = L10n.text("上传")
+        panel.message = currentRemoteDirectory.map { L10n.format("上传到 %@", $0) } ?? L10n.text("选择要上传的文件或文件夹")
+        let attemptID = connectionAttemptID
+        panel.beginSheetModal(for: window) { [weak self] response in
+            guard let self, response == .OK, !panel.urls.isEmpty,
+                  self.connectionAttemptID == attemptID, self.state == .connected else { return }
+            let target = self.currentRemoteDirectory.map(FinderUploadTarget.directory) ?? .confirmDirectory
+            // The open panel is still closing; present any follow-up sheet afterwards.
+            DispatchQueue.main.async {
+                self.uploadFromFinder(urls: panel.urls, target: target, window: window, store: store)
+            }
+        }
     }
 
     var existingTerminalSurface: TerminalView? { terminalView }
@@ -292,6 +347,7 @@ public final class TerminalRuntime: ObservableObject, Identifiable {
 
     private func display(_ data: Data) {
         guard !data.isEmpty else { return }
+        awaitingFirstOutput = false
         let bytes = [UInt8](data)
         terminalView?.feed(byteArray: bytes[...])
     }
@@ -306,8 +362,10 @@ public final class TerminalRuntime: ObservableObject, Identifiable {
         if let message, !message.isEmpty {
             // A full-screen program may have been cut off mid-session; restore a
             // plain screen so the notice and the next login stay readable.
-            display(Data(Self.terminalModeReset.utf8))
+            let alternate = terminalView?.getTerminal().isCurrentBufferAlternate == true
+            display(Data(Self.terminalModeReset(leavingAlternateScreen: alternate).utf8))
             display(Data("\r\n\u{1b}[2m── \(L10n.text("连接已中断")) ──\u{1b}[0m\r\n".utf8))
+            log.append(.error, L10n.text("连接已中断"), detail: message)
             if let connectedAt, connectedAt.duration(to: .now) >= .seconds(30) { autoReconnectAttempts = 0 }
             if scheduleAutoReconnect() { return }
             state = .failed
@@ -315,6 +373,7 @@ public final class TerminalRuntime: ObservableObject, Identifiable {
         } else {
             state = .disconnected
             errorMessage = exitStatus == 0 ? nil : L10n.format("远程 shell 已退出（状态码 %@）。", exitStatus)
+            log.append(.info, L10n.format("远程 shell 已退出（状态码 %@）。", exitStatus))
         }
     }
 
@@ -328,12 +387,15 @@ public final class TerminalRuntime: ObservableObject, Identifiable {
         connectionAttemptID = attemptID
         pendingLoginOutput.removeAll()
         lastOutputAt = nil
+        awaitingFirstOutput = true
+        isReconnecting = connectedAt != nil
         let observer = RustTerminalObserver(runtime: self, attemptID: attemptID)
         let profile = profile
         let knownHostsPath = Self.knownHostsPath
         let terminal = terminalView?.getTerminal()
         let initialColumns = columns ?? UInt32(clamping: terminal?.cols ?? 80)
         let initialRows = rows ?? UInt32(clamping: terminal?.rows ?? 24)
+        log.beginAttempt(profile, kind: "SSH")
 
         Task {
             for retryIndex in 0...1 {
@@ -380,10 +442,17 @@ public final class TerminalRuntime: ObservableObject, Identifiable {
                     handle = newHandle
                     securityInfo = newHandle.securityInfo()
                     let shellName = newHandle.shellName()
-                    connectionStatusText = L10n.text("正在建立 Rust SSH PTY 连接…")
+                    connectionStatusText = L10n.text("正在建立 SSH 连接…")
                     isStarting = false
                     state = .connected
                     connectedAt = .now
+                    connectionStatusText = L10n.text("正在启动 shell…")
+                    log.recordConnected(securityInfo, what: "SSH")
+                    if !shellName.isEmpty { log.append(.info, L10n.format("远程 shell：%@", shellName)) }
+                    if isReconnecting {
+                        // Fed directly: the connecting animation stays until the prompt shows.
+                        terminalView?.feed(text: "\u{1b}[2m── \(L10n.text("已重新连接")) ──\u{1b}[0m\r\n")
+                    }
                     if let terminal = terminalView?.getTerminal(),
                        terminal.cols > 2, terminal.rows > 1,
                        UInt32(clamping: terminal.cols) != initialColumns || UInt32(clamping: terminal.rows) != initialRows,
@@ -396,14 +465,20 @@ public final class TerminalRuntime: ObservableObject, Identifiable {
                     return
                 } catch let error as CoreError {
                     guard connectionAttemptID == attemptID, launchRequested, state == .connecting else { return }
-                    if TerminalConnectionRetryPolicy.shouldRetry(error, retryIndex: retryIndex) {
+                    // An automatic reconnect already retries on its own schedule; a quick
+                    // second try here only doubled how long each attempt could hang.
+                    if autoReconnectAttempts == 0, TerminalConnectionRetryPolicy.shouldRetry(error, retryIndex: retryIndex) {
                         connectionStatusText = L10n.text("首次连接未完成，正在自动重试…")
+                        log.append(.warning, connectionStatusText, detail: ConnectionLog.technicalDetail(error))
                         try? await Task.sleep(for: .milliseconds(400))
                         guard connectionAttemptID == attemptID, launchRequested, state == .connecting else { return }
                         continue
                     }
                     isStarting = false
-                    if case .Connection = error, autoReconnectAttempts > 0, scheduleAutoReconnect() { return }
+                    if case .Connection = error, autoReconnectAttempts > 0 {
+                        log.recordFailure(L10n.text("重连未成功"), error: error)
+                        if scheduleAutoReconnect() { return }
+                    }
                     handleCoreError(error)
                     return
                 } catch {
@@ -411,6 +486,7 @@ public final class TerminalRuntime: ObservableObject, Identifiable {
                     isStarting = false
                     state = .failed
                     errorMessage = error.localizedDescription
+                    log.recordFailure(error.localizedDescription, error: nil)
                     return
                 }
             }
@@ -475,6 +551,12 @@ public final class TerminalRuntime: ObservableObject, Identifiable {
         default:
             errorMessage = String(describing: error)
         }
+        if let errorMessage {
+            log.recordFailure(errorMessage, error: error)
+        } else if let pendingHostKey {
+            log.append(.warning, L10n.text("服务器主机指纹需要确认"),
+                       detail: "\(pendingHostKey.algorithm) \(pendingHostKey.fingerprint)")
+        }
     }
 
     private func handleIOError(_ error: Error) {
@@ -483,6 +565,7 @@ public final class TerminalRuntime: ObservableObject, Identifiable {
         securityInfo = nil
         currentRemoteDirectory = nil
         errorMessage = L10n.format("终端输入失败：%@", error.localizedDescription)
+        log.append(.error, L10n.format("终端输入失败：%@", error.localizedDescription))
     }
 
     /// Reconnects after the network dropped an established session. Returns false
@@ -497,6 +580,7 @@ public final class TerminalRuntime: ObservableObject, Identifiable {
             "连接已中断，正在自动重连（%@/%@）…",
             autoReconnectAttempts, Self.autoReconnectDelays.count
         )
+        log.append(.info, connectionStatusText)
         // Holding isStarting keeps view updates from connecting before the pause ends.
         isStarting = true
         let token = UUID()
@@ -513,10 +597,14 @@ public final class TerminalRuntime: ObservableObject, Identifiable {
         return true
     }
 
-    /// Leaves the alternate screen, mouse reporting and other modes a dropped
-    /// full-screen program may have left enabled.
-    static let terminalModeReset = "\u{1b}[0m\u{1b}[?1049l\u{1b}[?1000l\u{1b}[?1002l\u{1b}[?1003l"
-        + "\u{1b}[?1006l\u{1b}[?2004l\u{1b}[?25h"
+    /// Leaves mouse reporting and other modes a dropped full-screen program may have
+    /// left enabled, and its alternate screen when one is active. `?1049l` also
+    /// restores the cursor saved on entry; sent on the main screen it restored a
+    /// cursor that was never saved and moved the notice and the next login to row 1.
+    nonisolated static func terminalModeReset(leavingAlternateScreen: Bool) -> String {
+        "\u{1b}[0m" + (leavingAlternateScreen ? "\u{1b}[?1049l" : "")
+            + "\u{1b}[?1000l\u{1b}[?1002l\u{1b}[?1003l\u{1b}[?1006l\u{1b}[?2004l\u{1b}[?25h"
+    }
 
     private func stopHandle() {
         shellStartupTimeout?.cancel()
@@ -535,7 +623,7 @@ public final class TerminalRuntime: ObservableObject, Identifiable {
     }
 
     private func installDirectoryHook(shellName: String) {
-        guard let handle, var startup = TerminalShellStartup(shellName: shellName) else {
+        guard let handle, var startup = TerminalShellStartup(shellName: shellName, hidesBanner: isReconnecting) else {
             display(pendingLoginOutput)
             pendingLoginOutput.removeAll()
             return
@@ -575,6 +663,7 @@ public final class TerminalRuntime: ObservableObject, Identifiable {
     /// A slow rc file must not block typing or hide the banner, but the hook's echo
     /// stays hidden until the shell acknowledges it or the final timeout passes.
     private func releaseSlowShellStartup() {
+        awaitingFirstOutput = false
         guard var startup = shellStartup else { return }
         display(startup.releaseBanner())
         shellStartup = startup
@@ -589,6 +678,7 @@ public final class TerminalRuntime: ObservableObject, Identifiable {
     }
 
     private func finishShellStartup() {
+        awaitingFirstOutput = false
         display(pendingLoginOutput)
         pendingLoginOutput.removeAll()
         if var startup = shellStartup { display(startup.finish()) }
@@ -771,6 +861,7 @@ public final class LocalUploadCoordinator: ObservableObject {
         urls: [URL],
         destinationRoot: String,
         store: ApplicationStore,
+        relay: Bool = false,
         onFinished: (@MainActor () -> Void)? = nil
     ) {
         guard !urls.isEmpty else { return }
@@ -841,7 +932,7 @@ public final class LocalUploadCoordinator: ObservableObject {
                         targetPath: item.remotePath,
                         totalBytes: item.size
                     )
-                    register(jobID: jobID, item: item, overwrite: overwrite)
+                    register(jobID: jobID, item: item, overwrite: overwrite, relay: relay)
                     await performUpload(
                         item: item,
                         overwrite: overwrite,
@@ -898,8 +989,11 @@ public final class LocalUploadCoordinator: ObservableObject {
             batchTask = Task { await previous?.value; await retry() }
             return
         }
+        // A download's local copy must never be uploaded back, and relay files are
+        // deleted when the relay ends.
         guard pendingUploadRetries[jobID] == nil,
               let record = records.first(where: { $0.jobID == jobID }),
+              !record.isDownload, !record.isRelay,
               [.failed, .cancelled, .interrupted].contains(record.state) else { return }
         let item = SFTPUploadItem(
             localURL: record.localURL,
@@ -997,8 +1091,8 @@ public final class LocalUploadCoordinator: ObservableObject {
         }
     }
 
-    private func register(jobID: UUID, item: SFTPUploadItem, overwrite: Bool) {
-        records.insert(SFTPUploadRecord(
+    private func register(jobID: UUID, item: SFTPUploadItem, overwrite: Bool, relay: Bool) {
+        var record = SFTPUploadRecord(
             jobID: jobID,
             fileName: item.localURL.lastPathComponent,
             remotePath: item.remotePath,
@@ -1007,7 +1101,9 @@ public final class LocalUploadCoordinator: ObservableObject {
             state: .queued,
             localURL: item.localURL,
             overwrite: overwrite
-        ), at: 0)
+        )
+        record.isRelay = relay
+        records.insert(record, at: 0)
     }
 
     func update(jobID: UUID, state: TransferState, finishedAt: Date? = nil) {
@@ -1310,6 +1406,16 @@ public final class SFTPRuntime: ObservableObject, Identifiable {
     @Published public private(set) var entries: [RemoteFile] = []
     @Published public private(set) var connectionState: ConnectionState = .idle
     @Published public private(set) var errorMessage: String?
+    /// Every connection attempt in this tab, shown from the connecting card.
+    let log = ConnectionLog()
+    /// Opened from a terminal: browse its directory instead of the home folder once connected.
+    var pendingInitialPath: String?
+    /// Watches the pooled connection so a network drop is noticed even while idle.
+    private var healthMonitor: Task<Void, Never>?
+    /// Set while reconnecting after a drop; failed attempts retry on `autoReconnectDelays`.
+    private var isAutoReconnecting = false
+    private var autoReconnectAttempts = 0
+    static let autoReconnectDelays: [Duration] = [.milliseconds(500), .seconds(2), .seconds(5)]
     @Published public private(set) var pendingHostKey: SFTPHostKeyPrompt?
     @Published public private(set) var backHistory: [String] = []
     @Published public private(set) var forwardHistory: [String] = []
@@ -1360,6 +1466,10 @@ public final class SFTPRuntime: ObservableObject, Identifiable {
     }
 
     public func connectIfNeeded(accepting fingerprint: String? = nil) {
+        if connectionState == .connected, let handle, handle.isClosed() {
+            reconnectAfterDrop(returningTo: currentPath)
+            return
+        }
         guard connectionState != .connecting, connectionState != .connected else { return }
         uploader.canPresentTransferConflicts = true
         connectionState = .connecting
@@ -1369,6 +1479,7 @@ public final class SFTPRuntime: ObservableObject, Identifiable {
         connectionAttemptID = attemptID
         let profile = profile
         let knownHostsPath = Self.knownHostsPath
+        log.beginAttempt(profile, kind: "SFTP")
         Task {
             do {
                 let result = try await Task.detached(priority: .userInitiated) {
@@ -1416,13 +1527,26 @@ public final class SFTPRuntime: ObservableObject, Identifiable {
                 loadingPath = nil
                 failedNavigationPath = nil
                 connectionState = .connected
+                log.recordConnected(nil, what: "SFTP")
+                log.append(.info, L10n.format("主目录：%@", result.1))
+                isAutoReconnecting = false
+                autoReconnectAttempts = 0
+                startHealthMonitor()
+                if let initial = pendingInitialPath {
+                    pendingInitialPath = nil
+                    if initial != result.1 { refresh(path: initial) }
+                }
             } catch let error as CoreError {
                 guard connectionAttemptID == attemptID else { return }
+                if isAutoReconnecting, case .Connection = error, scheduleAutoReconnect(after: error) { return }
+                isAutoReconnecting = false
                 handleCoreError(error)
             } catch {
                 guard connectionAttemptID == attemptID else { return }
+                isAutoReconnecting = false
                 connectionState = .failed
                 errorMessage = error.localizedDescription
+                log.recordFailure(error.localizedDescription, error: nil)
             }
         }
     }
@@ -1430,6 +1554,7 @@ public final class SFTPRuntime: ObservableObject, Identifiable {
     public func acceptPendingHostKey() {
         guard let prompt = pendingHostKey else { return }
         connectionState = .idle
+        log.append(.info, L10n.text("已确认信任该主机指纹，继续连接"))
         connectIfNeeded(accepting: prompt.fingerprint)
     }
 
@@ -1437,11 +1562,15 @@ public final class SFTPRuntime: ObservableObject, Identifiable {
         pendingHostKey = nil
         connectionState = .failed
         errorMessage = L10n.text("未信任主机密钥，SFTP 连接已取消。")
+        log.append(.warning, L10n.text("未信任主机密钥，SFTP 连接已取消。"))
     }
 
     public func disconnect() {
         connectionAttemptID = UUID()
         navigationRequestID = UUID()
+        healthMonitor?.cancel()
+        healthMonitor = nil
+        isAutoReconnecting = false
         handle = nil
         entries = []
         directoryCache = [:]
@@ -1454,6 +1583,10 @@ public final class SFTPRuntime: ObservableObject, Identifiable {
     public func refresh(path: String? = nil) {
         guard let handle else {
             connectIfNeeded()
+            return
+        }
+        if handle.isClosed() {
+            reconnectAfterDrop(returningTo: path ?? currentPath)
             return
         }
         let target = path ?? currentPath
@@ -1480,6 +1613,7 @@ public final class SFTPRuntime: ObservableObject, Identifiable {
 
     public func goBack() {
         guard let handle, let target = backHistory.last else { return }
+        if handle.isClosed() { return reconnectAfterDrop(returningTo: currentPath) }
         let previous = currentPath
         load(target, using: handle) { [weak self] in
             guard let self else { return }
@@ -1490,6 +1624,7 @@ public final class SFTPRuntime: ObservableObject, Identifiable {
 
     public func goForward() {
         guard let handle, let target = forwardHistory.last else { return }
+        if handle.isClosed() { return reconnectAfterDrop(returningTo: currentPath) }
         let previous = currentPath
         load(target, using: handle) { [weak self] in
             guard let self else { return }
@@ -1498,12 +1633,80 @@ public final class SFTPRuntime: ObservableObject, Identifiable {
         }
     }
 
+    /// Abandons the connection in progress; a late result is discarded by its attempt ID.
+    public func cancelConnecting() {
+        guard connectionState == .connecting else { return }
+        connectionAttemptID = UUID()
+        isAutoReconnecting = false
+        connectionState = .failed
+        errorMessage = L10n.text("已取消连接。")
+        log.append(.warning, L10n.text("已取消连接。"))
+    }
+
     public func retryLastOperation() {
-        if let failedNavigationPath, handle != nil {
+        // A transfer error shown in the same banner has its own retry in the transfer list.
+        uploader.errorMessage = nil
+        if let handle, handle.isClosed() {
+            reconnectAfterDrop(returningTo: failedNavigationPath ?? currentPath)
+        } else if let failedNavigationPath, handle != nil {
             refresh(path: failedNavigationPath)
         } else {
             connectionState = .idle
             connectIfNeeded()
+        }
+    }
+
+    /// The pooled connection under this tab died (the terminal of the same session
+    /// usually reconnects at the same moment). Open a fresh handle and come back to
+    /// the directory that was showing instead of reporting a stale error.
+    private func reconnectAfterDrop(returningTo path: String?) {
+        guard connectionState != .connecting else { return }
+        healthMonitor?.cancel()
+        healthMonitor = nil
+        navigationRequestID = UUID()
+        handle = nil
+        loadingPath = nil
+        failedNavigationPath = nil
+        pendingInitialPath = path
+        isAutoReconnecting = true
+        autoReconnectAttempts = 0
+        connectionState = .idle
+        log.append(.warning, L10n.text("SFTP 连接已断开，正在重新连接"))
+        connectIfNeeded()
+    }
+
+    /// Waits and tries again while the network is still coming back. Returns false
+    /// once the attempts are used up, so the caller shows the failure card.
+    private func scheduleAutoReconnect(after error: CoreError) -> Bool {
+        guard autoReconnectAttempts < Self.autoReconnectDelays.count else { return false }
+        let delay = Self.autoReconnectDelays[autoReconnectAttempts]
+        autoReconnectAttempts += 1
+        log.recordFailure(L10n.text("重连未成功"), error: error)
+        log.append(.info, L10n.format("SFTP 将自动重连（%@/%@）", autoReconnectAttempts, Self.autoReconnectDelays.count))
+        let token = UUID()
+        connectionAttemptID = token
+        connectionState = .connecting
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: delay)
+            guard let self, self.connectionAttemptID == token, self.connectionState == .connecting else { return }
+            self.connectionState = .idle
+            self.connectIfNeeded()
+        }
+        return true
+    }
+
+    private func startHealthMonitor() {
+        healthMonitor?.cancel()
+        healthMonitor = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(2))
+                guard !Task.isCancelled, let self else { return }
+                guard self.connectionState == .connected, let handle = self.handle else { continue }
+                if handle.isClosed(), self.loadingPath == nil {
+                    self.reconnectAfterDrop(returningTo: self.currentPath)
+                    return
+                }
+            }
         }
     }
 
@@ -1535,6 +1738,14 @@ public final class SFTPRuntime: ObservableObject, Identifiable {
                 errorMessage = nil
             } catch {
                 guard navigationRequestID == requestID else { return }
+                if handle.isClosed() {
+                    // Not a problem with this directory: the connection went away.
+                    currentPath = previousPath
+                    entries = previousEntries
+                    loadingPath = nil
+                    reconnectAfterDrop(returningTo: target)
+                    return
+                }
                 currentPath = previousPath
                 entries = previousEntries
                 loadingPath = nil
@@ -1616,53 +1827,32 @@ public final class SFTPRuntime: ObservableObject, Identifiable {
         uploader.resolveConflict(decision)
     }
 
+    /// Copies an entry from another tab's server into the current directory through
+    /// this Mac: download into a private relay batch, upload from it, then delete the
+    /// batch whatever the outcome. Both halves show up in this tab's transfer records.
     public func copy(file: RemoteFile, from source: SFTPRuntime, store: ApplicationStore) {
-        guard let sourceHandle = source.handle, let destinationHandle = handle else {
+        guard source.handle != nil, handle != nil else {
             errorMessage = L10n.text("来源或目标 SFTP 尚未连接，无法开始远程互传。")
             return
         }
-        let destinationPath = (currentPath as NSString).appendingPathComponent(file.name)
-        let jobID = store.registerRealRemoteCopy(
-            file: file,
-            from: source.profile,
-            to: profile,
-            targetPath: destinationPath
-        )
-        let control = store.makeTransferControl(for: jobID)
-        let observer = SFTPTransferObserver(jobID: jobID, store: store)
-        store.markTransferRunning(jobID)
+        let destinationRoot = currentPath
+        let relaySource = DownloadSource(profile: source.profile, makeHandle: source.uploader.makeHandle)
+        let location = ServerRelay.location(bookmark: store.serverRelayDirectoryBookmark, accessScope: true)
+        let batch: URL
+        do {
+            batch = try ServerRelay.makeBatch(root: location.url, ownedRoot: location.isDefault)
+        } catch {
+            if location.scoped { location.url.stopAccessingSecurityScopedResource() }
+            errorMessage = L10n.format("无法创建本地中转目录：%@", error.localizedDescription)
+            return
+        }
+        let uploader = uploader
         Task {
-            do {
-                if file.isSymbolicLink {
-                    try await Task.detached(priority: .userInitiated) {
-                        try destinationHandle.copySymbolicLinkFrom(
-                            source: sourceHandle,
-                            sourcePath: file.path,
-                            destinationPath: destinationPath
-                        )
-                    }.value
-                } else {
-                    try await Task.detached(priority: .userInitiated) {
-                        try destinationHandle.copyFromControlled(
-                            source: sourceHandle,
-                            sourcePath: file.path,
-                            destinationPath: destinationPath,
-                            isDirectory: file.isDirectory,
-                            totalBytes: UInt64(max(file.size, 1)),
-                            control: control,
-                            observer: observer
-                        )
-                    }.value
-                }
-                store.markTransferSucceeded(jobID)
-                refresh()
-            } catch {
-                if case CoreError.TransferCancelled = error {
-                    store.cancel(jobID: jobID)
-                } else {
-                    store.markTransferFailed(jobID, message: Self.message(for: error))
-                }
+            await uploader.relay(file, from: relaySource, through: batch, to: destinationRoot, store: store) { [weak self] in
+                self?.refresh()
             }
+            await Task.detached(priority: .utility) { ServerRelay.removeBatch(batch) }.value
+            if location.scoped { location.url.stopAccessingSecurityScopedResource() }
         }
     }
 
@@ -1819,6 +2009,12 @@ public final class SFTPRuntime: ObservableObject, Identifiable {
             errorMessage = nil
         default:
             errorMessage = Self.message(for: error)
+        }
+        if let errorMessage {
+            log.recordFailure(errorMessage, error: error)
+        } else if let pendingHostKey {
+            log.append(.warning, L10n.text("服务器主机指纹需要确认"),
+                       detail: "\(pendingHostKey.algorithm) \(pendingHostKey.fingerprint)")
         }
     }
 
@@ -2013,6 +2209,10 @@ public struct SFTPUploadRecord: Identifiable, Sendable {
     let localURL: URL
     let overwrite: Bool
     var isDownload = false
+    /// Part of a server-to-server copy; its relay files are gone once the copy ends.
+    var isRelay = false
+    /// Session the relayed download reads from, shown beside the remote path.
+    var relaySource: String?
     var verification: TransferVerification = .pending
 
     init(
@@ -2201,7 +2401,11 @@ public final class WorkspaceTabRuntime: ObservableObject, Identifiable {
     @Published var selectedFolderID: UUID?
     @Published var selectedProfileID: UUID?
     @Published var selectedMappingID: UUID?
+    @Published var mountSection: MountWorkspaceSection = .mappings
+    @Published var selectedTunnelID: UUID?
     @Published var searchFocusRequest = 0
+    /// A new session tab opens in the folder used last, once.
+    var restoredLastFolder = false
     private var handledSearchFocusRequest = 0
 
     func takeSearchFocusRequest() -> Bool {
@@ -2211,7 +2415,7 @@ public final class WorkspaceTabRuntime: ObservableObject, Identifiable {
     }
 
     init(manager kind: WorkspaceTabKind = .sessions) {
-        precondition(kind == .sessions || kind == .mounts || kind == .mcp)
+        precondition(kind == .sessions || kind == .mounts || kind == .mcp || kind == .passwords)
         id = WorkspaceTabID()
         self.kind = kind
     }
@@ -2241,12 +2445,14 @@ public final class WorkspaceTabRuntime: ObservableObject, Identifiable {
         terminalRuntime.requestConnection()
     }
 
-    init(sftp profile: SSHProfile) {
+    init(sftp profile: SSHProfile, path: String? = nil) {
         id = WorkspaceTabID()
         kind = .sftp(profileID: profile.id)
         self.profile = profile
         terminal = nil
-        sftp = SFTPRuntime(profile: profile)
+        let runtime = SFTPRuntime(profile: profile)
+        runtime.pendingInitialPath = path
+        sftp = runtime
     }
 
     public var title: String {
@@ -2254,6 +2460,7 @@ public final class WorkspaceTabRuntime: ObservableObject, Identifiable {
         case .sessions: L10n.text("SSH 会话")
         case .mounts: L10n.text("磁盘映射")
         case .mcp: L10n.text("MCP")
+        case .passwords: L10n.text("密码管理")
         case .terminal: L10n.format("终端 · %@", profile?.name ?? "")
         case .sftp: L10n.format("SFTP · %@", profile?.name ?? "")
         }
@@ -2690,13 +2897,13 @@ public final class WorkspaceWindowCoordinator: NSObject {
         window.state.add(WorkspaceTabRuntime(terminal: profile))
     }
 
-    func openSFTP(for profile: SSHProfile) {
+    func openSFTP(for profile: SSHProfile, path: String? = nil) {
         guard let window = activeWindowRecord else {
             let state = createWindow()
-            state.add(WorkspaceTabRuntime(sftp: profile))
+            state.add(WorkspaceTabRuntime(sftp: profile, path: path))
             return
         }
-        window.state.add(WorkspaceTabRuntime(sftp: profile))
+        window.state.add(WorkspaceTabRuntime(sftp: profile, path: path))
     }
 
     func closeConnections(profileID: UUID) {
@@ -3298,7 +3505,7 @@ public final class SnakeAppDelegate: NSObject, NSApplicationDelegate {
                 }
             }
         }
-        pruneRemoteOpenCacheOnLaunch()
+        cleanTransferCachesOnLaunch()
         store.mcp.activate()
     }
 
@@ -3307,10 +3514,12 @@ public final class SnakeAppDelegate: NSObject, NSApplicationDelegate {
         coordinator?.installApplicationCommands()
     }
 
-    /// Trims the open-remote-file cache once per launch, off the main thread.
-    private func pruneRemoteOpenCacheOnLaunch() {
+    /// Trims the open-remote-file cache and drops leftover relay batches once per
+    /// launch, off the main thread.
+    private func cleanTransferCachesOnLaunch() {
         Task { @MainActor in
             _ = await store.pruneRemoteOpenCache()
+            await store.removeStaleRelayBatches()
         }
     }
 
@@ -3337,14 +3546,17 @@ public struct TerminalHost: NSViewRepresentable {
     let fontName: String
     let fontSize: Double
     let usesMetal: Bool
+    let store: ApplicationStore?
 
     init(
         runtime: TerminalRuntime,
         theme: TerminalTheme,
         fontName: String,
         fontSize: Double,
-        usesMetal: Bool = true
+        usesMetal: Bool = true,
+        store: ApplicationStore? = nil
     ) {
+        self.store = store
         self.runtime = runtime
         self.theme = theme
         self.fontName = fontName
@@ -3354,6 +3566,7 @@ public struct TerminalHost: NSViewRepresentable {
 
     public func makeNSView(context: Context) -> TerminalView {
         let terminalView = runtime.terminalSurface()
+        if let store { runtime.attach(store: store) }
         runtime.applyTheme(theme)
         runtime.applyFont(name: fontName, size: fontSize)
         runtime.applyRenderer(metal: usesMetal)

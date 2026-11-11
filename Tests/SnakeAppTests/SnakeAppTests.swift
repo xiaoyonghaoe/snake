@@ -1,4 +1,5 @@
 import AppKit
+import SQLite3
 import XCTest
 @testable import SnakeApp
 
@@ -15,7 +16,10 @@ final class SnakeAppTests: XCTestCase {
         var profile = SSHProfile(name: "host", host: "127.0.0.1", username: "deploy", savedPasswordID: saved.id)
         try persistence.save(profile)
         XCTAssertEqual(try persistence.loadProfiles().first?.savedPasswordID, saved.id)
-        XCTAssertEqual(try persistence.loadSavedPasswords(), [saved])
+        let loaded = try XCTUnwrap(persistence.loadSavedPasswords().first)
+        XCTAssertEqual([loaded.id, loaded.name, loaded.username] as [AnyHashable], [saved.id, saved.name, saved.username])
+        XCTAssertNotNil(loaded.createdAt)
+        XCTAssertEqual(loaded.updatedAt, loaded.createdAt)
         profile.username = "independent"
         profile.savedPasswordID = nil
         try persistence.save(profile)
@@ -183,6 +187,43 @@ final class SnakeAppTests: XCTestCase {
         let reloaded = ApplicationStore(databaseURL: database, userDefaults: defaults)
         XCTAssertEqual(reloaded.childFolders(of: nil).map(\.name), ["Alpha"])
         XCTAssertEqual(reloaded.profiles.first { $0.name == "two" }?.groupID, alpha.id)
+    }
+
+    @MainActor
+    func testSessionTimestampsSurviveReorderingAndMoveOnEdits() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("snake-stamps-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let suite = "com.snake.tests.stamps.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let database = root.appendingPathComponent("db.sqlite3")
+        let persistence = try CorePersistence(databaseURL: database)
+        let first = SSHProfile(name: "one", host: "10.0.0.1", username: "root", sortOrder: 0)
+        let second = SSHProfile(name: "two", host: "10.0.0.2", username: "root", sortOrder: 1)
+        try persistence.save(first)
+        try persistence.save(second)
+        var connection: OpaquePointer?
+        XCTAssertEqual(sqlite3_open(database.path, &connection), SQLITE_OK)
+        XCTAssertEqual(sqlite3_exec(connection, "UPDATE ssh_profiles SET created_at = 100, updated_at = 200", nil, nil, nil), SQLITE_OK)
+        sqlite3_close(connection)
+
+        let store = ApplicationStore(databaseURL: database, userDefaults: defaults)
+        let old = SSHProfileTimestamps(createdAt: Date(timeIntervalSince1970: 100), updatedAt: Date(timeIntervalSince1970: 200))
+        XCTAssertEqual(store.profileTimestamps[first.id], old, "launching re-saves every session without editing it")
+        store.reorderProfiles([second.id, first.id])
+        XCTAssertEqual(store.profileTimestamps[first.id], old, "reordering is not an edit")
+
+        var renamed = try XCTUnwrap(store.profiles.first { $0.id == first.id })
+        renamed.name = "one-renamed"
+        try store.save(profile: renamed)
+        let edited = try XCTUnwrap(store.profileTimestamps[first.id])
+        XCTAssertEqual(edited.createdAt, old.createdAt)
+        XCTAssertGreaterThan(edited.updatedAt, old.updatedAt)
+        XCTAssertEqual(store.profileTimestamps[second.id], old)
+
+        store.delete(profile: renamed)
+        XCTAssertNil(store.profileTimestamps[first.id])
     }
 
     @MainActor
@@ -503,25 +544,14 @@ final class SnakeAppTests: XCTestCase {
             userAccessPath: "~/Snake/releases",
             managedMountPath: "/Users/Shared/.SnakeMounts/test"
         )
-        let transfer = TransferJob(
-            sourceProfileName: "本机",
-            targetProfileName: profile.name,
-            sourcePath: "/tmp/a.zip",
-            targetPath: "/srv/a.zip",
-            totalBytes: 1024,
-            completedBytes: 128,
-            state: .paused
-        )
 
         try persistence.save(group)
         try persistence.save(profile)
         try persistence.save(mapping, profileSnapshot: profile.name)
-        try persistence.save(transfer)
 
         XCTAssertEqual(try persistence.loadGroups(), [group])
         XCTAssertEqual(try persistence.loadProfiles(), [profile])
         XCTAssertEqual(try persistence.loadMountMappings().first?.id, mapping.id)
-        XCTAssertEqual(try persistence.loadTransferJobs().first?.id, transfer.id)
     }
 
     private func contrastRatio(_ foreground: UInt32, _ background: UInt32) -> Double {

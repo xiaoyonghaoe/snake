@@ -67,6 +67,22 @@ final class TerminalShellStartupTests: XCTestCase {
         XCTAssertTrue(silent.isComplete)
     }
 
+    /// After a reconnect the MOTD was already read once: only the prompt shows,
+    /// both when the hook answers and when a slow shell is released early.
+    func testReconnectHidesLoginBannerButKeepsPrompt() throws {
+        var startup = try XCTUnwrap(TerminalShellStartup(shellName: "bash", hidesBanner: true))
+        let banner = Data("Welcome to Ubuntu 22.04.5 LTS\r\n\r\n * Documentation: https://help.ubuntu.com\r\n".utf8)
+        let prompt = Data("root@server:~# ".utf8)
+        let raw = banner + Data("root@server:~# ".utf8) + startup.command + startup.completionMarker + prompt
+        XCTAssertEqual(startup.consume(raw), prompt)
+        XCTAssertTrue(startup.isComplete)
+
+        var slow = try XCTUnwrap(TerminalShellStartup(shellName: "bash", hidesBanner: true))
+        XCTAssertTrue(slow.consume(banner + slow.command).isEmpty)
+        XCTAssertTrue(slow.releaseBanner().isEmpty, "a slow shell must not reveal the banner either")
+        XCTAssertEqual(slow.consume(slow.completionMarker + prompt), prompt)
+    }
+
     func testHighlightedZshEchoIsStillHidden() throws {
         var startup = try XCTUnwrap(TerminalShellStartup(shellName: "zsh"))
         let command = String(decoding: startup.command, as: UTF8.self)

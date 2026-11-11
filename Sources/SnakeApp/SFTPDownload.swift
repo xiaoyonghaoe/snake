@@ -7,6 +7,13 @@ struct DownloadConflictPrompt: Identifiable {
     let path: String
 }
 
+/// The server a download reads from: this tab's own, or another tab's when a
+/// server-to-server copy relays through this Mac.
+struct DownloadSource: Sendable {
+    let profile: SSHProfile
+    let makeHandle: @Sendable () throws -> CoreSftpHandle
+}
+
 struct DownloadItem: Sendable {
     let remotePath: String
     let components: [String]
@@ -78,16 +85,25 @@ extension LocalUploadCoordinator {
         }
     }
 
-    func download(files: [RemoteFile], to root: URL, store: ApplicationStore) {
-        guard !files.isEmpty else { return }
-        let host = TransferHost(profile: profile)
+    /// Downloads `files` into `root`.
+    ///
+    /// With `relaySource` the files come from another tab's server into a relay batch:
+    /// records name that server, links are skipped and nothing is retryable, because
+    /// the batch is deleted as soon as the relay ends. `onFinished` receives the
+    /// batch outcome either way.
+    func download(files: [RemoteFile], to root: URL, store: ApplicationStore, from relaySource: DownloadSource? = nil,
+                  onFinished: (@MainActor (UploadActivity.Outcome) -> Void)? = nil) {
+        guard !files.isEmpty else { onFinished?(UploadActivity.Outcome()); return }
+        let relayed = relaySource != nil
+        let source = relaySource ?? DownloadSource(profile: profile, makeHandle: makeHandle)
+        let host = TransferHost(profile: source.profile)
         let concurrency = HostTransferPlan.workerCount(
             requested: store.multipartConcurrency,
             hostLimit: store.hostConcurrencyLimit
         )
         let threshold = store.multipartThresholdBytes
-        let profile = profile
-        let makeHandle = makeHandle
+        let profile = source.profile
+        let makeHandle = source.makeHandle
         errorMessage = nil
         activity.begin()
         let previous = batchTask
@@ -96,7 +112,7 @@ extension LocalUploadCoordinator {
             let scoped = root.startAccessingSecurityScopedResource()
             defer { if scoped { root.stopAccessingSecurityScopedResource() } }
             var outcome = UploadActivity.Outcome()
-            defer { activity.finish(outcome) }
+            defer { activity.finish(outcome); onFinished?(outcome) }
             do {
                 let (items, capability) = try await Task.detached(priority: .userInitiated) {
                     // 清单扫描只需一条短命连接，单独占用一次预算。
@@ -117,6 +133,7 @@ extension LocalUploadCoordinator {
                     var record = SFTPUploadRecord(jobID: id, fileName: name, remotePath: item.remotePath,
                         fileSize: Int64(clamping: item.metadata.size), startedAt: .now, state: .queued, localURL: url, overwrite: false)
                     record.isDownload = true
+                    if relayed { record.isRelay = true; record.relaySource = profile.name }
                     records.insert(record, at: 0)
                     if item.metadata.kind == "directory" {
                         _ = try location.directory(item.components)
@@ -152,6 +169,8 @@ extension LocalUploadCoordinator {
                     }
                     let control = store.makeTransferControl(for: id)
                     tasks.append((id, item, overwrite, control))
+                    // A relay batch is deleted when the relay ends, so there is nothing to retry into.
+                    guard !relayed else { continue }
                     let retryOverwrite = overwrite
                     downloadRetries[id] = { [weak self] in
                         guard let self, let record = self.records.first(where: { $0.jobID == id }), [.failed, .cancelled, .interrupted].contains(record.state) else { return }
@@ -164,7 +183,8 @@ extension LocalUploadCoordinator {
                         // stale ranges survive a failed verification.
                         await self.performDownload(id: id, item: item, location: location, overwrite: retryOverwrite,
                             workers: item.metadata.size > UInt64(threshold) ? concurrency : 1,
-                            capability: capability, control: retryControl, store: store, refreshMetadata: true)
+                            capability: capability, control: retryControl, source: source, relayed: false,
+                            store: store, refreshMetadata: true)
                         self.activity.finish(self.outcome(for: [id]))
                     }
                 }
@@ -175,7 +195,8 @@ extension LocalUploadCoordinator {
                     let first = tasks[index]
                     if first.1.metadata.size > UInt64(threshold) {
                         await performDownload(id: first.0, item: first.1, location: location, overwrite: first.2,
-                            workers: concurrency, capability: capability, control: first.3, store: store)
+                            workers: concurrency, capability: capability, control: first.3, source: source, relayed: relayed,
+                            store: store)
                         index += 1
                     } else {
                         var wave: [(UUID, DownloadItem, Bool, CoreTransferControl)] = []
@@ -186,7 +207,8 @@ extension LocalUploadCoordinator {
                             for task in wave {
                                 group.addTask {
                                     await self.performDownload(id: task.0, item: task.1, location: location, overwrite: task.2,
-                                        workers: 1, capability: capability, control: task.3, store: store)
+                                        workers: 1, capability: capability, control: task.3, source: source, relayed: relayed,
+                                        store: store)
                                 }
                             }
                         }
@@ -219,10 +241,11 @@ extension LocalUploadCoordinator {
     }
 
     private func performDownload(id: UUID, item: DownloadItem, location: DownloadLocation, overwrite: Bool, workers: Int,
-        capability: CoreChecksumCapability, control: CoreTransferControl, store: ApplicationStore, refreshMetadata: Bool = false) async {
+        capability: CoreChecksumCapability, control: CoreTransferControl, source: DownloadSource, relayed: Bool,
+        store: ApplicationStore, refreshMetadata: Bool = false) async {
         guard records.first(where: { $0.jobID == id })?.state != .cancelled else { return }
-        let makeHandle = makeHandle
-        let host = TransferHost(profile: profile)
+        let makeHandle = source.makeHandle
+        let host = TransferHost(profile: source.profile)
         do {
             // 整笔预留「外层 handle + 分片」；等待预算期间记录保持「等待中」。
             let result = try await HostTransferBudget.shared.reserve(host: host, connections: 1 + workers) {
@@ -240,6 +263,7 @@ extension LocalUploadCoordinator {
                     let parent = try location.directory(Array(item.components.dropLast()), create: false)
                     let name = item.components.last!
                     if current.kind == "link" {
+                        if relayed { return TransferVerification.notApplicable(L10n.text("中转不传输软链接，已跳过")) }
                         guard let target = current.linkTarget else { throw TransferIntegrity.error(L10n.text("无法读取软链接目标")) }
                         try control.checkpoint()
                         try parent.createLink(name: name, target: target, overwrite: overwrite)

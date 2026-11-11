@@ -22,6 +22,10 @@ mod transfer_integrity;
 mod sftp_publish;
 mod mcp;
 mod known_hosts;
+mod ssh_keys;
+pub use ssh_keys::{generate_ed25519_key, import_private_key, CoreSshKey};
+mod tunnel;
+pub use tunnel::*;
 mod sftp_client;
 mod ssh;
 pub use mcp::*;
@@ -77,20 +81,10 @@ pub struct SavedPasswordRecord {
     pub id: Uuid,
     pub name: String,
     pub username: String,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct TransferJobRecord {
-    pub id: Uuid,
-    pub source_profile_snapshot: String,
-    pub target_profile_snapshot: String,
-    pub source_path: String,
-    pub target_path: String,
-    pub total_bytes: i64,
-    pub completed_bytes: i64,
-    pub state: String,
-    pub error_message: Option<String>,
+    /// Unix seconds; ignored when saving.
     pub created_at: i64,
+    /// Unix seconds; ignored when saving.
+    pub updated_at: i64,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -177,30 +171,6 @@ impl SnakeStore {
                 accepted_at INTEGER NOT NULL DEFAULT (unixepoch()),
                 PRIMARY KEY(host, port)
             );
-            CREATE TABLE IF NOT EXISTS transfer_jobs (
-                id TEXT PRIMARY KEY NOT NULL,
-                source_profile_id TEXT,
-                target_profile_id TEXT,
-                source_profile_snapshot TEXT NOT NULL,
-                target_profile_snapshot TEXT NOT NULL,
-                source_path TEXT NOT NULL,
-                target_path TEXT NOT NULL,
-                entry_kind TEXT NOT NULL,
-                total_bytes INTEGER NOT NULL DEFAULT 0,
-                completed_bytes INTEGER NOT NULL DEFAULT 0,
-                state TEXT NOT NULL,
-                conflict_policy TEXT NOT NULL DEFAULT 'ask',
-                error_message TEXT,
-                created_at INTEGER NOT NULL DEFAULT (unixepoch()),
-                updated_at INTEGER NOT NULL DEFAULT (unixepoch())
-            );
-            CREATE TABLE IF NOT EXISTS transfer_events (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                job_id TEXT NOT NULL REFERENCES transfer_jobs(id) ON DELETE CASCADE,
-                state TEXT NOT NULL,
-                message TEXT,
-                created_at INTEGER NOT NULL DEFAULT (unixepoch())
-            );
             CREATE TABLE IF NOT EXISTS mount_mappings (
                 id TEXT PRIMARY KEY NOT NULL,
                 profile_id TEXT,
@@ -228,8 +198,6 @@ impl SnakeStore {
                 updated_at INTEGER NOT NULL DEFAULT (unixepoch())
             );
             INSERT OR IGNORE INTO schema_migrations(version) VALUES (1);
-            UPDATE transfer_jobs SET state = 'interrupted', updated_at = unixepoch()
-            WHERE state IN ('queued', 'scanning', 'running');
             ",
         )?;
         let has_saved_password_id = self.connection
@@ -252,6 +220,28 @@ impl SnakeStore {
             )?;
         }
         self.connection.execute("INSERT OR IGNORE INTO schema_migrations(version) VALUES (4)", [])?;
+        // v5: transfer history was written but never shown; transfers live only in memory.
+        self.connection.execute_batch(
+            "DROP TABLE IF EXISTS transfer_events;
+             DROP TABLE IF EXISTS transfer_jobs;
+             INSERT OR IGNORE INTO schema_migrations(version) VALUES (5);",
+        )?;
+        // v6: local port forwards. Deleting a session keeps its tunnels, unbound.
+        self.connection.execute_batch(
+            "CREATE TABLE IF NOT EXISTS ssh_tunnels (
+                id TEXT PRIMARY KEY NOT NULL,
+                profile_id TEXT REFERENCES ssh_profiles(id) ON DELETE SET NULL,
+                local_port INTEGER NOT NULL UNIQUE CHECK(local_port BETWEEN 1 AND 65535),
+                remote_host TEXT NOT NULL,
+                remote_port INTEGER NOT NULL CHECK(remote_port BETWEEN 1 AND 65535),
+                note TEXT NOT NULL DEFAULT '',
+                auto_start INTEGER NOT NULL DEFAULT 0,
+                sort_order INTEGER NOT NULL DEFAULT 0,
+                created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+                updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+             );
+             INSERT OR IGNORE INTO schema_migrations(version) VALUES (6);",
+        )?;
         Ok(())
     }
 
@@ -297,7 +287,15 @@ impl SnakeStore {
                 private_key_bookmark = excluded.private_key_bookmark, tags_json = excluded.tags_json,
                 symbol_name = excluded.symbol_name, sort_order = excluded.sort_order,
                 saved_password_id = excluded.saved_password_id,
-                updated_at = unixepoch()",
+                -- Swift re-saves every profile on each configuration write, and
+                -- reordering is not an edit: only a changed value marks an update.
+                updated_at = CASE WHEN
+                    group_id IS NOT excluded.group_id OR name IS NOT excluded.name OR host IS NOT excluded.host
+                    OR port IS NOT excluded.port OR username IS NOT excluded.username
+                    OR auth_method IS NOT excluded.auth_method OR keychain_account IS NOT excluded.keychain_account
+                    OR private_key_bookmark IS NOT excluded.private_key_bookmark OR tags_json IS NOT excluded.tags_json
+                    OR symbol_name IS NOT excluded.symbol_name OR saved_password_id IS NOT excluded.saved_password_id
+                THEN unixepoch() ELSE updated_at END",
             params![
                 profile.id.to_string(),
                 profile.group_id.map(|id| id.to_string()),
@@ -377,6 +375,30 @@ impl SnakeStore {
         Ok(profiles)
     }
 
+    /// Marks an edit that changed no stored column, such as a new password.
+    pub fn touch_profile(&self, id: Uuid) -> Result<(), SnakeCoreError> {
+        self.connection.execute(
+            "UPDATE ssh_profiles SET updated_at = unixepoch() WHERE id = ?1",
+            params![id.to_string()],
+        )?;
+        Ok(())
+    }
+
+    /// `(id, created_at, updated_at)` in Unix seconds for every profile.
+    pub fn profile_timestamps(&self) -> Result<Vec<(Uuid, i64, i64)>, SnakeCoreError> {
+        let mut statement = self.connection.prepare("SELECT id, created_at, updated_at FROM ssh_profiles")?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok((
+                    Uuid::parse_str(&row.get::<_, String>(0)?).unwrap_or_else(|_| Uuid::nil()),
+                    row.get(1)?,
+                    row.get(2)?,
+                ))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
     pub fn delete_group(&self, id: Uuid) -> Result<(), SnakeCoreError> {
         self.connection.execute(
             "DELETE FROM session_groups WHERE id = ?1",
@@ -395,13 +417,15 @@ impl SnakeStore {
 
     pub fn saved_passwords(&self) -> Result<Vec<SavedPasswordRecord>, SnakeCoreError> {
         let mut statement = self.connection.prepare(
-            "SELECT id, name, username FROM saved_passwords ORDER BY name COLLATE NOCASE, id",
+            "SELECT id, name, username, created_at, updated_at FROM saved_passwords ORDER BY name COLLATE NOCASE, id",
         )?;
         let records = statement.query_map([], |row| {
             Ok(SavedPasswordRecord {
                 id: Uuid::parse_str(&row.get::<_, String>(0)?).unwrap_or_else(|_| Uuid::nil()),
                 name: row.get(1)?,
                 username: row.get(2)?,
+                created_at: row.get(3)?,
+                updated_at: row.get(4)?,
             })
         })?.collect::<Result<Vec<_>, _>>()?;
         Ok(records)
@@ -418,7 +442,9 @@ impl SnakeStore {
         let transaction = self.connection.unchecked_transaction()?;
         transaction.execute(
             "INSERT INTO saved_passwords(id, name, username) VALUES(?1, ?2, ?3)
-             ON CONFLICT(id) DO UPDATE SET name=excluded.name, username=excluded.username, updated_at=unixepoch()",
+             ON CONFLICT(id) DO UPDATE SET name=excluded.name, username=excluded.username,
+                 updated_at = CASE WHEN name IS NOT excluded.name OR username IS NOT excluded.username
+                     THEN unixepoch() ELSE updated_at END",
             params![record.id.to_string(), record.name, record.username],
         )?;
         let mut updated = Vec::new();
@@ -437,56 +463,17 @@ impl SnakeStore {
         Ok(updated)
     }
 
-    pub fn delete_saved_password(&self, id: Uuid) -> Result<(), SnakeCoreError> {
-        self.connection.execute("DELETE FROM saved_passwords WHERE id=?1", params![id.to_string()])?;
-        Ok(())
-    }
-
-    pub fn save_transfer_job(&self, job: &TransferJobRecord) -> Result<(), SnakeCoreError> {
+    /// A new password lives in the credential file, so SQLite cannot see the edit.
+    pub fn touch_saved_password(&self, id: Uuid) -> Result<(), SnakeCoreError> {
         self.connection.execute(
-            "INSERT INTO transfer_jobs(id, source_profile_snapshot, target_profile_snapshot, source_path, target_path, entry_kind, total_bytes, completed_bytes, state, error_message, created_at)
-             VALUES(?1, ?2, ?3, ?4, ?5, 'file', ?6, ?7, ?8, ?9, ?10)
-             ON CONFLICT(id) DO UPDATE SET completed_bytes = excluded.completed_bytes,
-                state = excluded.state, error_message = excluded.error_message, updated_at = unixepoch()",
-            params![
-                job.id.to_string(), job.source_profile_snapshot, job.target_profile_snapshot,
-                job.source_path, job.target_path, job.total_bytes, job.completed_bytes,
-                job.state, job.error_message, job.created_at
-            ],
-        )?;
-        Ok(())
-    }
-
-    pub fn transfer_jobs(&self) -> Result<Vec<TransferJobRecord>, SnakeCoreError> {
-        let mut statement = self.connection.prepare(
-            "SELECT id, source_profile_snapshot, target_profile_snapshot, source_path, target_path,
-                    total_bytes, completed_bytes, state, error_message, created_at
-             FROM transfer_jobs ORDER BY created_at DESC",
-        )?;
-        let records = statement
-            .query_map([], |row| {
-                Ok(TransferJobRecord {
-                    id: Uuid::parse_str(&row.get::<_, String>(0)?).unwrap_or_else(|_| Uuid::nil()),
-                    source_profile_snapshot: row.get(1)?,
-                    target_profile_snapshot: row.get(2)?,
-                    source_path: row.get(3)?,
-                    target_path: row.get(4)?,
-                    total_bytes: row.get(5)?,
-                    completed_bytes: row.get(6)?,
-                    state: row.get(7)?,
-                    error_message: row.get(8)?,
-                    created_at: row.get(9)?,
-                })
-            })?
-            .collect::<Result<Vec<_>, _>>()?;
-        Ok(records)
-    }
-
-    pub fn delete_transfer_job(&self, id: Uuid) -> Result<(), SnakeCoreError> {
-        self.connection.execute(
-            "DELETE FROM transfer_jobs WHERE id = ?1",
+            "UPDATE saved_passwords SET updated_at = unixepoch() WHERE id = ?1",
             params![id.to_string()],
         )?;
+        Ok(())
+    }
+
+    pub fn delete_saved_password(&self, id: Uuid) -> Result<(), SnakeCoreError> {
+        self.connection.execute("DELETE FROM saved_passwords WHERE id=?1", params![id.to_string()])?;
         Ok(())
     }
 
@@ -577,24 +564,23 @@ pub struct CoreSshProfile {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, uniffi::Record)]
+pub struct CoreProfileTimestamps {
+    pub id: String,
+    /// Unix seconds.
+    pub created_at: i64,
+    /// Unix seconds of the last edit; reordering does not count.
+    pub updated_at: i64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, uniffi::Record)]
 pub struct CoreSavedPassword {
     pub id: String,
     pub name: String,
     pub username: String,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, uniffi::Record)]
-pub struct CoreTransferJob {
-    pub id: String,
-    pub source_profile_name: String,
-    pub target_profile_name: String,
-    pub source_path: String,
-    pub target_path: String,
-    pub total_bytes: i64,
-    pub completed_bytes: i64,
-    pub state: String,
-    pub error_message: Option<String>,
+    /// Unix seconds; ignored when saving.
     pub created_at: i64,
+    /// Unix seconds of the last name, username or password change; ignored when saving.
+    pub updated_at: i64,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, uniffi::Record)]
@@ -745,6 +731,7 @@ impl CoreDatabase {
     pub fn saved_passwords(&self) -> Result<Vec<CoreSavedPassword>, CoreError> {
         self.with_store(|store| store.saved_passwords()).map(|records| records.into_iter().map(|record| CoreSavedPassword {
             id: record.id.to_string(), name: record.name, username: record.username,
+            created_at: record.created_at, updated_at: record.updated_at,
         }).collect())
     }
 
@@ -754,9 +741,14 @@ impl CoreDatabase {
         if record.name.trim().is_empty() || record.username.trim().is_empty() {
             return Err(CoreError::InvalidInput { message: "saved password name and username cannot be empty".to_owned() });
         }
-        let record = SavedPasswordRecord { id, name: record.name, username: record.username };
+        let record = SavedPasswordRecord { id, name: record.name, username: record.username, created_at: 0, updated_at: 0 };
         self.with_store(|store| store.save_saved_password_and_sync(&record, &selected, sync_username))
             .map(|ids| ids.into_iter().map(|id| id.to_string()).collect())
+    }
+
+    pub fn touch_saved_password(&self, id: String) -> Result<(), CoreError> {
+        let id = parse_identifier(&id)?;
+        self.with_store(|store| store.touch_saved_password(id))
     }
 
     pub fn delete_saved_password(&self, id: String) -> Result<(), CoreError> {
@@ -830,51 +822,17 @@ impl CoreDatabase {
         self.with_store(|store| store.delete_profile(id))
     }
 
-    pub fn transfer_jobs(&self) -> Result<Vec<CoreTransferJob>, CoreError> {
-        self.with_store(|store| store.transfer_jobs()).map(|jobs| {
-            jobs.into_iter()
-                .map(|job| CoreTransferJob {
-                    id: job.id.to_string(),
-                    source_profile_name: job.source_profile_snapshot,
-                    target_profile_name: job.target_profile_snapshot,
-                    source_path: job.source_path,
-                    target_path: job.target_path,
-                    total_bytes: job.total_bytes,
-                    completed_bytes: job.completed_bytes,
-                    state: job.state,
-                    error_message: job.error_message,
-                    created_at: job.created_at,
-                })
+    pub fn touch_profile(&self, id: String) -> Result<(), CoreError> {
+        let id = parse_identifier(&id)?;
+        self.with_store(|store| store.touch_profile(id))
+    }
+
+    pub fn profile_timestamps(&self) -> Result<Vec<CoreProfileTimestamps>, CoreError> {
+        self.with_store(|store| store.profile_timestamps()).map(|rows| {
+            rows.into_iter()
+                .map(|(id, created_at, updated_at)| CoreProfileTimestamps { id: id.to_string(), created_at, updated_at })
                 .collect()
         })
-    }
-
-    pub fn save_transfer_job(&self, job: CoreTransferJob) -> Result<(), CoreError> {
-        let id = parse_identifier(&job.id)?;
-        if job.total_bytes < 0 || job.completed_bytes < 0 {
-            return Err(CoreError::InvalidInput {
-                message: "transfer byte counts cannot be negative".to_owned(),
-            });
-        }
-        self.with_store(|store| {
-            store.save_transfer_job(&TransferJobRecord {
-                id,
-                source_profile_snapshot: job.source_profile_name,
-                target_profile_snapshot: job.target_profile_name,
-                source_path: job.source_path,
-                target_path: job.target_path,
-                total_bytes: job.total_bytes,
-                completed_bytes: job.completed_bytes.min(job.total_bytes),
-                state: job.state,
-                error_message: job.error_message,
-                created_at: job.created_at,
-            })
-        })
-    }
-
-    pub fn delete_transfer_job(&self, id: String) -> Result<(), CoreError> {
-        let id = parse_identifier(&id)?;
-        self.with_store(|store| store.delete_transfer_job(id))
     }
 
     pub fn mount_mappings(&self) -> Result<Vec<CoreMountMapping>, CoreError> {
@@ -974,7 +932,6 @@ pub struct CoreRemoteEntry {
 pub struct CoreSftpHandle {
     connection: Arc<ssh::Connection>,
     sftp: Sftp,
-    server_address: std::net::SocketAddr,
 }
 
 #[uniffi::export(callback_interface)]
@@ -1111,58 +1068,10 @@ impl CoreTransferControl {
 
 #[uniffi::export]
 impl CoreSftpHandle {
-    pub fn copy_from(
-        &self,
-        source: Arc<CoreSftpHandle>,
-        source_path: String,
-        destination_path: String,
-        is_directory: bool,
-    ) -> Result<(), CoreError> {
-        ensure_copy_destination_outside_source(&source, self, &source_path, &destination_path, is_directory)?;
-        ensure_destination_absent(&self.sftp, Path::new(&destination_path))?;
-        copy_remote_entry(
-            &source.sftp,
-            &self.sftp,
-            Path::new(&source_path),
-            Path::new(&destination_path),
-            is_directory,
-        )
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    pub fn copy_from_controlled(
-        &self,
-        source: Arc<CoreSftpHandle>,
-        source_path: String,
-        destination_path: String,
-        is_directory: bool,
-        total_bytes: u64,
-        control: Arc<CoreTransferControl>,
-        observer: Box<dyn CoreTransferObserver>,
-    ) -> Result<(), CoreError> {
-        control.wait_if_paused()?;
-        ensure_copy_destination_outside_source(&source, self, &source_path, &destination_path, is_directory)?;
-        ensure_destination_absent(&self.sftp, Path::new(&destination_path))?;
-        let mut completed = 0_u64;
-        let result = copy_remote_entry_controlled(
-            &source.sftp,
-            &self.sftp,
-            Path::new(&source_path),
-            Path::new(&destination_path),
-            is_directory,
-            total_bytes,
-            &mut completed,
-            &control,
-            observer.as_ref(),
-        );
-        if matches!(&result, Err(CoreError::TransferCancelled)) {
-            let _ = if is_directory {
-                self.sftp.rmdir(Path::new(&destination_path))
-            } else {
-                self.sftp.unlink(Path::new(&destination_path))
-            };
-        }
-        result
+    /// The SSH connection under this handle ended, e.g. after a network drop;
+    /// every further call would fail until a new handle is opened.
+    pub fn is_closed(&self) -> bool {
+        self.connection.is_closed()
     }
 
     pub fn home_directory(&self) -> Result<String, CoreError> {
@@ -1175,20 +1084,14 @@ impl CoreSftpHandle {
     pub fn list(&self, path: String) -> Result<Vec<CoreRemoteEntry>, CoreError> {
         let entries = self
             .sftp
-            .readdir(Path::new(&path))
+            .list(Path::new(&path))
             .map_err(connection_error)?;
         let mut entries = entries
             .into_iter()
-            .map(|(path, stat)| {
-                let stat = self.sftp.lstat(&path).unwrap_or(stat);
+            .map(|entry| {
+                let sftp_client::ListedEntry { path, stat, link_target, target_stat } = entry;
                 let is_symbolic_link = stat.file_type().is_symlink();
-                let link_target = is_symbolic_link
-                    .then(|| self.sftp.readlink(&path).ok())
-                    .flatten()
-                    .map(|target| target.to_string_lossy().into_owned());
-                let target_stat = is_symbolic_link
-                    .then(|| self.sftp.stat(&path).ok())
-                    .flatten();
+                let link_target = link_target.map(|target| target.to_string_lossy().into_owned());
                 CoreRemoteEntry {
                     name: path
                         .file_name()
@@ -1423,22 +1326,6 @@ impl CoreSftpHandle {
         run_remote_command(&self.connection, &command, "chmod -R")
     }
 
-    pub fn copy_symbolic_link_from(
-        &self,
-        source: Arc<CoreSftpHandle>,
-        source_path: String,
-        destination_path: String,
-    ) -> Result<(), CoreError> {
-        ensure_destination_absent(&self.sftp, Path::new(&destination_path))?;
-        let target = source
-            .sftp
-            .readlink(Path::new(&source_path))
-            .map_err(connection_error)?;
-        self.sftp
-            .symlink(&target, Path::new(&destination_path))
-            .map_err(connection_error)
-    }
-
     pub fn rename(&self, source: String, destination: String) -> Result<(), CoreError> {
         self.sftp
             .rename(Path::new(&source), Path::new(&destination))
@@ -1655,7 +1542,7 @@ fn open_sftp(
         ssh::shared(host, port, username, credential, known_hosts_path, accept_fingerprint)?
     };
     let sftp = Sftp::start(Arc::clone(&connection))?;
-    Ok(Arc::new(CoreSftpHandle { server_address: connection.server_address, connection, sftp }))
+    Ok(Arc::new(CoreSftpHandle { connection, sftp }))
 }
 
 const TCP_CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
@@ -1767,19 +1654,26 @@ fn start_terminal(
         });
     }
     let (channel, shell_name, early_output) = ssh::block_on(async {
-        let shell_name = detect_remote_shell(&connection).await;
-        let mut channel = connection.open_session().await?;
-        let mut early_output = Vec::new();
-        channel
-            .request_pty(true, "xterm-256color", columns, rows, 0, 0, &[])
-            .await
-            .map_err(|error| ssh_connection_stage_error("ssh_pty", error.into()))?;
-        await_request_reply(&mut channel, &mut early_output, "ssh_pty").await?;
-        channel
-            .request_shell(true)
-            .await
-            .map_err(|error| ssh_connection_stage_error("ssh_shell", error.into()))?;
-        await_request_reply(&mut channel, &mut early_output, "ssh_shell").await?;
+        // Every step below is a round trip to the server, so on a distant host the
+        // prompt waited for each in turn. Shell detection uses its own exec channel
+        // and now runs beside the terminal's setup instead of before it.
+        let (shell_name, terminal) = tokio::join!(detect_remote_shell(&connection), async {
+            let mut channel = connection.open_session().await?;
+            let mut early_output = Vec::new();
+            // Both requests go out together; sshd answers channel requests in order.
+            channel
+                .request_pty(true, "xterm-256color", columns, rows, 0, 0, &[])
+                .await
+                .map_err(|error| ssh_connection_stage_error("ssh_pty", error.into()))?;
+            channel
+                .request_shell(true)
+                .await
+                .map_err(|error| ssh_connection_stage_error("ssh_shell", error.into()))?;
+            await_request_reply(&mut channel, &mut early_output, "ssh_pty").await?;
+            await_request_reply(&mut channel, &mut early_output, "ssh_shell").await?;
+            Ok::<_, CoreError>((channel, early_output))
+        });
+        let (channel, early_output) = terminal?;
         Ok::<_, CoreError>((channel, shell_name, early_output))
     })?;
 
@@ -1947,41 +1841,6 @@ fn copy_with_fixed_buffer(
     destination.flush().map_err(io_error)
 }
 
-fn copy_remote_entry(
-    source: &Sftp,
-    destination: &Sftp,
-    source_path: &Path,
-    destination_path: &Path,
-    is_directory: bool,
-) -> Result<(), CoreError> {
-    if is_directory {
-        if let Err(error) = destination.mkdir(destination_path, 0o755) {
-            if destination.stat(destination_path).is_err() {
-                return Err(connection_error(error));
-            }
-        }
-        for (child_path, stat) in source.readdir(source_path).map_err(connection_error)? {
-            let Some(name) = child_path.file_name() else {
-                continue;
-            };
-            copy_remote_entry(
-                source,
-                destination,
-                &child_path,
-                &destination_path.join(name),
-                stat.is_dir(),
-            )?;
-        }
-        return Ok(());
-    }
-
-    let mut input = source.open(source_path).map_err(connection_error)?;
-    let mut output = destination
-        .create(destination_path)
-        .map_err(connection_error)?;
-    copy_with_fixed_buffer(&mut input, &mut output)
-}
-
 fn ensure_destination_absent(sftp: &Sftp, path: &Path) -> Result<(), CoreError> {
     if sftp.stat(path).is_ok() {
         return Err(CoreError::Conflict {
@@ -1989,88 +1848,6 @@ fn ensure_destination_absent(sftp: &Sftp, path: &Path) -> Result<(), CoreError> 
         });
     }
     Ok(())
-}
-
-fn ensure_copy_destination_outside_source(
-    source: &CoreSftpHandle,
-    destination: &CoreSftpHandle,
-    source_path: &str,
-    destination_path: &str,
-    is_directory: bool,
-) -> Result<(), CoreError> {
-    if !is_directory || source.server_address != destination.server_address {
-        return Ok(());
-    }
-    let source_root = source.sftp.realpath(Path::new(source_path)).map_err(connection_error)?;
-    let target = Path::new(destination_path);
-    let parent = target.parent().filter(|path| !path.as_os_str().is_empty()).unwrap_or(Path::new("."));
-    let name = target.file_name().ok_or_else(|| CoreError::InvalidInput {
-        message: "copy destination requires a file name".to_owned(),
-    })?;
-    // Resolve aliases and symlink parents before creating anything. Checking
-    // the UI's profile ID or lexical path misses two tabs on the same server.
-    let target = destination.sftp.realpath(parent).map_err(connection_error)?.join(name);
-    validate_copy_destination(&source_root, &target)
-}
-
-fn validate_copy_destination(source: &Path, destination: &Path) -> Result<(), CoreError> {
-    if destination.starts_with(source) {
-        return Err(CoreError::InvalidInput {
-            message: "cannot copy a directory into itself or one of its descendants".to_owned(),
-        });
-    }
-    Ok(())
-}
-
-#[allow(clippy::too_many_arguments)]
-fn copy_remote_entry_controlled(
-    source: &Sftp,
-    destination: &Sftp,
-    source_path: &Path,
-    destination_path: &Path,
-    is_directory: bool,
-    total_bytes: u64,
-    completed_bytes: &mut u64,
-    control: &CoreTransferControl,
-    observer: &dyn CoreTransferObserver,
-) -> Result<(), CoreError> {
-    control.wait_if_paused()?;
-    if is_directory {
-        if let Err(error) = destination.mkdir(destination_path, 0o755) {
-            if destination.stat(destination_path).is_err() {
-                return Err(connection_error(error));
-            }
-        }
-        for (child_path, stat) in source.readdir(source_path).map_err(connection_error)? {
-            let Some(name) = child_path.file_name() else {
-                continue;
-            };
-            copy_remote_entry_controlled(
-                source,
-                destination,
-                &child_path,
-                &destination_path.join(name),
-                stat.is_dir(),
-                total_bytes,
-                completed_bytes,
-                control,
-                observer,
-            )?;
-        }
-        return Ok(());
-    }
-    let mut input = source.open(source_path).map_err(connection_error)?;
-    let mut output = destination
-        .create(destination_path)
-        .map_err(connection_error)?;
-    copy_with_control_from_offset(
-        &mut input,
-        &mut output,
-        total_bytes,
-        completed_bytes,
-        control,
-        observer,
-    )
 }
 
 fn copy_with_control(
@@ -2179,18 +1956,6 @@ fn parse_identifier(value: &str) -> Result<Uuid, CoreError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn directory_copy_rejects_self_and_descendants_but_allows_siblings() {
-        let source = Path::new("/srv/data");
-        for target in ["/srv/data", "/srv/data/child", "/srv/data/child/data"] {
-            assert!(matches!(validate_copy_destination(source, Path::new(target)), Err(CoreError::InvalidInput { .. })));
-        }
-        for target in ["/srv/data2", "/srv/other/data", "/srv"] {
-            assert!(validate_copy_destination(source, Path::new(target)).is_ok());
-        }
-        assert!(validate_copy_destination(Path::new("/"), Path::new("/child")).is_err());
-    }
 
     struct RecordingObserver {
         updates: Mutex<Vec<(u64, u64)>>,
@@ -2341,6 +2106,79 @@ mod tests {
     }
 
     #[test]
+    fn profile_updated_at_moves_only_on_real_edits() {
+        let temp = tempfile::NamedTempFile::new().unwrap();
+        let path = temp.path().to_string_lossy().into_owned();
+        let database = CoreDatabase::open(path.clone()).unwrap();
+        let mut profile = CoreSshProfile {
+            id: Uuid::new_v4().to_string(),
+            group_id: None,
+            name: "美国节点".into(),
+            host: "203.0.113.9".into(),
+            port: 22,
+            username: "root".into(),
+            auth_method: CoreAuthMethod::Password,
+            keychain_account: None,
+            private_key_bookmark: None,
+            tags: vec![],
+            symbol_name: "server.rack".into(),
+            sort_order: 0,
+            saved_password_id: None,
+        };
+        database.save_profile(profile.clone()).unwrap();
+        let raw = rusqlite::Connection::open(temp.path()).unwrap();
+        raw.execute("UPDATE ssh_profiles SET created_at = 100, updated_at = 200", []).unwrap();
+        let stamps = |database: &CoreDatabase| {
+            let row = database.profile_timestamps().unwrap().pop().unwrap();
+            (row.created_at, row.updated_at)
+        };
+
+        database.save_profile(profile.clone()).unwrap();
+        profile.sort_order = 5;
+        database.save_profile(profile.clone()).unwrap();
+        assert_eq!(stamps(&database), (100, 200), "re-saving or reordering is not an edit");
+
+        profile.host = "203.0.113.10".into();
+        database.save_profile(profile.clone()).unwrap();
+        let (created, updated) = stamps(&database);
+        assert_eq!(created, 100);
+        assert!(updated > 200);
+
+        raw.execute("UPDATE ssh_profiles SET updated_at = 200", []).unwrap();
+        database.touch_profile(profile.id.clone()).unwrap();
+        assert!(stamps(&database).1 > 200);
+    }
+
+    #[test]
+    fn old_transfer_history_tables_are_dropped() {
+        let temp = tempfile::NamedTempFile::new().unwrap();
+        {
+            let connection = rusqlite::Connection::open(temp.path()).unwrap();
+            connection
+                .execute_batch(
+                    "CREATE TABLE transfer_jobs (id TEXT PRIMARY KEY NOT NULL, state TEXT NOT NULL);
+                    CREATE TABLE transfer_events (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        job_id TEXT NOT NULL REFERENCES transfer_jobs(id) ON DELETE CASCADE
+                    );
+                    INSERT INTO transfer_jobs(id, state) VALUES ('7c9e6679-7425-40de-944b-e07fc1f90ae7', 'succeeded');
+                    INSERT INTO transfer_events(job_id) VALUES ('7c9e6679-7425-40de-944b-e07fc1f90ae7');",
+                )
+                .unwrap();
+        }
+        CoreDatabase::open(temp.path().to_string_lossy().into_owned()).unwrap();
+        let connection = rusqlite::Connection::open(temp.path()).unwrap();
+        let remaining: i64 = connection
+            .query_row(
+                "SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name IN ('transfer_jobs', 'transfer_events')",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(remaining, 0);
+    }
+
+    #[test]
     fn uniffi_database_round_trips_configuration() {
         let temp = tempfile::NamedTempFile::new().unwrap();
         let database = CoreDatabase::open(temp.path().to_string_lossy().into_owned()).unwrap();
@@ -2389,28 +2227,13 @@ mod tests {
         };
         database.save_mount_mapping(mapping.clone()).unwrap();
         assert_eq!(database.mount_mappings().unwrap(), vec![mapping]);
-
-        let transfer = CoreTransferJob {
-            id: Uuid::new_v4().to_string(),
-            source_profile_name: "本机".into(),
-            target_profile_name: "dev-k8s-01".into(),
-            source_path: "/tmp/a.zip".into(),
-            target_path: "/srv/a.zip".into(),
-            total_bytes: 1024,
-            completed_bytes: 256,
-            state: "paused".into(),
-            error_message: None,
-            created_at: 1,
-        };
-        database.save_transfer_job(transfer.clone()).unwrap();
-        assert_eq!(database.transfer_jobs().unwrap(), vec![transfer]);
     }
 
     #[test]
     fn saved_password_metadata_syncs_only_selected_linked_password_profiles() {
         let temp = tempfile::NamedTempFile::new().unwrap();
         let database = CoreDatabase::open(temp.path().to_string_lossy().into_owned()).unwrap();
-        let entry = CoreSavedPassword { id: Uuid::new_v4().to_string(), name: "team".into(), username: "old".into() };
+        let entry = CoreSavedPassword { id: Uuid::new_v4().to_string(), name: "team".into(), username: "old".into(), created_at: 0, updated_at: 0 };
         database.save_saved_password_and_sync(entry.clone(), vec![], false).unwrap();
         let make_profile = |id: String, linked: Option<String>, method: CoreAuthMethod| CoreSshProfile {
             id, group_id: None, name: "host".into(), host: "127.0.0.1".into(), port: 22,
