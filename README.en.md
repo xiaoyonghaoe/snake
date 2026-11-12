@@ -4,6 +4,8 @@
 
 Snake is a native SSH workbench for macOS 15+: session management, terminal, SFTP file transfer, and SSHFS disk mapping share a single multi-window workspace.
 
+Website and live demo: [snakem.com](https://snakem.com)
+
 ## Installing 1.4.2
 
 The current installer package is the **Apple Silicon (M-series) build**, requires **macOS 15 or later**, and there is no Intel / Universal 2 build.
