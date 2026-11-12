@@ -3394,6 +3394,49 @@ extension WorkspaceWindowCoordinator: NSMenuItemValidation {
     }
 }
 
+/// What quitting would interrupt: directories still mounted (unmounted
+/// before quitting) and SSH tunnels still running (their local ports close).
+/// `nil` when nothing needs confirming.
+struct QuitReminder: Equatable {
+    let title: String
+    let message: String
+    let details: String
+    let confirmTitle: String
+
+    init?(mappings: [MountMapping], tunnels: [(SSHTunnel, TunnelState)], profiles: [SSHProfile]) {
+        guard !mappings.isEmpty || !tunnels.isEmpty else { return nil }
+        func sessionName(_ id: UUID?) -> String {
+            profiles.first { $0.id == id }?.name ?? L10n.text("未绑定连接")
+        }
+        switch (mappings.isEmpty, tunnels.isEmpty) {
+        case (false, true):
+            title = L10n.plural("还有 %@ 个目录尚未卸载", count: mappings.count, mappings.count)
+        case (true, false):
+            title = L10n.plural("还有 %@ 条 SSH 隧道正在运行", count: tunnels.count, tunnels.count)
+        default:
+            title = L10n.format("还有未卸载的目录（%@ 个）和正在运行的 SSH 隧道（%@ 条）", mappings.count, tunnels.count)
+        }
+        var paragraphs: [String] = []
+        if !mappings.isEmpty {
+            paragraphs.append(L10n.text("退出前将安全卸载以下目录。正在进行的挂载操作会先完成；如果卸载失败，将保留应用运行。"))
+        }
+        if !tunnels.isEmpty {
+            paragraphs.append(L10n.text("退出后 SSH 隧道会断开，本机端口随之关闭，正在通过它们的连接（例如数据库客户端）会中断。"))
+        }
+        message = paragraphs.joined(separator: "\n\n")
+        let mappingDetails = mappings.map { mapping in
+            L10n.format("%@ · %@\n远程目录：%@\n本地目录：%@\n挂载点：%@",
+                        mapping.name, sessionName(mapping.profileID), mapping.remotePath, mapping.userAccessPath, mapping.managedMountPath)
+        }
+        let tunnelDetails = tunnels.map { tunnel, state in
+            let session = tunnel.note.isEmpty ? sessionName(tunnel.profileID) : "\(tunnel.note) · \(sessionName(tunnel.profileID))"
+            return L10n.format("SSH 隧道 %@ → %@\n%@ · %@", tunnel.localAddress, tunnel.remoteAddress, session, state.label)
+        }
+        details = (mappingDetails + tunnelDetails).joined(separator: "\n\n")
+        confirmTitle = mappings.isEmpty ? L10n.text("断开并退出") : L10n.text("卸载并退出")
+    }
+}
+
 @MainActor
 public final class SnakeAppDelegate: NSObject, NSApplicationDelegate {
     /// Lazy so constructing a delegate (as tests do) never opens the user's real data store.
@@ -3408,18 +3451,14 @@ public final class SnakeAppDelegate: NSObject, NSApplicationDelegate {
             do {
                 let mounted = try await Task.detached(priority: .utility) { try MountOperations.checkedMountedPaths() }.value
                 let pending = store.mountMappings.filter { mounted.contains($0.managedMountPath) || $0.state == .mounting }
-                if !pending.isEmpty {
+                let tunnels = store.tunnels.activeTunnels.map { ($0, store.tunnels.state(of: $0.id)) }
+                if let reminder = QuitReminder(mappings: pending, tunnels: tunnels, profiles: store.profiles) {
                     let alert = NSAlert()
                     alert.alertStyle = .warning
-                    alert.messageText = L10n.plural("还有 %@ 个目录尚未卸载", count: pending.count, pending.count)
-                    alert.informativeText = L10n.text("退出前将安全卸载以下目录。正在进行的挂载操作会先完成；如果卸载失败，将保留应用运行。")
-                    let details = pending.map { mapping in
-                        let connection = store.profiles.first { $0.id == mapping.profileID }?.name ?? L10n.text("未绑定连接")
-                        return L10n.format("%@ · %@\n远程目录：%@\n本地目录：%@\n挂载点：%@",
-                                           mapping.name, connection, mapping.remotePath, mapping.userAccessPath, mapping.managedMountPath)
-                    }.joined(separator: "\n\n")
-                    alert.accessoryView = terminationDetailsView(details)
-                    alert.addButton(withTitle: L10n.text("卸载并退出"))
+                    alert.messageText = reminder.title
+                    alert.informativeText = reminder.message
+                    alert.accessoryView = terminationDetailsView(reminder.details)
+                    alert.addButton(withTitle: reminder.confirmTitle)
                     alert.addButton(withTitle: L10n.text("取消"))
                     sender.activate(ignoringOtherApps: true)
                     guard alert.runModal() == .alertFirstButtonReturn else {

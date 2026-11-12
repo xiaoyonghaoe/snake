@@ -10,7 +10,9 @@ struct PasswordManagerPane: View {
     @State private var passwordEditor: PasswordEditorDraft?
     @State private var pendingPasswordDelete: SavedPassword?
     @State private var keySheet: KeySheet?
-    @State private var keyRename: SSHKeyRecord?
+    @State private var keyEditor: SSHKeyRecord?
+    @State private var selectedPasswordID: UUID?
+    @State private var selectedKeyID: UUID?
     @State private var pendingKeyDelete: SSHKeyRecord?
     @State private var copiedKeyID: UUID?
     @State private var message: String?
@@ -70,8 +72,8 @@ struct PasswordManagerPane: View {
             }
             .environmentObject(store)
         }
-        .sheet(item: $keyRename) { key in
-            SSHKeyRenameSheet(key: key) { keyRename = nil }
+        .sheet(item: $keyEditor) { key in
+            SSHKeyEditorSheet(key: key) { keyEditor = nil }
                 .environmentObject(store)
         }
         .confirmationDialog(L10n.text("删除此密码条目？"), isPresented: Binding(
@@ -216,8 +218,11 @@ struct PasswordManagerPane: View {
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 16)
+        .background(selectedPasswordID == item.id ? SnakeStyle.selectedRow.opacity(0.75) : .clear)
         .contentShape(Rectangle())
         .onTapGesture(count: 2) { passwordEditor = PasswordEditorDraft(item) }
+        // Simultaneous, so the highlight does not wait out the double-click interval.
+        .simultaneousGesture(TapGesture().onEnded { selectedPasswordID = item.id })
         .snakeContextMenu {
             Button("编辑密码", systemImage: "pencil") { passwordEditor = PasswordEditorDraft(item) }
             Divider()
@@ -290,8 +295,8 @@ struct PasswordManagerPane: View {
                     .buttonStyle(SnakeOutlineButtonStyle())
                     .help("复制 authorized_keys 用的公钥")
                 Menu {
-                    Button("重命名…", systemImage: "pencil") { keyRename = key }
-                    Button("删除…", systemImage: "trash", role: .destructive) { pendingKeyDelete = key }
+                    Button("编辑密钥", systemImage: "pencil") { keyEditor = key }
+                    Button("删除密钥", systemImage: "trash", role: .destructive) { pendingKeyDelete = key }
                 } label: {
                     Image(systemName: "ellipsis")
                 }
@@ -304,10 +309,13 @@ struct PasswordManagerPane: View {
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 16)
+        .background(selectedKeyID == key.id ? SnakeStyle.selectedRow.opacity(0.75) : .clear)
         .contentShape(Rectangle())
+        .onTapGesture(count: 2) { keyEditor = key }
+        .simultaneousGesture(TapGesture().onEnded { selectedKeyID = key.id })
         .snakeContextMenu {
+            Button("编辑密钥", systemImage: "pencil") { keyEditor = key }
             Button("复制公钥", systemImage: "doc.on.doc") { copyPublicKey(key) }
-            Button("重命名", systemImage: "pencil") { keyRename = key }
             Divider()
             Button("删除密钥", systemImage: "trash", role: .destructive) { pendingKeyDelete = key }
         }
@@ -352,6 +360,7 @@ struct PasswordManagerPane: View {
             rows()
         }
         .background(SnakeStyle.raisedSurface, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         .overlay { RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Color.primary.opacity(0.10), lineWidth: 1) }
     }
 
@@ -439,7 +448,7 @@ private struct SSHKeyImportSheet: View {
                 HStack(alignment: .top, spacing: 12) {
                     EditorField(label: L10n.text("名称"), text: $name, placeholder: L10n.text("例如：工作电脑"))
                     EditorRow(L10n.text("口令（私钥已加密时填写）")) {
-                        SecureField("", text: $passphrase).textFieldStyle(.roundedBorder)
+                        SecureField("", text: $passphrase).textFieldStyle(.roundedBorder).snakePasswordAutoFill()
                     }
                 }
             }
@@ -521,8 +530,8 @@ private struct SSHKeyGenerateSheet: View {
                 }
                 EditorSection(L10n.text("口令（可选）"), footnote: L10n.text("设置后私钥文件本身也会加密；口令加密保存在 Snake，连接时自动使用。")) {
                     HStack(alignment: .top, spacing: 12) {
-                        EditorRow(L10n.text("口令")) { SecureField("", text: $passphrase).textFieldStyle(.roundedBorder) }
-                        EditorRow(L10n.text("再次输入")) { SecureField("", text: $confirmation).textFieldStyle(.roundedBorder) }
+                        EditorRow(L10n.text("口令")) { SecureField("", text: $passphrase).textFieldStyle(.roundedBorder).snakePasswordAutoFill() }
+                        EditorRow(L10n.text("再次输入")) { SecureField("", text: $confirmation).textFieldStyle(.roundedBorder).snakePasswordAutoFill() }
                     }
                 }
             }
@@ -563,12 +572,16 @@ private struct SSHKeyGenerateSheet: View {
     }
 }
 
-private struct SSHKeyRenameSheet: View {
+/// Opened by double-clicking a key: the name is editable; the public key,
+/// fingerprint and the sessions using it are shown so the key can be
+/// recognised and its public half copied without another window.
+private struct SSHKeyEditorSheet: View {
     @EnvironmentObject private var store: ApplicationStore
     let key: SSHKeyRecord
     let onClose: () -> Void
     @State private var name: String
     @State private var message: String?
+    @State private var copied = false
 
     init(key: SSHKeyRecord, onClose: @escaping () -> Void) {
         self.key = key
@@ -576,25 +589,72 @@ private struct SSHKeyRenameSheet: View {
         _name = State(initialValue: key.name)
     }
 
+    private var users: [SSHProfile] { store.profiles(usingKey: key.id) }
+
     var body: some View {
-        SnakeEditorSheet(context: L10n.text("密钥管理"), title: L10n.text("重命名密钥"), width: 480, height: 260, onClose: onClose) {
-            EditorField(label: L10n.text("名称"), text: $name)
+        SnakeEditorSheet(context: L10n.text("密钥管理"), title: L10n.text("编辑密钥"), width: 600, height: 480, onClose: onClose) {
+            EditorSection(L10n.text("基本信息")) {
+                EditorField(label: L10n.text("名称"), text: $name)
+            }
+            EditorSection(L10n.text("公钥"), footnote: L10n.text("把这一行追加到服务器的 ~/.ssh/authorized_keys，之后会话选用这把密钥即可登录。")) {
+                HStack(alignment: .top, spacing: 8) {
+                    Text(key.publicKey)
+                        .font(.system(size: 12, design: .monospaced))
+                        .lineLimit(3)
+                        .truncationMode(.middle)
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Button { copyPublicKey() } label: {
+                        Image(systemName: copied ? "checkmark" : "doc.on.doc").font(.system(size: 11))
+                    }
+                    .buttonStyle(SnakeIconButtonStyle())
+                    .help("复制公钥").accessibilityLabel("复制公钥")
+                }
+                .padding(12)
+                .background(SnakeStyle.raisedSurface, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                .overlay { RoundedRectangle(cornerRadius: 7, style: .continuous).stroke(SnakeStyle.hairline, lineWidth: 1) }
+                Text([key.algorithmLabel, key.hasPassphrase ? L10n.text("有口令") : L10n.text("无口令"), key.fingerprint]
+                        .joined(separator: " · "))
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(SnakeStyle.muted)
+                    .textSelection(.enabled)
+            }
+            EditorSection(L10n.text("使用的会话")) {
+                Text(users.isEmpty ? L10n.text("还没有会话使用这把密钥") : users.map(\.name).joined(separator: "、"))
+                    .font(.system(size: 12))
+                    .foregroundStyle(users.isEmpty ? SnakeStyle.muted : .primary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             if let message {
                 Text(message).font(.system(size: 12)).foregroundStyle(.red)
             }
         } leading: {
-            EmptyView()
+            TimestampStack(created: key.createdAt, updated: key.updatedAt)
         } trailing: {
             Button("取消", action: onClose).buttonStyle(SnakeOutlineButtonStyle())
-            Button("保存") {
-                do {
-                    try store.renameSSHKey(id: key.id, to: name)
-                    onClose()
-                } catch {
-                    message = error.localizedDescription
-                }
-            }
-            .buttonStyle(SnakeOutlineButtonStyle(emphasized: true))
+            Button("保存修改") { save() }
+                .buttonStyle(SnakeOutlineButtonStyle(emphasized: true))
+                .keyboardShortcut(.defaultAction)
+        }
+    }
+
+    private func save() {
+        do {
+            try store.renameSSHKey(id: key.id, to: name)
+            onClose()
+        } catch {
+            message = error.localizedDescription
+        }
+    }
+
+    private func copyPublicKey() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(key.publicKey, forType: .string)
+        copied = true
+        Task {
+            try? await Task.sleep(for: .seconds(2))
+            copied = false
         }
     }
 }

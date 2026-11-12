@@ -116,6 +116,50 @@ final class SSHTunnelTests: XCTestCase {
         XCTAssertEqual(controller.state(of: slow), .stopped, "a cancelled attempt does not overwrite the stop")
     }
 
+    func testActiveTunnelsCountOnlyConnectingOrRunningOnes() async throws {
+        let profile = SSHProfile(name: "db", host: "192.0.2.10", username: "root")
+        let gate = DispatchSemaphore(value: 0)
+        let controller = SSHTunnelController(persistence: nil, starter: { _, _, _ in
+            gate.wait()
+            throw CoreError.Connection(message: "", stage: "tunnel_port_in_use")
+        })
+        controller.profile = { $0 == profile.id ? profile : nil }
+        try controller.save(SSHTunnel(profileID: profile.id, localPort: 13306, remotePort: 3306))
+        try controller.save(SSHTunnel(profileID: profile.id, localPort: 18080, remotePort: 8080))
+        let connecting = controller.tunnels[0].id
+        XCTAssertTrue(controller.activeTunnels.isEmpty)
+
+        controller.start(connecting)
+        XCTAssertEqual(controller.activeTunnels.map(\.id), [connecting], "a stopped tunnel needs no reminder")
+
+        controller.stop(connecting)
+        gate.signal()
+        XCTAssertTrue(controller.activeTunnels.isEmpty)
+    }
+
+    func testQuitReminderCoversMountsAndTunnels() {
+        let profile = SSHProfile(name: "生产库", host: "192.0.2.10", username: "root")
+        let mapping = MountMapping(profileID: profile.id, name: "日志", remotePath: "/var/log",
+                                   userAccessPath: "/Users/me/日志", managedMountPath: "/Users/Shared/Snake/m1")
+        let tunnel = SSHTunnel(profileID: profile.id, localPort: 13306, remotePort: 3306, note: "MySQL")
+
+        XCTAssertNil(QuitReminder(mappings: [], tunnels: [], profiles: [profile]), "nothing running quits without asking")
+
+        let tunnelsOnly = QuitReminder(mappings: [], tunnels: [(tunnel, .running(connections: 2))], profiles: [profile])
+        XCTAssertEqual(tunnelsOnly?.title, L10n.plural("还有 %@ 条 SSH 隧道正在运行", count: 1, 1))
+        XCTAssertEqual(tunnelsOnly?.confirmTitle, L10n.text("断开并退出"))
+        XCTAssertTrue(tunnelsOnly?.details.contains("127.0.0.1:13306 → 127.0.0.1:3306") == true)
+        XCTAssertTrue(tunnelsOnly?.details.contains("MySQL · 生产库") == true)
+        XCTAssertFalse(tunnelsOnly?.message.contains(L10n.text("退出前将安全卸载以下目录。正在进行的挂载操作会先完成；如果卸载失败，将保留应用运行。")) == true)
+
+        let both = QuitReminder(mappings: [mapping], tunnels: [(tunnel, .starting)], profiles: [profile])
+        XCTAssertEqual(both?.confirmTitle, L10n.text("卸载并退出"), "unmounting is the step that can fail, so it names the button")
+        XCTAssertTrue(both?.message.contains(L10n.text("退出前将安全卸载以下目录。正在进行的挂载操作会先完成；如果卸载失败，将保留应用运行。")) == true)
+        XCTAssertTrue(both?.message.contains(L10n.text("退出后 SSH 隧道会断开，本机端口随之关闭，正在通过它们的连接（例如数据库客户端）会中断。")) == true)
+        XCTAssertTrue(both?.details.contains("/var/log") == true)
+        XCTAssertTrue(both?.details.contains("127.0.0.1:13306") == true)
+    }
+
     func testHostKeyAndAuthenticationErrorsReadAsGuidance() {
         let unknown = SSHTunnelController.message(for: CoreError.HostKeyUnknown(host: "h", port: 22, algorithm: "ed25519", fingerprint: "f"))
         XCTAssertTrue(unknown.contains("指纹"))

@@ -8,7 +8,7 @@ Requires macOS, Xcode command-line tools, Swift 6, Rust and Python 3; prepare th
 The script builds only the current host architecture and does not misrepresent arm64 as Universal 2.
 
 ```sh
-zsh scripts/package-release-dmg.sh 1.4.1
+zsh scripts/package-release-dmg.sh 1.4.2
 ```
 
 The output goes to `release/` (Git-ignored): the DMG and its SHA-256 file. It refuses to overwrite an artifact that already exists under the same name.
@@ -21,7 +21,7 @@ The version is governed by `Resources/Info.plist`, and the script argument can o
 The build number is read from the plist by default and can be overridden with `SNAKE_BUILD_NUMBER`.
 The Cargo license manifest is generated from the lockfile and the target architecture and includes normal/build dependencies but not dev dependencies.
 
-## Current 1.4.1
+## Current 1.4.2
 
 - Apple Silicon / macOS 15+; locally ad-hoc signed, not an Apple-notarized package.
 - No Intel or Universal 2 artifacts.
@@ -36,9 +36,9 @@ Notarization must also be completed with your own notarytool Keychain profile; n
 Changing the signing identity may affect the Keychain access approval of the previously tested build, so connections using saved credentials must be regression-tested before release.
 
 ```sh
-xcrun notarytool submit release/Snake-1.4.1-macos-arm64.dmg --keychain-profile <your-notary-profile-name> --wait
-xcrun stapler staple release/Snake-1.4.1-macos-arm64.dmg
-xcrun stapler validate release/Snake-1.4.1-macos-arm64.dmg
+xcrun notarytool submit release/Snake-1.4.2-macos-arm64.dmg --keychain-profile <your-notary-profile-name> --wait
+xcrun stapler staple release/Snake-1.4.2-macos-arm64.dmg
+xcrun stapler validate release/Snake-1.4.2-macos-arm64.dmg
 ```
 
 Only staple the ticket after the notarization result is Accepted. Stapling changes the file, so the SHA-256 must be regenerated and the old value cannot be reused.
@@ -50,7 +50,16 @@ For Apple's security mechanisms see the [official instructions](https://support.
 Upload the DMG, the same-named SHA-256 and the release notes; state the architecture, the minimum system version and whether the package is notarized on the release page.
 Before publishing a version, commit the corresponding source and confirm that the build matches the source, then have a maintainer create the tag and Release.
 
-## Build Verification Record (1.4.1 / 1410, 2026-11-11)
+## Build Verification Record (1.4.2 / 1420, 2026-11-12)
+
+- Release build succeeded; the app, helper and Rust dylib are all arm64, version `1.4.2` / `1420`.
+- DMG is 11,685,212 bytes; SHA-256: `a8dc630b8de9c56363478fae472f0a87aec78569444ee069fdb4c9d72bbd483e`.
+- `hdiutil verify`, SHA-256 and `codesign --verify --deep --strict` after a read-only mount passed; the Applications link points to `/Applications`, and both installation guides say 1.4.2.
+- Packaging passed resource lookup and compiled 7 Metal shaders; 889 English strings and the Chinese source language are present. The app was not launched for GUI acceptance.
+- Swift: 274 of 281 passed, 6 skipped, 1 pre-existing mount `invalidMapping` failure. Rust: 40 unit tests passed; the Rust core is unchanged in this release, so the loopback-sshd SFTP and tunnel regressions were not rerun.
+- See the [1.4.2 release notes](../RELEASE_NOTES_1.4.2.md). This package is ad-hoc signed and not notarized; GUI, the quit confirmation, the AutoFill switch in real windows, and clean-Mac installation/upgrade are accepted by the user.
+
+## Previous Build Verification Record (1.4.1 / 1410, 2026-11-11)
 
 - Release build succeeded; the app, helper and Rust dylib are all arm64, version `1.4.1` / `1410`.
 - DMG is 11,636,955 bytes; SHA-256: `3abacecffe846d542090f3254ad28f5387898d01194e01f0db433ec700061d88`.

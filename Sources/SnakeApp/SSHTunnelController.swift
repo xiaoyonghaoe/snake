@@ -62,6 +62,11 @@ public final class SSHTunnelController: ObservableObject {
         states[id] ?? .stopped
     }
 
+    /// Tunnels that are connecting or forwarding now; quitting closes their local ports.
+    var activeTunnels: [SSHTunnel] {
+        tunnels.filter { state(of: $0.id).isActive }
+    }
+
     // MARK: Editing
 
     /// Validates and stores a tunnel. A running tunnel whose endpoint changed restarts.

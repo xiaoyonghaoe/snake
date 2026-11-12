@@ -30,29 +30,8 @@ struct TunnelTable: View {
     let onNew: () -> Void
     let onEdit: (SSHTunnel) -> Void
 
-    static let stateWidth: CGFloat = 120
-    static let sessionWidth: CGFloat = 200
-    static let localWidth: CGFloat = 150
-    static let autoStartWidth: CGFloat = 64
-    /// Header and rows share it so every column lines up.
-    static let actionsWidth: CGFloat = 150
-
     var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 12) {
-                Text("状态").frame(width: Self.stateWidth, alignment: .leading)
-                Text("会话").frame(width: Self.sessionWidth, alignment: .leading)
-                Text("本地端口").frame(width: Self.localWidth, alignment: .leading)
-                Text("远端").frame(minWidth: 130, maxWidth: .infinity, alignment: .leading)
-                Text("备注").frame(minWidth: 110, maxWidth: .infinity, alignment: .leading)
-                Text("随启动").frame(width: Self.autoStartWidth, alignment: .leading)
-                Text("操作").frame(width: Self.actionsWidth, alignment: .trailing)
-            }
-            .font(.system(size: 11, weight: .semibold))
-            .foregroundStyle(SnakeStyle.muted)
-            .padding(.horizontal, 18)
-            .padding(.vertical, 10)
-            Divider()
+        ResourceListCard {
             if tunnels.tunnels.isEmpty {
                 VStack(spacing: 12) {
                     Image(systemName: "point.topleft.down.to.point.bottomright.curvepath")
@@ -81,9 +60,6 @@ struct TunnelTable: View {
                 if tunnel.id != tunnels.tunnels.last?.id { Divider().opacity(0.6) }
             }
         }
-        .background(SnakeStyle.raisedSurface, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-        .overlay { RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Color.primary.opacity(0.10), lineWidth: 1) }
     }
 }
 
@@ -100,95 +76,59 @@ private struct TunnelRow: View {
     private var state: TunnelState { tunnels.state(of: tunnel.id) }
     private var profile: SSHProfile? { tunnel.profileID.flatMap { id in store.profiles.first { $0.id == id } } }
 
+    private var subtitle: String {
+        let session = profile.map { "\($0.name) · \($0.connectionLabel)" } ?? L10n.text("未绑定 SSH 会话")
+        return tunnel.note.isEmpty ? session : "\(tunnel.note) · \(session)"
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 12) {
-                HStack(spacing: 7) {
-                    Circle().fill(state.indicatorColor).frame(width: 8, height: 8)
-                    Text(state.label).font(.system(size: 12, weight: .semibold)).lineLimit(1)
-                }
-                .frame(width: TunnelTable.stateWidth, alignment: .leading)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(profile?.name ?? L10n.text("未绑定 SSH 会话"))
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(profile == nil ? SnakeStyle.muted : SnakeStyle.ink)
-                        .lineLimit(1)
-                    if let profile {
-                        Text(profile.connectionLabel)
-                            .font(.system(size: 11, design: .monospaced))
-                            .foregroundStyle(SnakeStyle.muted)
-                            .lineLimit(1).truncationMode(.middle)
-                    }
-                }
-                .frame(width: TunnelTable.sessionWidth, alignment: .leading)
+        ResourceRow(
+            symbol: "point.topleft.down.to.point.bottomright.curvepath",
+            tint: state.indicatorColor == .secondary ? SnakeStyle.action : state.indicatorColor,
+            subtitle: subtitle,
+            status: state.label,
+            statusColor: state.indicatorColor,
+            automaticLabel: tunnel.autoStart ? L10n.text("自动连接") : nil,
+            automaticHelp: L10n.text("启动 Snake 时自动连接这条隧道"),
+            problem: state.detail,
+            isSelected: isSelected
+        ) {
+            HStack(spacing: 8) {
+                Text(tunnel.localAddress)
+                Image(systemName: "arrow.right").font(.system(size: 10, weight: .semibold)).foregroundStyle(SnakeStyle.muted)
+                Text(tunnel.remoteAddress)
                 Button { copyLocalAddress() } label: {
-                    HStack(spacing: 5) {
-                        Text(tunnel.localAddress).font(.system(size: 12, design: .monospaced))
-                        Image(systemName: copied ? "checkmark" : "doc.on.doc").font(.system(size: 10))
-                            .foregroundStyle(SnakeStyle.muted)
-                    }
+                    Image(systemName: copied ? "checkmark" : "doc.on.doc").font(.system(size: 10))
+                        .foregroundStyle(SnakeStyle.muted)
                 }
                 .buttonStyle(.plain)
                 .help("复制本地地址")
-                .frame(width: TunnelTable.localWidth, alignment: .leading)
-                Text(tunnel.remoteAddress)
-                    .font(.system(size: 12, design: .monospaced))
-                    .lineLimit(1).truncationMode(.middle)
-                    .frame(minWidth: 130, maxWidth: .infinity, alignment: .leading)
-                    .help(tunnel.remoteAddress)
-                Text(tunnel.note.isEmpty ? "—" : tunnel.note)
-                    .font(.system(size: 12))
-                    .foregroundStyle(tunnel.note.isEmpty ? SnakeStyle.muted : SnakeStyle.ink)
-                    .lineLimit(1).truncationMode(.tail)
-                    .frame(minWidth: 110, maxWidth: .infinity, alignment: .leading)
-                    .help(tunnel.note)
-                Toggle("", isOn: Binding(
-                    get: { tunnel.autoStart },
-                    set: { value in perform { try tunnels.setAutoStart(value, for: tunnel.id) } }
-                ))
-                .labelsHidden()
-                .toggleStyle(.switch)
-                .controlSize(.small)
-                .frame(width: TunnelTable.autoStartWidth, alignment: .leading)
-                HStack(spacing: 8) {
-                    primaryButton
-                    Button("编辑", action: onEdit).buttonStyle(SnakeOutlineButtonStyle())
-                    Menu {
-                        Button("删除…", systemImage: "trash", role: .destructive) { confirmingDeletion = true }
-                    } label: {
-                        Image(systemName: "ellipsis")
-                    }
-                    .menuStyle(.borderlessButton)
-                    .menuIndicator(.hidden)
-                    .fixedSize()
-                }
-                .fixedSize()
-                .frame(width: TunnelTable.actionsWidth, alignment: .trailing)
             }
-            if let detail = state.detail {
-                Label(detail, systemImage: "exclamationmark.triangle.fill")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.red)
-                    .lineLimit(2)
-                    .textSelection(.enabled)
-                    .padding(.leading, TunnelTable.stateWidth + 12)
-            }
+            .font(.system(size: 13, weight: .semibold, design: .monospaced))
+            .lineLimit(1)
+        } actions: {
+            primaryButton
+            Button(action: onEdit) { Image(systemName: "pencil") }
+                .buttonStyle(SnakeIconButtonStyle())
+                .help("编辑隧道").accessibilityLabel("编辑隧道")
+            Button { confirmingDeletion = true } label: { Image(systemName: "trash") }
+                .buttonStyle(SnakeIconButtonStyle())
+                .help("删除隧道").accessibilityLabel("删除隧道")
         }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 14)
-        .background(isSelected ? SnakeStyle.selectedRow.opacity(0.75) : .clear)
-        .contentShape(Rectangle())
+        // A plain single tap would wait out the double-click interval before
+        // firing; the simultaneous tap highlights the row on the first click.
         .onTapGesture(count: 2, perform: onEdit)
-        .onTapGesture(perform: onSelect)
+        .simultaneousGesture(TapGesture().onEnded(onSelect))
         .snakeContextMenu {
             switch state {
-            case .running, .starting: Button("停止", systemImage: "stop.fill") { tunnels.stop(tunnel.id) }
-            case .disconnected, .failed: Button("重连", systemImage: "arrow.clockwise") { tunnels.reconnect(tunnel.id) }
-            case .stopped: Button("启动", systemImage: "play.fill") { tunnels.start(tunnel.id) }
+            case .running, .starting: Button("断开", systemImage: "stop.circle") { tunnels.stop(tunnel.id) }
+            case .disconnected, .failed: Button("重新连接", systemImage: "arrow.clockwise") { tunnels.reconnect(tunnel.id) }
+            case .stopped: Button("连接", systemImage: "play.circle") { tunnels.start(tunnel.id) }
             }
             Section("管理") {
                 Button("编辑隧道", systemImage: "pencil", action: onEdit)
                 Button("复制本地地址", systemImage: "doc.on.doc") { copyLocalAddress() }
+                Toggle(isOn: autoStartBinding) { Label("启动 Snake 时自动连接", systemImage: "bolt") }
             }
             Divider()
             Button("删除隧道", systemImage: "trash", role: .destructive) { confirmingDeletion = true }
@@ -200,22 +140,27 @@ private struct TunnelRow: View {
         }
     }
 
+    private var autoStartBinding: Binding<Bool> {
+        Binding(get: { tunnel.autoStart }, set: { value in perform { try tunnels.setAutoStart(value, for: tunnel.id) } })
+    }
+
+    /// One button whose words say exactly what it does now.
     @ViewBuilder
     private var primaryButton: some View {
         switch state {
         case .running, .starting:
-            Button("停止") { tunnels.stop(tunnel.id) }
+            Button("断开") { tunnels.stop(tunnel.id) }
                 .buttonStyle(SnakeOutlineButtonStyle())
-                .frame(width: 58)
+                .frame(width: 88)
         case .disconnected, .failed:
-            Button("重连") { tunnels.reconnect(tunnel.id) }
+            Button("重新连接") { tunnels.reconnect(tunnel.id) }
                 .buttonStyle(SnakeOutlineButtonStyle(emphasized: true))
-                .frame(width: 58)
+                .frame(width: 88)
                 .disabled(profile == nil)
         case .stopped:
-            Button("启动") { tunnels.start(tunnel.id) }
+            Button("连接") { tunnels.start(tunnel.id) }
                 .buttonStyle(SnakeOutlineButtonStyle(emphasized: true))
-                .frame(width: 58)
+                .frame(width: 88)
                 .disabled(profile == nil)
         }
     }
@@ -298,7 +243,7 @@ struct TunnelEditorSheet: View {
             }
             EditorSection(L10n.text("其他")) {
                 EditorField(label: L10n.text("备注"), text: $note, placeholder: L10n.text("例如：生产库 MySQL"))
-                Toggle("随 Snake 启动", isOn: $autoStart)
+                Toggle("启动 Snake 时自动连接", isOn: $autoStart)
                     .toggleStyle(.checkbox)
                     .font(.system(size: 12))
             }

@@ -296,6 +296,31 @@ final class CredentialRevealController: @preconcurrency ObservableObject {
     }
 }
 
+/// Whether clicking one of Snake's password fields brings up the macOS
+/// Passwords AutoFill suggestions.
+enum PasswordAutoFill {
+    static let defaultsKey = "com.snake.password-autofill"
+    /// Matches no AutoFill category. An explicit content type replaces the
+    /// system's guess, which is what offers saved passwords on secure fields;
+    /// `.oneTimeCode` would trade it for verification-code suggestions.
+    static let suppressedContentType = NSTextContentType(rawValue: "com.snake.no-autofill")
+}
+
+extension View {
+    /// Apply to every password or passphrase input so the setting covers them all.
+    func snakePasswordAutoFill() -> some View {
+        modifier(PasswordAutoFillModifier())
+    }
+}
+
+private struct PasswordAutoFillModifier: ViewModifier {
+    @AppStorage(PasswordAutoFill.defaultsKey) private var enabled = true
+
+    func body(content: Content) -> some View {
+        content.textContentType(enabled ? nil : PasswordAutoFill.suppressedContentType)
+    }
+}
+
 struct CredentialInputView: View {
     let account: String?
     let isPassphrase: Bool
@@ -328,6 +353,7 @@ struct CredentialInputView: View {
                 }
                 .textFieldStyle(.plain)
                 .font(.system(size: 13, design: .monospaced))
+                .snakePasswordAutoFill()
                 .focused($inputFocused)
                 .accessibilityLabel(isPassphrase ? L10n.text("私钥口令") : L10n.text("密码"))
                 if reveal.isLoading {

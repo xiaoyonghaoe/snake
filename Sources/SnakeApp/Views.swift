@@ -182,7 +182,7 @@ private struct SnakeToolbar: View {
             Spacer(minLength: 8)
 
             Button { windowState.openManager(.mounts) } label: {
-                Image(systemName: "externaldrive")
+                Image(systemName: WorkspaceTabKind.mounts.symbolName)
                     .font(.system(size: 14, weight: .medium))
             }
             .buttonStyle(SnakeIconButtonStyle(selected: windowState.selectedRuntime?.kind == .mounts, minSize: CGSize(width: 34, height: 30)))
@@ -2833,45 +2833,36 @@ private struct MountWorkspaceView: View {
     @State private var dependencyStatus = MountDependencyStatus.detect()
     @State private var tunnelEditor: TunnelEditorDraft?
 
-    private var selectedMapping: MountMapping? {
-        store.mountMappings.first { $0.id == runtime.selectedMappingID } ?? store.mountMappings.first
-    }
-
     var body: some View {
-        VStack(spacing: 0) {
-            ViewThatFits(in: .horizontal) {
-                HStack(alignment: .center) { heading; Spacer(minLength: 16); actions }
-                VStack(alignment: .leading, spacing: 12) { heading; actions }
-            }
-            .padding(.horizontal, 24)
-            .padding(.vertical, 20)
-            Divider()
-            ScrollView {
-                VStack(alignment: .leading, spacing: 24) {
-                    switch runtime.mountSection {
-                    case .mappings:
-                        dependencyBanner
-                        VStack(alignment: .leading, spacing: 12) {
-                            mappingTable
-                            if let mapping = selectedMapping {
-                                MappingDetailCard(mapping: mapping, onEdit: { onEditMapping(mapping) })
-                            }
-                        }
-                    case .tunnels:
-                        TunnelTable(
-                            tunnels: store.tunnels,
-                            runtime: runtime,
-                            onNew: { tunnelEditor = TunnelEditorDraft() },
-                            onEdit: { tunnelEditor = TunnelEditorDraft(tunnel: $0) }
-                        )
-                        Text("本地端口只监听 127.0.0.1，只有这台 Mac 能访问。SSH 断开后隧道停在「已断开」，需要手动重连。")
-                            .font(.system(size: 11))
-                            .foregroundStyle(SnakeStyle.muted)
-                    }
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                // Same header language as the session page: one row, what and how many on
+                // the left, status and actions on the right.
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 12) { heading; Spacer(minLength: 12); actions }
+                    VStack(alignment: .leading, spacing: 10) { heading; actions }
                 }
-                .padding(24)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                switch runtime.mountSection {
+                case .mappings:
+                    if !dependencyStatus.isReady { dependencyWarning }
+                    mappingTable
+                    Text("双击一行编辑映射，可查看完整的访问路径。")
+                        .font(.system(size: 11))
+                        .foregroundStyle(SnakeStyle.muted)
+                case .tunnels:
+                    TunnelTable(
+                        tunnels: store.tunnels,
+                        runtime: runtime,
+                        onNew: { tunnelEditor = TunnelEditorDraft() },
+                        onEdit: { tunnelEditor = TunnelEditorDraft(tunnel: $0) }
+                    )
+                    Text("本地端口只监听 127.0.0.1，只有这台 Mac 能访问。SSH 断开后隧道停在「已断开」，需要手动重连。")
+                        .font(.system(size: 11))
+                        .foregroundStyle(SnakeStyle.muted)
+                }
             }
+            .padding(20)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .background(SnakeStyle.canvas)
         .sheet(item: $tunnelEditor) { draft in
@@ -2887,41 +2878,30 @@ private struct MountWorkspaceView: View {
         } message: { Text(store.mountActionError ?? "") }
     }
 
-    private var dependencyBanner: some View {
-        HStack(spacing: 12) {
-            Image(systemName: dependencyStatus.isReady ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
-                .font(.system(size: 21))
-                .foregroundStyle(dependencyStatus.isReady ? SnakeStyle.secure : .orange)
+    /// Only shown when something is missing; a ready environment is a small pill in the header.
+    private var dependencyWarning: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
             VStack(alignment: .leading, spacing: 2) {
-                Text(dependencyStatus.isReady ? L10n.text("挂载环境已就绪") : L10n.text("挂载环境需要配置"))
-                    .font(.system(size: 13, weight: .semibold))
-                Text(dependencyStatus.isReady ? L10n.text("macFUSE 与 SSHFS 可用") : L10n.text("请安装 macFUSE 与 SSHFS 后重新检测"))
-                    .font(.system(size: 12))
-                    .foregroundStyle(SnakeStyle.muted)
+                Text("挂载环境需要配置").font(.system(size: 12, weight: .semibold))
+                Text("请安装 macFUSE 与 SSHFS 后重新检测").font(.system(size: 11)).foregroundStyle(SnakeStyle.muted)
             }
             Spacer()
-
+            Button("重新检测", systemImage: "arrow.clockwise") { refresh() }
+                .buttonStyle(SnakeOutlineButtonStyle())
         }
-        .padding(.horizontal, 18)
-        .frame(minHeight: 67)
-        .background((dependencyStatus.isReady ? SnakeStyle.secure : .orange).opacity(0.08), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(Color.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
+
+    private func refresh() {
+        dependencyStatus = .detect()
+        store.refreshMountStates()
     }
 
     private var mappingTable: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 12) {
-                Text("状态").frame(width: MappingTableRow.stateWidth, alignment: .leading)
-                Text("名称与连接").frame(width: MappingTableRow.nameWidth, alignment: .leading)
-                Text("远程目录").frame(minWidth: 140, maxWidth: .infinity, alignment: .leading)
-                Text("本地目录").frame(minWidth: 140, maxWidth: .infinity, alignment: .leading)
-                Text("自动挂载").frame(width: MappingTableRow.autoMountWidth, alignment: .leading)
-                Text("操作").frame(width: MappingTableRow.actionsWidth, alignment: .trailing)
-            }
-            .font(.system(size: 11, weight: .semibold))
-            .foregroundStyle(SnakeStyle.muted)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 9)
-            Divider()
+        ResourceListCard {
             if store.mountMappings.isEmpty {
                 Text("暂无磁盘映射，点击“新增映射”配置远程目录。")
                     .font(.system(size: 13))
@@ -2932,28 +2912,17 @@ private struct MountWorkspaceView: View {
             ForEach(store.mountMappings) { mapping in
                 MappingTableRow(
                     mapping: mapping,
-                    isSelected: selectedMapping?.id == mapping.id,
+                    isSelected: runtime.selectedMappingID == mapping.id,
                     action: { runtime.selectedMappingID = mapping.id },
                     onEdit: { onEditMapping(mapping) }
                 )
                 if mapping.id != store.mountMappings.last?.id { Divider().opacity(0.6) }
             }
         }
-        .background(SnakeStyle.raisedSurface, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-        .overlay { RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Color.primary.opacity(0.10), lineWidth: 1) }
     }
 
     private var heading: some View {
-        HStack(alignment: .center, spacing: 18) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(runtime.mountSection == .mappings ? L10n.text("磁盘映射") : L10n.text("SSH 隧道"))
-                    .font(.system(size: 22, weight: .bold))
-                Text(runtime.mountSection == .mappings
-                     ? L10n.text("让远程目录像本地磁盘一样出现在 Finder 中。")
-                     : L10n.text("把服务器那边的端口映射到本机端口（ssh -L）。"))
-                    .font(.system(size: 13)).foregroundStyle(SnakeStyle.muted)
-            }
+        HStack(spacing: 12) {
             Picker("", selection: $runtime.mountSection) {
                 Text("磁盘映射").tag(MountWorkspaceSection.mappings)
                 Text("SSH 隧道").tag(MountWorkspaceSection.tunnels)
@@ -2961,17 +2930,36 @@ private struct MountWorkspaceView: View {
             .pickerStyle(.segmented)
             .labelsHidden()
             .fixedSize()
+            Text(summary)
+                .font(.system(size: 12))
+                .foregroundStyle(SnakeStyle.muted)
+                .lineLimit(1)
+        }
+        .fixedSize(horizontal: true, vertical: false)
+    }
+
+    private var summary: String {
+        switch runtime.mountSection {
+        case .mappings:
+            let mounted = store.mountMappings.filter { $0.state == .mounted || $0.state == .external }.count
+            return L10n.format("%@ 个映射 · %@ 个已挂载", store.mountMappings.count, mounted)
+        case .tunnels:
+            let running = store.tunnels.tunnels.filter { if case .running = store.tunnels.state(of: $0.id) { true } else { false } }.count
+            return L10n.format("%@ 条隧道 · %@ 条已连接", store.tunnels.tunnels.count, running)
         }
     }
+
     @ViewBuilder
     private var actions: some View {
         switch runtime.mountSection {
         case .mappings:
-            HStack {
-                Button("刷新状态", systemImage: "arrow.clockwise") {
-                    dependencyStatus = .detect()
-                    store.refreshMountStates()
-                }.buttonStyle(SnakeOutlineButtonStyle())
+            HStack(spacing: 8) {
+                if dependencyStatus.isReady {
+                    StatusPill(text: L10n.text("macFUSE 与 SSHFS 可用"), color: SnakeStyle.secure)
+                }
+                Button { refresh() } label: { Image(systemName: "arrow.clockwise") }
+                    .buttonStyle(SnakeIconButtonStyle(minSize: CGSize(width: 30, height: 30)))
+                    .help("刷新挂载状态").accessibilityLabel("刷新挂载状态")
                 Button("新增映射", systemImage: "plus", action: onNewMapping)
                     .buttonStyle(SnakeOutlineButtonStyle(emphasized: true))
             }
@@ -2991,56 +2979,38 @@ private struct MappingTableRow: View {
     let action: () -> Void
     let onEdit: () -> Void
     @State private var confirmingDeletion = false
-
-    static let stateWidth: CGFloat = 84
-    static let nameWidth: CGFloat = 170
-    static let autoMountWidth: CGFloat = 64
-    static let actionsWidth: CGFloat = 140
     @State private var checkingDeletion = false
     @State private var deletionRequiresUnmount = false
 
+    private var isMounted: Bool { mapping.state == .mounted || mapping.state == .external }
+
     var body: some View {
-        HStack(spacing: 12) {
-            HStack(spacing: 7) {
-                Circle().fill(mapping.state.indicatorColor).frame(width: 8, height: 8)
-                Text(mapping.state.label).font(.system(size: 12, weight: .semibold))
+        ResourceRow(
+            symbol: "externaldrive",
+            tint: mapping.state.indicatorColor == .secondary ? SnakeStyle.action : mapping.state.indicatorColor,
+            subtitle: "\(profileName) · \(mapping.remotePath)  →  \(mapping.userAccessPath)",
+            status: mapping.state.label,
+            statusColor: mapping.state.indicatorColor,
+            automaticLabel: mapping.autoMount ? L10n.text("自动挂载") : nil,
+            automaticHelp: L10n.text("启动 Snake 时自动挂载这个目录"),
+            problem: mapping.state == .failed ? mapping.lastError : nil,
+            isSelected: isSelected
+        ) {
+            Text(mapping.name)
+                .font(.system(size: 13, weight: .semibold))
+                .lineLimit(1).truncationMode(.tail).help(mapping.name)
+        } actions: {
+            Button(isMounted ? L10n.text("打开") : (mapping.state == .mounting ? L10n.text("正在挂载") : L10n.text("挂载"))) {
+                if isMounted { store.reveal(mappingID: mapping.id) } else { store.mount(mappingID: mapping.id) }
             }
-            .frame(width: Self.stateWidth, alignment: .leading)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(mapping.name).font(.system(size: 13, weight: .semibold))
-                    .lineLimit(1).truncationMode(.tail).help(mapping.name)
-                Text(profileName).font(.system(size: 11)).foregroundStyle(SnakeStyle.muted)
-                    .lineLimit(1).truncationMode(.tail).help(profileName)
-            }
-            .frame(width: Self.nameWidth, alignment: .leading)
-            Text(mapping.remotePath)
-                .font(.system(size: 12, design: .monospaced))
-                .lineLimit(1)
-                .truncationMode(.middle)
-                .frame(minWidth: 140, maxWidth: .infinity, alignment: .leading)
-                .help(mapping.remotePath)
-            Text(mapping.userAccessPath)
-                .font(.system(size: 12, design: .monospaced))
-                .lineLimit(1)
-                .truncationMode(.middle)
-                .frame(minWidth: 140, maxWidth: .infinity, alignment: .leading)
-                .help(mapping.userAccessPath)
-            Toggle("", isOn: Binding(get: { mapping.autoMount }, set: { store.setAutoMount($0, for: mapping.id) }))
-                .labelsHidden()
-                .toggleStyle(.switch)
-                .controlSize(.small)
-                .frame(width: Self.autoMountWidth, alignment: .leading)
-            HStack(spacing: 4) {
-            Button(mapping.state == .mounted || mapping.state == .external ? L10n.text("打开") : L10n.text("挂载")) {
-                if mapping.state == .mounted || mapping.state == .external {
-                    store.reveal(mappingID: mapping.id)
-                } else {
-                    store.mount(mappingID: mapping.id)
-                }
-            }
-                .buttonStyle(SnakeOutlineButtonStyle())
-                .frame(width: 64)
-                .disabled(mapping.state == .mounting)
+            .buttonStyle(SnakeOutlineButtonStyle(emphasized: !isMounted))
+            .frame(width: 88)
+            .disabled(mapping.state == .mounting || mapping.state == .unavailable)
+            // Always present, dimmed when nothing is mounted, so every row lines up.
+            Button { store.unmount(mappingID: mapping.id) } label: { Image(systemName: "eject") }
+                .buttonStyle(SnakeIconButtonStyle())
+                .help("安全卸载").accessibilityLabel("安全卸载")
+                .disabled(!isMounted)
             Button(action: onEdit) { Image(systemName: "pencil") }
                 .buttonStyle(SnakeIconButtonStyle())
                 .help("编辑映射").accessibilityLabel("编辑映射")
@@ -3049,17 +3019,26 @@ private struct MappingTableRow: View {
                 .buttonStyle(SnakeIconButtonStyle())
                 .help("删除映射").accessibilityLabel("删除映射")
                 .disabled(checkingDeletion)
-            }
-            .frame(width: Self.actionsWidth, alignment: .trailing)
         }
-        .padding(.horizontal, 16)
-        .frame(height: 60)
-        .background(isSelected ? SnakeStyle.selectedRow.opacity(0.75) : .clear)
-        .contentShape(Rectangle())
-        .onTapGesture(perform: action)
+        // A plain single tap would wait out the double-click interval before
+        // firing; the simultaneous tap highlights the row on the first click.
+        .onTapGesture(count: 2, perform: onEdit)
+        .simultaneousGesture(TapGesture().onEnded(action))
         .snakeContextMenu {
-            Button("编辑映射", systemImage: "pencil", action: onEdit)
-                .disabled(mapping.state == .mounting)
+            if isMounted {
+                Button("在 Finder 中打开", systemImage: "folder") { store.reveal(mappingID: mapping.id) }
+                Button("安全卸载", systemImage: "eject") { store.unmount(mappingID: mapping.id) }
+            } else {
+                Button("挂载", systemImage: "externaldrive.badge.plus") { store.mount(mappingID: mapping.id) }
+                    .disabled(mapping.state == .mounting || mapping.state == .unavailable)
+            }
+            Section("管理") {
+                Button("编辑映射", systemImage: "pencil", action: onEdit)
+                    .disabled(mapping.state == .mounting)
+                Toggle(isOn: Binding(get: { mapping.autoMount }, set: { store.setAutoMount($0, for: mapping.id) })) {
+                    Label("启动 Snake 时自动挂载", systemImage: "bolt")
+                }
+            }
             Divider()
             Button("删除映射", systemImage: "trash", role: .destructive) { requestDeletion() }
                 .disabled(checkingDeletion)
@@ -3106,11 +3085,9 @@ private struct MappingTableRow: View {
     private var profileName: String {
         store.profiles.first(where: { $0.id == mapping.profileID })?.name ?? L10n.text("未绑定 SSH 会话")
     }
-
 }
 
 private extension MountState {
-    /// Shared by the mapping table and its detail card so both agree.
     var indicatorColor: Color {
         switch self {
         case .mounted, .external: SnakeStyle.secure
@@ -3118,70 +3095,6 @@ private extension MountState {
         case .mounting: .orange
         case .idle: .secondary
         }
-    }
-}
-
-private struct MappingDetailCard: View {
-    @EnvironmentObject private var store: ApplicationStore
-    let mapping: MountMapping
-    let onEdit: () -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 13) {
-            HStack {
-                HStack(spacing: 7) {
-                    Circle().fill(mapping.state.indicatorColor).frame(width: 8, height: 8)
-                    Text(mapping.name).font(.system(size: 14, weight: .semibold))
-                }
-                Spacer()
-                Button("编辑", action: onEdit).buttonStyle(SnakeOutlineButtonStyle())
-                    .disabled(mapping.state == .mounting)
-                Button("安全卸载") { store.unmount(mappingID: mapping.id) }
-                    .buttonStyle(SnakeOutlineButtonStyle())
-                    .disabled(mapping.state != .mounted && mapping.state != .external)
-            }
-            HStack(spacing: 18) {
-                MappingRoute(label: L10n.text("远程目录"), value: "\(profileConnection):\(mapping.remotePath)")
-                Image(systemName: "arrow.right").foregroundStyle(SnakeStyle.muted)
-                MappingRoute(label: L10n.text("实际挂载点"), value: mapping.managedMountPath)
-                Image(systemName: "arrow.right").foregroundStyle(SnakeStyle.muted)
-                MappingRoute(label: L10n.text("FINDER 入口 · 软链接"), value: mapping.userAccessPath)
-            }
-            Text(L10n.format("Finder 磁盘名称：%@", MountOperations.volumeName(mappingName: mapping.name, connectionName: store.profiles.first(where: { $0.id == mapping.profileID })?.name ?? L10n.text("未绑定"))))
-                .font(.system(size: 12)).foregroundStyle(SnakeStyle.muted)
-            if let error = mapping.lastError, !error.isEmpty {
-                HStack(alignment: .top, spacing: 8) {
-                    Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
-                    Text(error)
-                        .font(.system(size: 12))
-                        .textSelection(.enabled)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .padding(10)
-                .background(Color.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: 7))
-            }
-        }
-        .padding(16)
-        .background(SnakeStyle.raisedSurface, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-        .overlay { RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Color.primary.opacity(0.10), lineWidth: 1) }
-    }
-
-    private var profileConnection: String {
-        store.profiles.first(where: { $0.id == mapping.profileID })?.connectionLabel ?? L10n.text("未绑定")
-    }
-}
-
-private struct MappingRoute: View {
-    let label: String
-    let value: String
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(label).font(.system(size: 10, weight: .medium)).foregroundStyle(SnakeStyle.muted)
-            Text(value).font(.system(size: 11, design: .monospaced)).lineLimit(1)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -3940,7 +3853,7 @@ private struct MappingEditorView: View {
             context: L10n.text("磁盘映射"),
             title: original == nil ? L10n.text("新增映射") : L10n.text("编辑映射"),
             width: 720,
-            height: 680,
+            height: 720,
             onClose: { dismiss() }
         ) {
             EditorSection(L10n.text("基本信息")) {
@@ -3988,17 +3901,13 @@ private struct MappingEditorView: View {
                         .toggleStyle(.switch)
                 }
             }
-            EditorSection(L10n.text("访问路径")) {
-                HStack(spacing: 14) {
-                    MappingRoute(label: L10n.text("远程目录"), value: "\(profileConnection):\(remotePath)")
-                    Image(systemName: "arrow.right").foregroundStyle(SnakeStyle.muted)
-                    MappingRoute(label: L10n.text("实际挂载点"), value: managedPath)
-                    Image(systemName: "arrow.right").foregroundStyle(SnakeStyle.muted)
-                    MappingRoute(label: L10n.text("FINDER 入口 · 软链接"), value: userAccessPath)
-                }
-                .padding(12)
-                .background(SnakeStyle.raisedSurface, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-                .overlay { RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(SnakeStyle.hairline, lineWidth: 1) }
+            EditorSection(L10n.text("访问路径"), footnote: L10n.text("在 Finder 里打开入口，读写的就是服务器上的远程目录。")) {
+                MappingAccessPaths(
+                    remote: remotePath.isEmpty ? nil : "\(profileConnection):\(remotePath)",
+                    mountPoint: selectedProfile != nil && !remotePath.isEmpty ? managedPath : nil,
+                    volumeName: volumeName,
+                    entry: userAccessPath.isEmpty ? nil : userAccessPath
+                )
             }
             if let errorMessage { Text(errorMessage).font(.system(size: 12)).foregroundStyle(.red) }
         } leading: {
@@ -4059,6 +3968,13 @@ private struct MappingEditorView: View {
 
     private var profileConnection: String {
         store.profiles.first(where: { $0.id == profileID })?.connectionLabel ?? L10n.text("选择 SSH 会话")
+    }
+
+    /// What Finder's sidebar calls the mounted disk, once there is enough to name it.
+    private var volumeName: String? {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let profile = selectedProfile, !trimmed.isEmpty else { return nil }
+        return MountOperations.volumeName(mappingName: trimmed, connectionName: profile.name)
     }
 
     private var managedPath: String {
@@ -4224,13 +4140,14 @@ public struct SnakeSettingsView: View {
     @State private var confirmsRemoteOpenClear = false
     @State private var serverRelayError: String?
     @State private var section: SettingsSection = .appearance
+    @AppStorage(PasswordAutoFill.defaultsKey) private var passwordAutoFill = true
 
     public init() {}
 
     /// Settings use a sidebar like System Settings: every pane gets the full width
     /// instead of sharing a narrow tab strip. Passwords moved to their own tab.
     enum SettingsSection: CaseIterable, Identifiable {
-        case appearance, transfer, shortcuts, terminal
+        case appearance, transfer, shortcuts, terminal, privacy
         var id: Self { self }
 
         var title: String {
@@ -4239,6 +4156,7 @@ public struct SnakeSettingsView: View {
             case .transfer: L10n.text("传输")
             case .shortcuts: L10n.text("快捷键")
             case .terminal: L10n.text("终端")
+            case .privacy: L10n.text("隐私与安全")
             }
         }
 
@@ -4248,6 +4166,7 @@ public struct SnakeSettingsView: View {
             case .transfer: L10n.text("SFTP 并行传输、打开远程文件与服务器互传")
             case .shortcuts: L10n.text("工作区与 SFTP 快捷键")
             case .terminal: L10n.text("终端配色、字体与渲染")
+            case .privacy: L10n.text("密码输入与自动填充")
             }
         }
 
@@ -4258,6 +4177,7 @@ public struct SnakeSettingsView: View {
             case .transfer: "arrow.up.arrow.down"
             case .shortcuts: "command"
             case .terminal: "terminal"
+            case .privacy: "lock.fill"
             }
         }
 
@@ -4267,6 +4187,7 @@ public struct SnakeSettingsView: View {
             case .transfer: .blue
             case .shortcuts: .gray
             case .terminal: .teal
+            case .privacy: .green
             }
         }
     }
@@ -4290,6 +4211,7 @@ public struct SnakeSettingsView: View {
                     case .transfer: transferPane
                     case .shortcuts: shortcutPane
                     case .terminal: terminalPane
+                    case .privacy: privacyPane
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -4357,6 +4279,18 @@ public struct SnakeSettingsView: View {
                 Text("语言")
             } footer: {
                 SettingsFooter("界面语言立即生效并记住选择；系统权限弹窗、Finder 与 macOS 提供的菜单文案跟随系统语言。")
+            }
+        }
+    }
+
+    private var privacyPane: some View {
+        SettingsPane {
+            Section {
+                Toggle("点击密码输入框时显示系统密码自动填充", isOn: $passwordAutoFill)
+            } header: {
+                Text("密码输入")
+            } footer: {
+                SettingsFooter("关闭后，Snake 的密码和私钥口令输入框不再弹出 macOS「密码」的自动填充建议，需要手动输入或粘贴。只影响 Snake 自己的输入框，不改动系统的密码设置。")
             }
         }
     }
@@ -4735,5 +4669,120 @@ public struct SnakeSettingsView: View {
             NSFont(name: name, size: 13)?.fontDescriptor.symbolicTraits.contains(.monoSpace) == true
         }
         return Array(Set(names + [store.terminalFontName])).sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }
+}
+
+/// The three places a mapping's files pass through, top to bottom, each on a
+/// full-width line so long paths stay readable instead of being squeezed into
+/// three columns.
+private struct MappingAccessPaths: View {
+    let remote: String?
+    let mountPoint: String?
+    let volumeName: String?
+    let entry: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            MappingPathStep(
+                symbol: "server.rack",
+                title: L10n.text("远程目录"),
+                caption: L10n.text("服务器上的文件夹"),
+                value: remote,
+                placeholder: L10n.text("选择 SSH 会话后浏览远程文件夹"),
+                isLast: false
+            )
+            MappingPathStep(
+                symbol: "externaldrive",
+                title: L10n.text("实际挂载点"),
+                caption: volumeName.map { L10n.format("SSHFS 挂载在这里，Finder 侧栏显示为「%@」", $0) }
+                    ?? L10n.text("SSHFS 挂载在这里，由 Snake 管理"),
+                value: mountPoint,
+                placeholder: L10n.text("选择会话和目录后生成"),
+                isLast: false
+            )
+            MappingPathStep(
+                symbol: "folder",
+                title: L10n.text("Finder 入口（软链接）"),
+                caption: L10n.text("指向挂载点，平时从这里打开"),
+                value: entry,
+                placeholder: L10n.text("选择 Finder 入口的位置"),
+                isLast: true
+            )
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 14)
+        .background(SnakeStyle.raisedSurface, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay { RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(SnakeStyle.hairline, lineWidth: 1) }
+    }
+}
+
+private struct MappingPathStep: View {
+    let symbol: String
+    let title: String
+    let caption: String
+    let value: String?
+    let placeholder: String
+    let isLast: Bool
+    @State private var copied = false
+
+    private var tint: Color { value == nil ? .secondary : SnakeStyle.action }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            VStack(spacing: 0) {
+                Image(systemName: symbol)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(value == nil ? SnakeStyle.muted : SnakeStyle.action)
+                    .frame(width: 30, height: 30)
+                    .background(tint.opacity(0.12), in: Circle())
+                if !isLast {
+                    Rectangle()
+                        .fill(SnakeStyle.hairline)
+                        .frame(width: 1.5)
+                        .frame(maxHeight: .infinity)
+                        .padding(.vertical, 4)
+                }
+            }
+            .frame(width: 30)
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(title).font(.system(size: 12, weight: .semibold))
+                    Text(caption)
+                        .font(.system(size: 11))
+                        .foregroundStyle(SnakeStyle.muted)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+                Text(value ?? placeholder)
+                    .font(.system(size: 12, design: value == nil ? .default : .monospaced))
+                    .foregroundStyle(value == nil ? SnakeStyle.muted : .primary)
+                    .lineLimit(2)
+                    .truncationMode(.middle)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
+                    .help(value ?? "")
+            }
+            .padding(.top, 1)
+            .padding(.bottom, isLast ? 0 : 16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            if let value {
+                Button { copy(value) } label: {
+                    Image(systemName: copied ? "checkmark" : "doc.on.doc").font(.system(size: 11))
+                }
+                .buttonStyle(SnakeIconButtonStyle())
+                .help("复制路径").accessibilityLabel("复制路径")
+            }
+        }
+        .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private func copy(_ value: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(value, forType: .string)
+        copied = true
+        Task {
+            try? await Task.sleep(for: .seconds(2))
+            copied = false
+        }
     }
 }

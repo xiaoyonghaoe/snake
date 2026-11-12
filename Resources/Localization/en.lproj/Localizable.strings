@@ -27,9 +27,7 @@
 "30 天" = "After 30 days";
 "7 天" = "After 7 days";
 "DEBUG / TRACE 请求完成" = "DEBUG / TRACE request completed";
-"FINDER 入口 · 软链接" = "FINDER ENTRY · SYMLINK";
 "Finder 入口创建失败：%@" = "Failed to create Finder entry: %@";
-"Finder 磁盘名称：%@" = "Finder disk name: %@";
 "INFO 服务已启动" = "INFO service started";
 "IP 或主机名" = "IP or hostname";
 "SFTP · %@" = "SFTP · %@";
@@ -121,7 +119,6 @@
 "删除所选 SFTP 项目…" = "Delete Selected SFTP Items…";
 "删除映射" = "Delete Mount";
 "刷新" = "Refresh";
-"刷新状态" = "Refresh Status";
 "前往下一个访问过的目录" = "Go to the next visited directory";
 "前进" = "Forward";
 "加密保存 · 查看需身份验证；隐藏后保留编辑草稿。" = "Save encrypted · Viewing requires authentication; hiding keeps the edit draft.";
@@ -139,7 +136,6 @@
 "可选，留空保留原口令" = "Optional; leave blank to keep the original passphrase";
 "同时修改文件夹内所有项目" = "Also apply to all items in the folder";
 "名称" = "Name";
-"名称与连接" = "Name and Connection";
 "后退" = "Back";
 "启动时只尝试一次；失败后在映射列表中提示。" = "Tries only once at launch; if it fails, a notice appears in the mount list.";
 "在 SFTP 中检索" = "Search in SFTP";
@@ -273,7 +269,6 @@
 "挂载" = "Mount";
 "挂载失败" = "Mount failed";
 "挂载点不在 Snake 受管目录中。" = "The mount point is not in the Snake managed directory.";
-"挂载环境已就绪" = "Mount environment ready";
 "挂载环境需要配置" = "Mount environment needs configuration";
 "挂载进程已退出，系统未建立挂载。" = "The mount process exited and the system did not establish a mount.";
 "按下快捷键…" = "Press shortcut…";
@@ -350,13 +345,11 @@
 "未检测到 macFUSE，请安装后重新检测。" = "macFUSE not detected. Install it, then check again.";
 "未检测到 sshfs，请安装后重新检测。" = "sshfs not detected. Install it, then check again.";
 "未知校验算法" = "Unknown verification algorithm";
-"未绑定" = "Unbound";
 "未绑定 SSH 会话" = "No SSH session bound";
 "未绑定连接" = "No connection bound";
 "未连接" = "Not connected";
 "本地文件已存在" = "Local file already exists";
 "本地源文件已变化，请重新上传" = "The local source file changed. Upload again.";
-"本地目录" = "Local directory";
 "本地访问目录" = "Local access folder";
 "本地访问目录已存在且不是指向受管挂载点的软链接。" = "The local access folder already exists and is not a symbolic link to the managed mount point.";
 "本次 SSH 握手实际协商结果" = "Actual result negotiated in this SSH handshake";
@@ -498,7 +491,6 @@
 "裁剪会话头像" = "Crop session avatar";
 "覆盖" = "Overwrite";
 "覆盖前会先下载到临时文件并完成校验流程；校验工具不可用时会标记未校验。原文件不会提前被清空。" = "Overwriting first downloads to a temporary file and completes the verification flow; if the verification tool is unavailable, the file is marked unverified. The original file is never cleared in advance.";
-"让远程目录像本地磁盘一样出现在 Finder 中。" = "Make remote directories appear in Finder like local disks.";
 "访问路径" = "Access path";
 "该会话已不可用，请刷新会话列表后重试。" = "This session is no longer available. Refresh the session list and try again.";
 "该本地位置已被占用，请选择其他入口名称。" = "That local location is already in use. Choose another entry name.";
@@ -570,7 +562,6 @@
 "配色、高亮与字体立即应用到所有终端，不会重连或清空屏幕缓冲。" = "Theme, highlighting, and font apply immediately to all terminals without reconnecting or clearing the screen buffer.";
 "配色主题" = "Theme";
 "重命名" = "Rename";
-"重命名…" = "Rename…";
 "重新选择照片…" = "Choose Photo Again…";
 "重置" = "Reset";
 "重试" = "Retry";
@@ -690,7 +681,6 @@
 "端口已被占用" = "Port already in use";
 "编辑名称、绑定会话和有效期" = "Edit name, bound sessions and expiry";
 "超时" = "Timed out";
-"超过保留天数或条数上限的最早记录会自动删除，0 表示不限制。启动时、每新增 100 条及每小时检查一次。" = "The oldest records beyond the retention period or record limit are deleted automatically; 0 means no limit. Checked at launch, after every 100 new records, and hourly.";
 "身份验证未通过，未显示 Token。" = "Authentication failed; the token was not shown.";
 "输出大小" = "Output size";
 "运行中" = "Running";
@@ -786,7 +776,6 @@
 "请填写密钥名称。" = "Enter a key name.";
 "还没有私钥" = "No private keys yet";
 "这把私钥已加密，请填写口令。" = "This private key is encrypted. Enter its passphrase.";
-"重命名密钥" = "Rename Key";
 
 /* SSH tunnels */
 "SSH 连接已断开" = "SSH connection lost";
@@ -795,21 +784,16 @@
 "例如：生产库 MySQL" = "e.g. Production MySQL";
 "保存隧道" = "Save Tunnel";
 "修改 %@" = "Modified %@";
-"停止" = "Stop";
 "创建 / 修改" = "Created / Modified";
 "删除隧道" = "Delete Tunnel";
 "删除隧道 %@？" = "Delete tunnel %@?";
 "原 SSH 会话已删除，请编辑隧道重新选择会话。" = "The SSH session was deleted. Edit the tunnel to choose another session.";
-"启动" = "Start";
-"启动失败" = "Failed";
 "备注" = "Note";
 "复制本地地址" = "Copy Local Address";
 "打开磁盘映射与 SSH 隧道" = "Open Disk Mappings and SSH Tunnels";
-"把服务器那边的端口映射到本机端口（ssh -L）。" = "Forward ports on the server side to ports on this Mac (ssh -L).";
 "把服务器那边的端口映射到本机，例如把服务器上的 MySQL 3306 映射到本机 13306。" = "Forward a port on the server side to this Mac, for example the server's MySQL 3306 to local port 13306.";
 "新增隧道" = "New Tunnel";
 "服务器的主机指纹已变化，请先打开它的终端确认。" = "The server's host key fingerprint changed. Open its terminal to confirm it first.";
-"未启动" = "Stopped";
 "本地端口" = "Local Port";
 "本地端口 %@ 已被另一条隧道使用。" = "Local port %@ is already used by another tunnel.";
 "本地端口只监听 127.0.0.1，只有这台 Mac 能访问。SSH 断开后隧道停在「已断开」，需要手动重连。" = "Local ports listen on 127.0.0.1 only, so only this Mac can reach them. If SSH drops, the tunnel stays Disconnected until you reconnect it.";
@@ -821,16 +805,11 @@
 "请选择会话" = "Choose a session";
 "请选择隧道使用的 SSH 会话。" = "Choose the SSH session for this tunnel.";
 "转发" = "Forwarding";
-"运行中 · %@ 个连接" = "Running · %@ connections";
 "还没有 SSH 隧道" = "No SSH tunnels yet";
 "还没有信任这台服务器的主机指纹，请先从 Snake 打开一次它的终端并确认指纹。" = "This server's host key is not trusted yet. Open its terminal in Snake once and confirm the fingerprint.";
-"远端" = "Remote";
 "远端主机" = "Remote Host";
 "远端端口" = "Remote Port";
 "远端端口须在 1 到 65535 之间。" = "The remote port must be between 1 and 65535.";
-"重连" = "Reconnect";
-"随 Snake 启动" = "Start with Snake";
-"随启动" = "Auto Start";
 "隧道单独建立一条 SSH 连接；这台服务器的主机指纹需要先在终端里确认过。" = "A tunnel opens its own SSH connection; the server's host key must already be confirmed in a terminal.";
 "隧道参数无效：%@" = "Invalid tunnel settings: %@";
 "隧道操作未完成" = "Tunnel Action Failed";
@@ -901,3 +880,41 @@
 "SFTP 将自动重连（%@/%@）" = "SFTP will reconnect automatically (%@/%@)";
 "SFTP 连接已断开，正在重新连接" = "SFTP connection lost; reconnecting";
 "新建子文件夹" = "New Subfolder";
+
+/* Resource lists */
+"启动 Snake 时自动挂载" = "Mount When Snake Starts";
+"启动 Snake 时自动挂载这个目录" = "Mounts this directory when Snake starts";
+"启动 Snake 时自动连接" = "Connect When Snake Starts";
+"启动 Snake 时自动连接这条隧道" = "Connects this tunnel when Snake starts";
+"在 Finder 中打开" = "Open in Finder";
+"已连接 · %@ 个连接" = "Connected · %@ connections";
+"断开" = "Disconnect";
+"自动连接" = "Auto Connect";
+"连接" = "Connect";
+
+/* Mapping page and MCP retention */
+"%@ 个映射 · %@ 个已挂载" = "%@ mappings · %@ mounted";
+"%@ 条隧道 · %@ 条已连接" = "%@ tunnels · %@ connected";
+"Finder 入口（软链接）" = "Finder Entry (Symlink)";
+"修改后按回车或离开输入框才生效，不会立即删除；超过保留天数或条数上限的最早记录在启动时、每新增 100 条、每小时或点「立即清理」时删除，0 表示不限制。" = "Changes apply when you press Return or leave the field and delete nothing right away. Records beyond the day or count limit are removed, oldest first, at launch, every 100 new records, hourly, or when you click Clean Up Now. 0 means no limit.";
+"刷新挂载状态" = "Refresh Mount Status";
+"重新检测" = "Check Again";
+"SSHFS 挂载在这里，Finder 侧栏显示为「%@」" = "Mounted here by SSHFS; Finder's sidebar shows it as “%@”";
+"SSHFS 挂载在这里，由 Snake 管理" = "Mounted here by SSHFS and managed by Snake";
+"双击一行编辑映射，可查看完整的访问路径。" = "Double-click a row to edit the mapping and see its full paths.";
+"在 Finder 里打开入口，读写的就是服务器上的远程目录。" = "Opening the entry in Finder reads and writes the remote folder on the server.";
+"指向挂载点，平时从这里打开" = "Points at the mount point; open it from here";
+"服务器上的文件夹" = "The folder on the server";
+"编辑密钥" = "Edit Key";
+"还没有会话使用这把密钥" = "No session uses this key yet";
+"还有 %@ 条 SSH 隧道正在运行" = "%@ SSH tunnel is still running";
+"还有 %@ 条 SSH 隧道正在运行#plural" = "%@ SSH tunnels are still running";
+"还有未卸载的目录（%@ 个）和正在运行的 SSH 隧道（%@ 条）" = "Directories still mounted: %@ · SSH tunnels still running: %@";
+"退出后 SSH 隧道会断开，本机端口随之关闭，正在通过它们的连接（例如数据库客户端）会中断。" = "Quitting disconnects the SSH tunnels and closes their local ports; connections going through them (such as a database client) will be cut off.";
+"SSH 隧道 %@ → %@\n%@ · %@" = "SSH tunnel %@ → %@\n%@ · %@";
+"断开并退出" = "Disconnect and Quit";
+"隐私与安全" = "Privacy & Security";
+"密码输入与自动填充" = "Password entry and AutoFill";
+"密码输入" = "Password Entry";
+"点击密码输入框时显示系统密码自动填充" = "Show macOS Passwords AutoFill when clicking a password field";
+"关闭后，Snake 的密码和私钥口令输入框不再弹出 macOS「密码」的自动填充建议，需要手动输入或粘贴。只影响 Snake 自己的输入框，不改动系统的密码设置。" = "When off, Snake's password and key passphrase fields no longer pop up AutoFill suggestions from macOS Passwords; type or paste instead. This only affects Snake's own fields and does not change any system password setting.";
