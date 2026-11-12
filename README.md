@@ -4,6 +4,8 @@
 
 Snake 是面向 macOS 15+ 的原生 SSH 工作台：会话管理、终端、SFTP 文件传输和 SSHFS 磁盘映射共用一个多窗口工作区。
 
+官网与在线演示：[snakem.com](https://snakem.com)
+
 ## 1.4.2 安装
 
 当前安装包为 **Apple Silicon（M 系列）版**，要求 **macOS 15 或更高版本**，不包含 Intel / Universal 2 版本。
