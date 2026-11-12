@@ -60,6 +60,7 @@ private struct McpServicePane: View {
     @State private var shownSecret: McpShownSecret?
     @State private var pendingDelete: McpTokenInfo?
     @State private var revealingID: UUID?
+    @State private var selectedTokenID: UUID?
     @State private var message: String?
 
     var body: some View {
@@ -185,6 +186,7 @@ private struct McpServicePane: View {
             }
         }
         .background(SnakeStyle.raisedSurface, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         .overlay { RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Color.primary.opacity(0.10), lineWidth: 1) }
     }
 
@@ -237,6 +239,11 @@ private struct McpServicePane: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
+        .background(selectedTokenID == token.id ? SnakeStyle.selectedRow.opacity(0.75) : .clear)
+        .contentShape(Rectangle())
+        .onTapGesture(count: 2) { editor = McpTokenDraft(token) }
+        // Simultaneous, so the highlight does not wait out the double-click interval.
+        .simultaneousGesture(TapGesture().onEnded { selectedTokenID = token.id })
     }
 
     private var stateSymbol: String {
@@ -527,6 +534,13 @@ private struct McpAuditPane: View {
     @State private var selection: Set<String> = []
     @State private var pendingDeletion: Deletion?
     @State private var message: String?
+    /// Retention limits are edited as text and applied on Return or when the field
+    /// loses focus, so a number still being typed (1 on the way to 1000) never counts.
+    @State private var daysDraft = ""
+    @State private var maxDraft = ""
+    @FocusState private var retentionField: RetentionField?
+
+    enum RetentionField: Hashable { case days, records }
 
     enum TimeRange: Hashable, CaseIterable {
         case all, hour, day, week, month
@@ -687,20 +701,27 @@ private struct McpAuditPane: View {
         HStack(spacing: 14) {
             Text("滚动删除").font(.system(size: 12, weight: .semibold))
             LabeledContent("保留天数") {
-                TextField("", value: $mcp.retentionDays, format: .number.grouping(.never))
+                TextField("", text: $daysDraft)
                     .labelsHidden().multilineTextAlignment(.trailing).frame(width: 56)
+                    .focused($retentionField, equals: .days)
+                    .onSubmit(commitRetention)
                     .accessibilityLabel(L10n.text("保留天数"))
             }
             LabeledContent("最多保留") {
                 HStack(spacing: 4) {
-                    TextField("", value: $mcp.maxRecords, format: .number.grouping(.never))
+                    TextField("", text: $maxDraft)
                         .labelsHidden().multilineTextAlignment(.trailing).frame(width: 72)
+                        .focused($retentionField, equals: .records)
+                        .onSubmit(commitRetention)
                         .accessibilityLabel(L10n.text("最多保留"))
                     Text("条").foregroundStyle(.secondary)
                 }
             }
-            Button("立即清理") { mcp.pruneAudit() }
-            Text("超过保留天数或条数上限的最早记录会自动删除，0 表示不限制。启动时、每新增 100 条及每小时检查一次。")
+            Button("立即清理") {
+                commitRetention()
+                mcp.pruneAudit()
+            }
+            Text("修改后按回车或离开输入框才生效，不会立即删除；超过保留天数或条数上限的最早记录在启动时、每新增 100 条、每小时或点「立即清理」时删除，0 表示不限制。")
                 .font(.system(size: 11))
                 .foregroundStyle(SnakeStyle.muted)
                 .lineLimit(2)
@@ -710,6 +731,22 @@ private struct McpAuditPane: View {
         .font(.system(size: 12))
         .padding(.horizontal, 24)
         .padding(.vertical, 12)
+        .onAppear(perform: resetRetentionDrafts)
+        .onChange(of: retentionField) { old, new in
+            if old != nil, new != old { commitRetention() }
+        }
+    }
+
+    /// Applies both fields; anything that is not a number goes back to the saved value.
+    private func commitRetention() {
+        if let days = Int(daysDraft.trimmingCharacters(in: .whitespaces)) { mcp.retentionDays = days }
+        if let records = Int(maxDraft.trimmingCharacters(in: .whitespaces)) { mcp.maxRecords = records }
+        resetRetentionDrafts()
+    }
+
+    private func resetRetentionDrafts() {
+        daysDraft = String(mcp.retentionDays)
+        maxDraft = String(mcp.maxRecords)
     }
 
     private var filter: CoreMcpAuditFilter {

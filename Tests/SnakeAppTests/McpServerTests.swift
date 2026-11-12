@@ -244,7 +244,6 @@ final class McpServerTests: XCTestCase {
         XCTAssertEqual(controller.tokens.first?.state(), .expired)
 
         controller.retentionDays = 0
-        controller.maxRecords = 1
         for index in 0..<3 {
             controller.recordAudit(CoreMcpAuditRecord(
                 id: UUID().uuidString, tokenId: id.uuidString, tokenName: "agent", profileId: nil, profileLabel: "x",
@@ -253,6 +252,9 @@ final class McpServerTests: XCTestCase {
                 stderrExcerpt: "", stdoutBytes: 0, stderrBytes: 0
             ))
         }
+        // Typing a limit must not delete anything by itself (1 on the way to 1000).
+        controller.maxRecords = 1
+        XCTAssertEqual(controller.auditRecords(filter: .matching(), limit: 10).count, 3)
         controller.pruneAudit()
         XCTAssertEqual(controller.auditRecords(filter: .matching(), limit: 10).map(\.command), ["echo 2"])
         XCTAssertEqual(try controller.deleteAudit(filter: .matching(tokenID: id.uuidString)), 1)

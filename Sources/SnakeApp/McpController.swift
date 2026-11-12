@@ -65,8 +65,9 @@ final class McpController: ObservableObject, McpBackend {
         didSet {
             let value = min(max(retentionDays, 0), 3_650)
             if value != retentionDays { retentionDays = value; return }
+            // Only remembered here: deleting records belongs to the scheduled check or
+            // 「立即清理」, never to a value that may still be half typed.
             defaults.set(value, forKey: Keys.retentionDays)
-            pruneAudit()
         }
     }
     @Published var maxRecords: Int {
@@ -74,7 +75,6 @@ final class McpController: ObservableObject, McpBackend {
             let value = min(max(maxRecords, 0), 1_000_000)
             if value != maxRecords { maxRecords = value; return }
             defaults.set(value, forKey: Keys.maxRecords)
-            pruneAudit()
         }
     }
     @Published private(set) var serverState: McpHTTPServer.State = .stopped

@@ -484,12 +484,12 @@ public enum TunnelState: Hashable, Sendable {
 
     public var label: String {
         switch self {
-        case .stopped: L10n.text("未启动")
+        case .stopped: L10n.text("未连接")
         case .starting: L10n.text("正在连接")
         case .running(let connections):
-            connections == 0 ? L10n.text("运行中") : L10n.format("运行中 · %@ 个连接", connections)
+            connections == 0 ? L10n.text("已连接") : L10n.format("已连接 · %@ 个连接", connections)
         case .disconnected: L10n.text("已断开")
-        case .failed: L10n.text("启动失败")
+        case .failed: L10n.text("连接失败")
         }
     }
 
@@ -519,7 +519,8 @@ public enum WorkspaceTabKind: Hashable, Sendable {
     public var symbolName: String {
         switch self {
         case .sessions: "square.grid.2x2"
-        case .mounts: "externaldrive"
+        // One page holds both disk mappings and SSH tunnels: a drive on the network.
+        case .mounts: "externaldrive.connected.to.line.below"
         case .mcp: "point.3.connected.trianglepath.dotted"
         case .passwords: "key.horizontal"
         case .terminal: "terminal"
