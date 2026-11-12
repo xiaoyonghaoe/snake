@@ -1,7 +1,7 @@
 {
   "version": 1,
   "created_at": "2026-09-15T08:15:17Z",
-  "updated_at": "2026-11-12T07:42:46Z",
+  "updated_at": "2026-11-12T09:22:47Z",
   "files": {
     ".gitattributes": {
       "role": "index",
@@ -67,14 +67,14 @@
       "normalized_sha256": "a18f5914c76f9d1341330259f62816352b4937c97cdc0315196e11c42b04d63a"
     },
     "README.en.md": {
-      "sha256": "da1749686bdc2e2a1c6f9391ab3766ba01b3ff24c8fa43a656870bc30c27c892",
-      "size": 22894,
-      "normalized_sha256": "da1749686bdc2e2a1c6f9391ab3766ba01b3ff24c8fa43a656870bc30c27c892"
+      "sha256": "230392f954ba452af430d98847fbfe6f1bfcab682b38bd4c8b873f3d6dbb4631",
+      "size": 21815,
+      "normalized_sha256": "230392f954ba452af430d98847fbfe6f1bfcab682b38bd4c8b873f3d6dbb4631"
     },
     "README.md": {
-      "sha256": "47ae5eeda90eec05c20baff79506acd572a313c2d7a005a6cf513ef00299912f",
-      "size": 19348,
-      "normalized_sha256": "47ae5eeda90eec05c20baff79506acd572a313c2d7a005a6cf513ef00299912f"
+      "sha256": "0557062bc4c1f10d3e5c825b109a3f0b3d7be3acf0964ea11ad783cf811fa2f5",
+      "size": 18274,
+      "normalized_sha256": "0557062bc4c1f10d3e5c825b109a3f0b3d7be3acf0964ea11ad783cf811fa2f5"
     },
     "Resources/Info.plist": {
       "sha256": "5438b1d765bdaa3835cb1a2cb8485b3660bac3d9130e89394b4a483e794ecc97",
