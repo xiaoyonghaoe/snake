@@ -92,17 +92,6 @@ shasum -a 256 -c Snake-1.4.2-macos-arm64.dmg.sha256
 - Intel / Universal 2 安装包、Developer ID 签名与公证尚未交付。
 - 1.4.2 验证：Swift 281 项中 274 项通过、6 项外部夹具跳过、1 项既有挂载 `invalidMapping` 失败；Rust 40 项单元测试通过（本版未改动 Rust 核心，本机 sshd 回归沿用 1.4.1 的通过结果，未重新运行）。不能将整体测试宣称为全部通过。页面、退出确认框、密码自动填充开关在真实窗口中的效果和干净 Mac 安装验收仍由用户执行。
 
-## 界面预览
-
-<img width="1120" height="840" alt="image" src="https://github.com/user-attachments/assets/d9f0fd93-cc37-468d-8256-0020b76ac4f5" />
-<img width="1120" height="840" alt="image" src="https://github.com/user-attachments/assets/711f9420-4b34-4621-baab-fb8f64d4e9a0" />
-<img width="1120" height="840" alt="image" src="https://github.com/user-attachments/assets/5a3191e4-2f8f-467c-803d-fc2be2273275" />
-<img width="1120" height="840" alt="image" src="https://github.com/user-attachments/assets/d6e4ae1c-2fa5-47a8-8071-b5d571061f6e" />
-<img width="1120" height="840" alt="image" src="https://github.com/user-attachments/assets/b8586934-23b7-4b10-be21-ea05357c86f5" />
-<img width="1120" height="840" alt="image" src="https://github.com/user-attachments/assets/68f66f07-2eb6-400a-83da-158eeabf8b4e" />
-<img width="1120" height="840" alt="image" src="https://github.com/user-attachments/assets/c11929f1-a08b-4af1-aee9-9fd6472b8ccc" />
-<img width="1120" height="840" alt="image" src="https://github.com/user-attachments/assets/2f150786-87b7-4950-a307-9670158da30c" />
-
 ## 本地开发
 
 ```bash

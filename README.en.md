@@ -93,17 +93,6 @@ See the [1.4.2 release notes](docs/RELEASE_NOTES_1.4.2.md) for this update, and 
 - The Intel / Universal 2 installer package, and Developer ID signing and notarization have not been delivered yet.
 - 1.4.2 verification: of 281 Swift tests, 274 passed, 6 external fixtures were skipped and 1 pre-existing mount test failed with `invalidMapping`. Rust: 40 unit tests passed (the Rust core is unchanged, so the loopback-sshd regressions that passed for 1.4.1 were not rerun). The full suite is not all-green; GUI, the quit confirmation, the AutoFill switch in real windows and clean-Mac installation acceptance remain manual.
 
-## Interface preview
-
-<img width="1120" height="840" alt="image" src="https://github.com/user-attachments/assets/d9f0fd93-cc37-468d-8256-0020b76ac4f5" />
-<img width="1120" height="840" alt="image" src="https://github.com/user-attachments/assets/711f9420-4b34-4621-baab-fb8f64d4e9a0" />
-<img width="1120" height="840" alt="image" src="https://github.com/user-attachments/assets/5a3191e4-2f8f-467c-803d-fc2be2273275" />
-<img width="1120" height="840" alt="image" src="https://github.com/user-attachments/assets/d6e4ae1c-2fa5-47a8-8071-b5d571061f6e" />
-<img width="1120" height="840" alt="image" src="https://github.com/user-attachments/assets/b8586934-23b7-4b10-be21-ea05357c86f5" />
-<img width="1120" height="840" alt="image" src="https://github.com/user-attachments/assets/68f66f07-2eb6-400a-83da-158eeabf8b4e" />
-<img width="1120" height="840" alt="image" src="https://github.com/user-attachments/assets/c11929f1-a08b-4af1-aee9-9fd6472b8ccc" />
-<img width="1120" height="840" alt="image" src="https://github.com/user-attachments/assets/2f150786-87b7-4950-a307-9670158da30c" />
-
 ## Local development
 
 ```bash
