@@ -478,7 +478,12 @@ public enum TunnelState: Hashable, Sendable {
     case stopped
     case starting
     case running(connections: Int)
-    /// The SSH connection dropped; the user reconnects by hand.
+    /// SSH dropped but the local port is still open; the next local
+    /// connection reconnects. The detail says why it is waiting.
+    case standby(String)
+    /// A local connection arrived while SSH was down and is reconnecting it.
+    case reconnecting
+    /// The local listener itself failed; the user restarts by hand.
     case disconnected(String)
     case failed(String)
 
@@ -488,6 +493,8 @@ public enum TunnelState: Hashable, Sendable {
         case .starting: L10n.text("正在连接")
         case .running(let connections):
             connections == 0 ? L10n.text("已连接") : L10n.format("已连接 · %@ 个连接", connections)
+        case .standby: L10n.text("等待重连")
+        case .reconnecting: L10n.text("正在重连")
         case .disconnected: L10n.text("已断开")
         case .failed: L10n.text("连接失败")
         }
@@ -495,14 +502,15 @@ public enum TunnelState: Hashable, Sendable {
 
     public var detail: String? {
         switch self {
-        case .disconnected(let message), .failed(let message): message
+        case .standby(let message), .disconnected(let message), .failed(let message): message
         default: nil
         }
     }
 
+    /// The local port is held open, so quitting or stopping closes it.
     public var isActive: Bool {
         switch self {
-        case .starting, .running: true
+        case .starting, .running, .standby, .reconnecting: true
         default: false
         }
     }

@@ -185,4 +185,81 @@ final class SSHTunnelTests: XCTestCase {
         XCTAssertGreaterThan(renamed.updatedAt, legacy.createdAt)
         XCTAssertEqual(renamed.createdAt, legacy.createdAt)
     }
+
+    func testDroppedSSHWaitsForAccessAndAlertsOnFailedReconnect() async throws {
+        let profile = SSHProfile(name: "db", host: "192.0.2.10", username: "root")
+        let handle = FakeTunnelHandle()
+        let captured = ObserverBox()
+        var alerts: [(UUID, String)] = []
+        var clock = Date(timeIntervalSince1970: 1_000)
+        let controller = SSHTunnelController(
+            persistence: nil,
+            starter: { _, _, observer in
+                captured.set(observer)
+                return handle
+            },
+            alert: { tunnel, detail in alerts.append((tunnel.id, detail)) },
+            now: { clock }
+        )
+        controller.profile = { $0 == profile.id ? profile : nil }
+        try controller.save(SSHTunnel(profileID: profile.id, localPort: 13306, remotePort: 3306))
+        let id = controller.tunnels[0].id
+
+        controller.start(id)
+        await waitUntil { controller.state(of: id) == .running(connections: 0) }
+        let observer = try XCTUnwrap(captured.observer)
+
+        observer.onDisconnected(message: "SSH connection lost")
+        await waitUntil { if case .standby = controller.state(of: id) { true } else { false } }
+        XCTAssertTrue(controller.state(of: id).isActive, "the port is still held, so quitting must mention it")
+        XCTAssertEqual(controller.activeTunnels.map(\.id), [id])
+        try await Task.sleep(nanoseconds: 1_200_000_000)
+        if case .standby = controller.state(of: id) {} else {
+            XCTFail("polling must not turn a waiting tunnel back into running")
+        }
+
+        observer.onReconnecting()
+        await waitUntil { controller.state(of: id) == .reconnecting }
+        observer.onReconnectFailed(message: "timed out", stage: "tcp_connect")
+        await waitUntil { if case .standby = controller.state(of: id) { true } else { false } }
+        let reason = CoreErrorText.text("timed out", stage: "tcp_connect", fallback: "")
+        XCTAssertEqual(controller.state(of: id).detail, L10n.format("自动重连失败：%@", reason))
+        XCTAssertEqual(alerts.map(\.0), [id])
+        XCTAssertEqual(alerts.first?.1, reason)
+
+        // A second failure soon after does not raise another notification.
+        observer.onReconnectFailed(message: "timed out", stage: "tcp_connect")
+        try await Task.sleep(nanoseconds: 50_000_000)
+        XCTAssertEqual(alerts.count, 1)
+        clock = clock.addingTimeInterval(SSHTunnelController.alertInterval + 1)
+        observer.onReconnectFailed(message: "", stage: "host_key_mismatch")
+        await waitUntil { alerts.count == 2 }
+        XCTAssertEqual(alerts.last?.1, L10n.text("服务器的主机指纹已变化，请先打开它的终端确认。"))
+
+        observer.onReconnected()
+        await waitUntil { controller.state(of: id) == .running(connections: 0) }
+
+        // Events from a stopped run are ignored.
+        controller.stop(id)
+        observer.onDisconnected(message: "late")
+        try await Task.sleep(nanoseconds: 50_000_000)
+        XCTAssertEqual(controller.state(of: id), .stopped)
+        XCTAssertTrue(handle.stopped)
+    }
+}
+
+private final class FakeTunnelHandle: TunnelHandle, @unchecked Sendable {
+    private let lock = NSLock()
+    private var isStopped = false
+    var stopped: Bool { lock.withLock { isStopped } }
+    func stop() { lock.withLock { isStopped = true } }
+    func isClosed() -> Bool { stopped }
+    func activeConnections() -> UInt32 { 0 }
+}
+
+private final class ObserverBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: CoreTunnelObserver?
+    var observer: CoreTunnelObserver? { lock.withLock { value } }
+    func set(_ observer: CoreTunnelObserver) { lock.withLock { value = observer } }
 }

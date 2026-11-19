@@ -7,11 +7,19 @@ use std::net::{TcpListener, TcpStream};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-struct Observer(Arc<Mutex<Vec<Option<String>>>>);
-impl CoreTunnelObserver for Observer {
-    fn on_closed(&self, message: Option<String>) {
-        self.0.lock().unwrap().push(message);
+/// Records every observer call as a short event name.
+struct Observer(Arc<Mutex<Vec<String>>>);
+impl Observer {
+    fn push(&self, event: &str) {
+        self.0.lock().unwrap().push(event.to_owned());
     }
+}
+impl CoreTunnelObserver for Observer {
+    fn on_closed(&self, _message: Option<String>) { self.push("closed"); }
+    fn on_disconnected(&self, _message: String) { self.push("disconnected"); }
+    fn on_reconnecting(&self) { self.push("reconnecting"); }
+    fn on_reconnected(&self) { self.push("reconnected"); }
+    fn on_reconnect_failed(&self, _message: String, _stage: Option<String>) { self.push("reconnect_failed"); }
 }
 
 /// Echoes every connection back until the peer closes it.
@@ -32,7 +40,7 @@ fn echo_server() -> u16 {
     port
 }
 
-fn start(remote_port: u16, events: Arc<Mutex<Vec<Option<String>>>>) -> Arc<CoreTunnelHandle> {
+fn start(remote_port: u16, events: Arc<Mutex<Vec<String>>>) -> Arc<CoreTunnelHandle> {
     let port = std::env::var("SNAKE_SFTP_TEST_PORT").expect("disposable sshd port").parse().unwrap();
     let user = std::env::var("SNAKE_SFTP_TEST_USER").expect("fixture username");
     let key = std::env::var("SNAKE_SFTP_TEST_KEY").expect("fixture private-key path");
@@ -104,7 +112,7 @@ fn refused_remote_port_closes_only_that_connection() {
 /// drop the connection the way a network failure would.
 #[test]
 #[ignore = "requires a disposable loopback sshd"]
-fn lost_connection_is_reported_and_closes_the_listener() {
+fn lost_connection_keeps_listening_and_reconnects_on_access() {
     let pid = std::env::var("SNAKE_SSHD_PID").expect("disposable sshd pid");
     let events = Arc::new(Mutex::new(Vec::new()));
     let handle = start(echo_server(), Arc::clone(&events));
@@ -112,10 +120,45 @@ fn lost_connection_is_reported_and_closes_the_listener() {
     assert_eq!(round_trip(port, b"before"), b"before");
     std::process::Command::new("pkill").args(["-P", &pid]).status().unwrap();
     for _ in 0..100 {
-        if handle.is_closed() { break; }
+        if events.lock().unwrap().iter().any(|event| event == "disconnected") { break; }
         std::thread::sleep(Duration::from_millis(100));
     }
-    assert!(handle.is_closed());
-    assert_eq!(events.lock().unwrap().len(), 1, "the failure is reported once");
-    assert!(TcpStream::connect(("127.0.0.1", port)).is_err());
+    assert_eq!(*events.lock().unwrap(), ["disconnected"], "the drop is reported once");
+    assert!(!handle.is_closed(), "the tunnel stays up");
+
+    // The next local connection reopens SSH and is forwarded normally.
+    assert_eq!(round_trip(port, b"after"), b"after");
+    assert_eq!(*events.lock().unwrap(), ["disconnected", "reconnecting", "reconnected"]);
+    handle.stop();
+}
+
+/// Destroys the fixture: kills the whole sshd named by SNAKE_SSHD_PID, so run
+/// it on its own and last.
+#[test]
+#[ignore = "requires a disposable loopback sshd it may kill"]
+fn failed_reconnect_is_reported_once_and_the_port_stays_open() {
+    let pid = std::env::var("SNAKE_SSHD_PID").expect("disposable sshd pid");
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let handle = start(echo_server(), Arc::clone(&events));
+    let port = handle.local_port();
+    std::process::Command::new("pkill").args(["-P", &pid]).status().unwrap();
+    std::process::Command::new("kill").arg(&pid).status().unwrap();
+    for _ in 0..100 {
+        if !events.lock().unwrap().is_empty() { break; }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+
+    let closed_at_once = |port: u16| {
+        let mut stream = TcpStream::connect(("127.0.0.1", port)).expect("the port stays open");
+        stream.set_read_timeout(Some(Duration::from_secs(15))).unwrap();
+        let mut buffer = [0u8; 1];
+        assert_eq!(stream.read(&mut buffer).unwrap_or(0), 0, "the client sees the connection close");
+    };
+    closed_at_once(port);
+    assert_eq!(*events.lock().unwrap(), ["disconnected", "reconnecting", "reconnect_failed"]);
+    // Within the cooldown the next access is refused without another attempt.
+    closed_at_once(port);
+    assert_eq!(events.lock().unwrap().len(), 3);
+    assert!(!handle.is_closed());
+    handle.stop();
 }

@@ -1,5 +1,6 @@
 import Foundation
 import SnakeCoreBindings
+import UserNotifications
 
 public enum SSHTunnelError: LocalizedError, Equatable {
     case profileRequired
@@ -19,39 +20,73 @@ public enum SSHTunnelError: LocalizedError, Equatable {
     }
 }
 
-/// Bridges the core's close notification back to the main actor.
-private final class TunnelObserver: CoreTunnelObserver, @unchecked Sendable {
-    private let closed: @Sendable (String?) -> Void
-
-    init(closed: @escaping @Sendable (String?) -> Void) {
-        self.closed = closed
-    }
-
-    func onClosed(message: String?) {
-        closed(message)
-    }
+/// What the core reports about a running tunnel's SSH connection.
+enum TunnelEvent: Equatable, Sendable {
+    /// The local listener failed; the tunnel has ended.
+    case closed(String?)
+    /// SSH dropped; the port stays open and the next access reconnects.
+    case disconnected
+    case reconnecting
+    case reconnected
+    /// Reconnecting failed; the port stays open and a later access retries.
+    case reconnectFailed(message: String, stage: String?)
 }
 
-/// Owns the saved tunnels and their live forwards. A dropped connection is
-/// shown as disconnected and is only restarted when the user asks.
+/// A running forward. The core's handle in the app, a fake in tests.
+protocol TunnelHandle: AnyObject, Sendable {
+    func stop()
+    func isClosed() -> Bool
+    func activeConnections() -> UInt32
+}
+
+extension CoreTunnelHandle: TunnelHandle {}
+
+/// Bridges the core's callbacks back to the main actor.
+final class TunnelObserver: CoreTunnelObserver, @unchecked Sendable {
+    private let report: @Sendable (TunnelEvent) -> Void
+
+    init(report: @escaping @Sendable (TunnelEvent) -> Void) {
+        self.report = report
+    }
+
+    func onClosed(message: String?) { report(.closed(message)) }
+    func onDisconnected(message: String) { report(.disconnected) }
+    func onReconnecting() { report(.reconnecting) }
+    func onReconnected() { report(.reconnected) }
+    func onReconnectFailed(message: String, stage: String?) { report(.reconnectFailed(message: message, stage: stage)) }
+}
+
+/// Owns the saved tunnels and their live forwards. When SSH drops, the local
+/// port stays open and the next connection to it reconnects; a failed
+/// reconnect raises a system notification.
 @MainActor
 public final class SSHTunnelController: ObservableObject {
-    typealias Starter = @Sendable (SSHProfile, SSHTunnel, CoreTunnelObserver) throws -> CoreTunnelHandle
+    typealias Starter = @Sendable (SSHProfile, SSHTunnel, CoreTunnelObserver) throws -> any TunnelHandle
+    /// Tells the user a reconnect failed while they may not be looking at Snake.
+    typealias Alert = @MainActor (SSHTunnel, String) -> Void
+
+    /// Repeated failures of one tunnel raise at most one notification per interval.
+    static let alertInterval: TimeInterval = 60
 
     @Published public private(set) var tunnels: [SSHTunnel] = []
     @Published public private(set) var states: [UUID: TunnelState] = [:]
 
     private let persistence: CorePersistence?
     private let starter: Starter
+    private let alert: Alert
+    private let now: () -> Date
     /// Resolves a tunnel's session; set by the store once it is initialized.
     var profile: (UUID) -> SSHProfile? = { _ in nil }
-    private var handles: [UUID: CoreTunnelHandle] = [:]
+    private var handles: [UUID: any TunnelHandle] = [:]
     /// Bumped on every start and stop so late results from an older attempt are dropped.
     private var generations: [UUID: Int] = [:]
+    private var lastAlerts: [UUID: Date] = [:]
     private var pollTask: Task<Void, Never>?
 
-    init(persistence: CorePersistence?, starter: Starter? = nil) {
+    init(persistence: CorePersistence?, starter: Starter? = nil, alert: Alert? = nil, now: @escaping () -> Date = Date.init) {
         self.persistence = persistence
+        self.alert = alert ?? { tunnel, detail in TunnelNotifier.shared.reconnectFailed(tunnel, detail: detail) }
+        self.now = now
         self.starter = starter ?? { profile, tunnel, observer in
             try Self.startOverSSH(profile: profile, tunnel: tunnel, observer: observer)
         }
@@ -140,8 +175,8 @@ public final class SSHTunnelController: ObservableObject {
         let generation = (generations[id] ?? 0) + 1
         generations[id] = generation
         states[id] = .starting
-        let observer = TunnelObserver { [weak self] message in
-            Task { @MainActor in self?.connectionLost(id, generation: generation, message: message) }
+        let observer = TunnelObserver { [weak self] event in
+            Task { @MainActor in self?.handle(event, for: id, generation: generation) }
         }
         let starter = starter
         Task {
@@ -184,11 +219,32 @@ public final class SSHTunnelController: ObservableObject {
         pollTask = nil
     }
 
-    private func connectionLost(_ id: UUID, generation: Int, message: String?) {
+    func handle(_ event: TunnelEvent, for id: UUID, generation: Int) {
         guard generations[id] == generation else { return }
-        handles[id] = nil
-        let detail = message.map { L10n.format("SSH 连接已断开：%@", $0) } ?? L10n.text("SSH 连接已断开")
-        states[id] = .disconnected(detail)
+        switch event {
+        case .closed(let message):
+            handles[id] = nil
+            let detail = message.map { L10n.format("SSH 连接已断开：%@", $0) } ?? L10n.text("SSH 连接已断开")
+            states[id] = .disconnected(detail)
+        case .disconnected:
+            states[id] = .standby(L10n.text("SSH 连接已断开，本地端口仍在监听，有访问时会自动重连。"))
+        case .reconnecting:
+            states[id] = .reconnecting
+        case .reconnected:
+            states[id] = .running(connections: Int(handles[id]?.activeConnections() ?? 0))
+        case let .reconnectFailed(message, stage):
+            let reason = Self.reconnectFailure(message: message, stage: stage)
+            states[id] = .standby(L10n.format("自动重连失败：%@", reason))
+            raiseAlert(for: id, reason: reason)
+        }
+    }
+
+    private func raiseAlert(for id: UUID, reason: String) {
+        guard let tunnel = tunnels.first(where: { $0.id == id }) else { return }
+        let time = now()
+        if let last = lastAlerts[id], time.timeIntervalSince(last) < Self.alertInterval { return }
+        lastAlerts[id] = time
+        alert(tunnel, reason)
     }
 
     /// Keeps the connection counts current while any tunnel is up.
@@ -202,7 +258,9 @@ public final class SSHTunnelController: ObservableObject {
                     self.pollTask = nil
                     return
                 }
+                // Only a forwarding tunnel shows counts; waiting states stay as they are.
                 for (id, handle) in self.handles where !handle.isClosed() {
+                    guard case .running = self.states[id] else { continue }
                     let next = TunnelState.running(connections: Int(handle.activeConnections()))
                     if self.states[id] != next { self.states[id] = next }
                 }
@@ -212,7 +270,7 @@ public final class SSHTunnelController: ObservableObject {
 
     // MARK: Core
 
-    nonisolated static func startOverSSH(profile: SSHProfile, tunnel: SSHTunnel, observer: CoreTunnelObserver) throws -> CoreTunnelHandle {
+    nonisolated static func startOverSSH(profile: SSHProfile, tunnel: SSHTunnel, observer: CoreTunnelObserver) throws -> any TunnelHandle {
         let authentication = try TerminalRuntime.authentication(for: profile)
         // The key file is only read while connecting.
         defer {
@@ -240,6 +298,18 @@ public final class SSHTunnelController: ObservableObject {
         }
     }
 
+    /// Text for a failed automatic reconnect, from the core's stable stage code.
+    nonisolated static func reconnectFailure(message: String, stage: String?) -> String {
+        switch stage {
+        case "host_key_unknown":
+            L10n.text("还没有信任这台服务器的主机指纹，请先从 Snake 打开一次它的终端并确认指纹。")
+        case "host_key_mismatch":
+            L10n.text("服务器的主机指纹已变化，请先打开它的终端确认。")
+        default:
+            CoreErrorText.text(message, stage: stage, fallback: "隧道连接失败：%@")
+        }
+    }
+
     nonisolated static func message(for error: Error) -> String {
         switch error {
         case CoreError.HostKeyUnknown:
@@ -255,5 +325,47 @@ public final class SSHTunnelController: ObservableObject {
         default:
             (error as? LocalizedError)?.errorDescription ?? String(describing: error)
         }
+    }
+}
+
+/// Posts system notifications for tunnel failures. Banners show even while
+/// Snake is in front, since the failing client is often another app.
+@MainActor
+final class TunnelNotifier: NSObject, UNUserNotificationCenterDelegate {
+    static let shared = TunnelNotifier()
+
+    func reconnectFailed(_ tunnel: SSHTunnel, detail: String) {
+        // `swift run` has no bundle, and the notification center traps without one.
+        guard Bundle.main.bundleIdentifier != nil, Bundle.main.bundleURL.pathExtension == "app" else { return }
+        let center = UNUserNotificationCenter.current()
+        if center.delegate == nil { center.delegate = self }
+        Self.post(
+            // One notification per tunnel: a newer failure replaces the older one.
+            identifier: "tunnel-reconnect-\(tunnel.id.uuidString)",
+            title: L10n.text("SSH 隧道自动重连失败"),
+            body: L10n.format("%@ → %@\n%@", tunnel.localAddress, tunnel.remoteAddress, detail)
+        )
+    }
+
+    /// Nonisolated on purpose: the authorization callback runs on the
+    /// notification service's own queue, and a closure formed inside this
+    /// main-actor class would trap there on Swift's executor check.
+    private nonisolated static func post(identifier: String, title: String, body: String) {
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { granted, _ in
+            guard granted else { return }
+            let content = UNMutableNotificationContent()
+            content.title = title
+            content.body = body
+            content.sound = .default
+            UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: identifier, content: content, trigger: nil))
+        }
+    }
+
+    nonisolated func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification,
+        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+    ) {
+        completionHandler([.banner, .sound, .list])
     }
 }

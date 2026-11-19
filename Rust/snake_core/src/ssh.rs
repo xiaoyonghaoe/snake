@@ -179,6 +179,9 @@ impl client::Handler for ClientHandler {
 pub(crate) enum Credential {
     Password(Zeroizing<String>),
     PrivateKey { path: String, passphrase: Option<Zeroizing<String>> },
+    /// A private key already decoded in memory, for connections that must be
+    /// reopened after the app has given up access to the key file.
+    LoadedKey(Arc<russh::keys::PrivateKey>),
 }
 
 impl Credential {
@@ -205,6 +208,14 @@ impl Credential {
         Ok(Self::PrivateKey { path, passphrase })
     }
 
+    /// Decodes a key file now so later connections never read the file again.
+    pub(crate) fn into_loaded(self) -> Result<Self, CoreError> {
+        match self {
+            Self::PrivateKey { path, passphrase } => Ok(Self::LoadedKey(Arc::new(load_private_key(&path, passphrase.as_deref())?))),
+            other => Ok(other),
+        }
+    }
+
     /// Identifies the secret without storing it, so pooled connections are
     /// never shared between different credentials.
     fn digest(&self, username: &str) -> [u8; 32] {
@@ -221,6 +232,10 @@ impl Credential {
                 hasher.update(path.as_bytes());
                 hasher.update([0]);
                 hasher.update(passphrase.as_deref().map(String::as_bytes).unwrap_or_default());
+            }
+            Self::LoadedKey(key) => {
+                hasher.update(b"loaded-key\0");
+                hasher.update(key.public_key().to_openssh().unwrap_or_default().as_bytes());
             }
         }
         hasher.finalize().into()
@@ -366,18 +381,10 @@ async fn authenticate(handle: &mut client::Handle<ClientHandler>, username: &str
             "auth_password",
         ),
         Credential::PrivateKey { path, passphrase } => {
-            let key = russh::keys::load_secret_key(path, passphrase.as_deref().map(String::as_str))
-                .map_err(|error| CoreError::Authentication { message: error.to_string(), stage: Some("auth_private_key".to_owned()) })?;
-            // Old servers without server-sig-algs only understand ssh-rsa (SHA-1).
-            let hash: Option<HashAlg> = match handle.best_supported_rsa_hash().await {
-                Ok(Some(hash)) => hash,
-                _ => None,
-            };
-            (
-                handle.authenticate_publickey(username, PrivateKeyWithHashAlg::new(Arc::new(key), hash)).await,
-                "auth_private_key",
-            )
+            let key = Arc::new(load_private_key(path, passphrase.as_deref())?);
+            (authenticate_key(handle, username, key).await, "auth_private_key")
         }
+        Credential::LoadedKey(key) => (authenticate_key(handle, username, Arc::clone(key)).await, "auth_private_key"),
     };
     match result {
         Ok(outcome) if outcome.success() => Ok(()),
@@ -387,6 +394,24 @@ async fn authenticate(handle: &mut client::Handle<ClientHandler>, username: &str
         }),
         Err(error) => Err(CoreError::Authentication { message: error.to_string(), stage: Some(stage.to_owned()) }),
     }
+}
+
+fn load_private_key(path: &str, passphrase: Option<&String>) -> Result<russh::keys::PrivateKey, CoreError> {
+    russh::keys::load_secret_key(path, passphrase.map(String::as_str))
+        .map_err(|error| CoreError::Authentication { message: error.to_string(), stage: Some("auth_private_key".to_owned()) })
+}
+
+async fn authenticate_key(
+    handle: &mut client::Handle<ClientHandler>,
+    username: &str,
+    key: Arc<russh::keys::PrivateKey>,
+) -> Result<russh::client::AuthResult, russh::Error> {
+    // Old servers without server-sig-algs only understand ssh-rsa (SHA-1).
+    let hash: Option<HashAlg> = match handle.best_supported_rsa_hash().await {
+        Ok(Some(hash)) => hash,
+        _ => None,
+    };
+    handle.authenticate_publickey(username, PrivateKeyWithHashAlg::new(key, hash)).await
 }
 
 /// Opens a new authenticated connection that is never shared.
@@ -401,7 +426,7 @@ pub(crate) fn connect(
     block_on(connect_async(host, port, username, credential, known_hosts_path, accept_fingerprint))
 }
 
-async fn connect_async(
+pub(crate) async fn connect_async(
     host: &str,
     port: u16,
     username: &str,

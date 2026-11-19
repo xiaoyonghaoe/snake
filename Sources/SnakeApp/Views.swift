@@ -2856,7 +2856,7 @@ private struct MountWorkspaceView: View {
                         onNew: { tunnelEditor = TunnelEditorDraft() },
                         onEdit: { tunnelEditor = TunnelEditorDraft(tunnel: $0) }
                     )
-                    Text("本地端口只监听 127.0.0.1，只有这台 Mac 能访问。SSH 断开后隧道停在「已断开」，需要手动重连。")
+                    Text("本地端口只监听 127.0.0.1，只有这台 Mac 能访问。SSH 断开后本地端口仍保持监听，有访问时自动重连；重连失败会发送系统通知。")
                         .font(.system(size: 11))
                         .foregroundStyle(SnakeStyle.muted)
                 }

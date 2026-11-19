@@ -1,16 +1,19 @@
 //! Local port forwarding (`ssh -L`): a listener on 127.0.0.1 whose
 //! connections are carried to `remote_host:remote_port` through one SSH
-//! connection, plus the saved tunnel definitions.
+//! connection, plus the saved tunnel definitions. When SSH drops the listener
+//! stays open and the next local connection reconnects.
 
 use super::*;
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::watch;
 
 /// How often the forwarder checks whether the SSH connection is still alive.
 const LIVENESS_INTERVAL: Duration = Duration::from_secs(1);
+/// After a failed reconnect, local connections are refused without retrying for this long.
+const RECONNECT_COOLDOWN: Duration = Duration::from_secs(10);
 
 // MARK: - Saved tunnels
 
@@ -111,10 +114,22 @@ impl CoreDatabase {
 
 // MARK: - Forwarding
 
+/// Reports how the tunnel's SSH connection is doing. Calls arrive on a core
+/// thread and stop once `CoreTunnelHandle::stop()` is called.
 #[uniffi::export(callback_interface)]
 pub trait CoreTunnelObserver: Send + Sync {
-    /// The SSH connection or the listener failed; not called after `stop()`.
+    /// The local listener failed and the tunnel has ended.
     fn on_closed(&self, message: Option<String>);
+    /// The SSH connection dropped. The local port stays open and the next
+    /// local connection reconnects.
+    fn on_disconnected(&self, message: String);
+    /// A local connection arrived while SSH was down; reconnecting now.
+    fn on_reconnecting(&self);
+    /// SSH is back and forwarding resumed.
+    fn on_reconnected(&self);
+    /// Reconnecting failed. The connection that asked for it was closed; the
+    /// port stays open and a later connection tries again.
+    fn on_reconnect_failed(&self, message: String, stage: Option<String>);
 }
 
 #[derive(uniffi::Object)]
@@ -169,7 +184,7 @@ pub fn start_local_forward_password(
     observer: Box<dyn CoreTunnelObserver>,
 ) -> Result<Arc<CoreTunnelHandle>, CoreError> {
     let credential = ssh::Credential::password(password)?;
-    start(&host, port, &username, &credential, &known_hosts_path, accept_fingerprint.as_deref(), local_port, remote_host, remote_port, observer)
+    start(host, port, username, credential, known_hosts_path, accept_fingerprint.as_deref(), local_port, remote_host, remote_port, observer)
 }
 
 #[uniffi::export]
@@ -187,8 +202,10 @@ pub fn start_local_forward_private_key(
     remote_port: u16,
     observer: Box<dyn CoreTunnelObserver>,
 ) -> Result<Arc<CoreTunnelHandle>, CoreError> {
-    let credential = ssh::Credential::private_key(private_key_path, passphrase)?;
-    start(&host, port, &username, &credential, &known_hosts_path, accept_fingerprint.as_deref(), local_port, remote_host, remote_port, observer)
+    // Decoded now: the app gives up access to the key file once this returns,
+    // and reconnecting later must not need it.
+    let credential = ssh::Credential::private_key(private_key_path, passphrase)?.into_loaded()?;
+    start(host, port, username, credential, known_hosts_path, accept_fingerprint.as_deref(), local_port, remote_host, remote_port, observer)
 }
 
 /// Binds first so a busy port fails without touching the server, then opens
@@ -196,11 +213,11 @@ pub fn start_local_forward_private_key(
 /// TCP stream with bulk traffic.
 #[allow(clippy::too_many_arguments)]
 fn start(
-    host: &str,
+    host: String,
     port: u16,
-    username: &str,
-    credential: &ssh::Credential,
-    known_hosts_path: &str,
+    username: String,
+    credential: ssh::Credential,
+    known_hosts_path: String,
     accept_fingerprint: Option<&str>,
     local_port: u16,
     remote_host: String,
@@ -213,13 +230,20 @@ fn start(
     }
     let listener = bind(local_port)?;
     let bound_port = listener.local_addr().map_err(|error| io_connection_stage_error("tunnel_listen", error))?.port();
-    let connection = ssh::connect(host, port, username, credential, known_hosts_path, accept_fingerprint)?;
+    // A fingerprint accepted here is now in known_hosts, so reconnects need none.
+    let connection = ssh::connect(&host, port, &username, &credential, &known_hosts_path, accept_fingerprint)?;
 
     let (stop, stop_signal) = watch::channel(false);
     let active = Arc::new(AtomicU32::new(0));
     let closed = Arc::new(AtomicBool::new(false));
     let handle = Arc::new(CoreTunnelHandle { stop, active: Arc::clone(&active), closed: Arc::clone(&closed), local_port: bound_port });
-    ssh::runtime().spawn(serve(listener, connection, remote_host, remote_port, active, closed, stop_signal, observer));
+    let link = Arc::new(Link {
+        endpoint: Endpoint { host, port, username, credential, known_hosts_path },
+        state: tokio::sync::Mutex::new(LinkState { connection: Some(connection), failed_at: None }),
+        observer,
+        closed,
+    });
+    ssh::runtime().spawn(serve(listener, link, remote_host, remote_port, active, stop_signal));
     Ok(handle)
 }
 
@@ -234,16 +258,105 @@ fn bind(local_port: u16) -> Result<TcpListener, CoreError> {
     })
 }
 
-#[allow(clippy::too_many_arguments)]
+struct Endpoint {
+    host: String,
+    port: u16,
+    username: String,
+    credential: ssh::Credential,
+    known_hosts_path: String,
+}
+
+struct LinkState {
+    /// `None` while SSH is down.
+    connection: Option<Arc<ssh::Connection>>,
+    /// When the last reconnect failed, to hold off retries during the cooldown.
+    failed_at: Option<Instant>,
+}
+
+/// The tunnel's SSH connection, reopened on demand after it drops.
+struct Link {
+    endpoint: Endpoint,
+    /// Held for the whole reconnect, so connections arriving meanwhile wait
+    /// for that one attempt instead of starting their own.
+    state: tokio::sync::Mutex<LinkState>,
+    observer: Box<dyn CoreTunnelObserver>,
+    /// Set by `stop()`; no observer calls after it.
+    closed: Arc<AtomicBool>,
+}
+
+impl Link {
+    fn notify(&self, call: impl FnOnce(&dyn CoreTunnelObserver)) {
+        if !self.closed.load(Ordering::SeqCst) {
+            call(self.observer.as_ref());
+        }
+    }
+
+    /// Forgets a connection that has closed, reporting the drop once.
+    fn forget_if_closed(&self, state: &mut LinkState) {
+        if state.connection.as_ref().is_some_and(|connection| connection.is_closed()) {
+            state.connection = None;
+            self.notify(|observer| observer.on_disconnected("SSH connection lost".to_owned()));
+        }
+    }
+
+    /// Liveness check from the accept loop; skipped while a reconnect holds the lock.
+    fn check(&self) {
+        if let Ok(mut state) = self.state.try_lock() {
+            self.forget_if_closed(&mut state);
+        }
+    }
+
+    /// The live connection, reconnecting first if SSH is down. `None` means
+    /// SSH is unavailable and the caller should drop its local connection.
+    async fn connection(&self) -> Option<Arc<ssh::Connection>> {
+        let mut state = self.state.lock().await;
+        self.forget_if_closed(&mut state);
+        if let Some(connection) = &state.connection {
+            return Some(Arc::clone(connection));
+        }
+        // Clients often retry at once; don't hammer the server or the user.
+        if state.failed_at.is_some_and(|at| at.elapsed() < RECONNECT_COOLDOWN) {
+            return None;
+        }
+        self.notify(|observer| observer.on_reconnecting());
+        let endpoint = &self.endpoint;
+        let attempt =
+            ssh::connect_async(&endpoint.host, endpoint.port, &endpoint.username, &endpoint.credential, &endpoint.known_hosts_path, None)
+                .await;
+        match attempt {
+            Ok(connection) => {
+                state.connection = Some(Arc::clone(&connection));
+                state.failed_at = None;
+                self.notify(|observer| observer.on_reconnected());
+                Some(connection)
+            }
+            Err(error) => {
+                state.failed_at = Some(Instant::now());
+                let (message, stage) = failure_parts(&error);
+                self.notify(|observer| observer.on_reconnect_failed(message, stage));
+                None
+            }
+        }
+    }
+}
+
+/// Splits an error into technical detail and the stable stage code Swift localizes.
+fn failure_parts(error: &CoreError) -> (String, Option<String>) {
+    match error {
+        CoreError::Connection { message, stage } | CoreError::Authentication { message, stage } => (message.clone(), stage.clone()),
+        CoreError::HostKeyUnknown { fingerprint, .. } => (fingerprint.clone(), Some("host_key_unknown".to_owned())),
+        CoreError::HostKeyMismatch { fingerprint, .. } => (fingerprint.clone(), Some("host_key_mismatch".to_owned())),
+        other => (other.to_string(), None),
+    }
+}
+
 async fn serve(
     listener: TcpListener,
-    connection: Arc<ssh::Connection>,
+    link: Arc<Link>,
     remote_host: String,
     remote_port: u16,
     active: Arc<AtomicU32>,
-    closed: Arc<AtomicBool>,
     mut stop: watch::Receiver<bool>,
-    observer: Box<dyn CoreTunnelObserver>,
 ) {
     let mut liveness = tokio::time::interval(LIVENESS_INTERVAL);
     let failure = loop {
@@ -252,13 +365,11 @@ async fn serve(
                 // A dropped handle counts as a stop.
                 if changed.is_err() || *stop.borrow() { break None; }
             }
-            _ = liveness.tick() => {
-                if connection.is_closed() { break Some("SSH connection lost".to_owned()); }
-            }
+            _ = liveness.tick() => link.check(),
             accepted = listener.accept() => match accepted {
                 Ok((stream, peer)) => {
                     tokio::spawn(forward(
-                        Arc::clone(&connection), stream, peer, remote_host.clone(), remote_port,
+                        Arc::clone(&link), stream, peer, remote_host.clone(), remote_port,
                         Arc::clone(&active), stop.clone(),
                     ));
                 }
@@ -267,14 +378,14 @@ async fn serve(
         }
     };
     drop(listener);
-    let stopped = closed.swap(true, Ordering::SeqCst);
+    let stopped = link.closed.swap(true, Ordering::SeqCst);
     if let Some(message) = failure.filter(|_| !stopped) {
-        observer.on_closed(Some(message));
+        link.observer.on_closed(Some(message));
     }
 }
 
 async fn forward(
-    connection: Arc<ssh::Connection>,
+    link: Arc<Link>,
     mut stream: TcpStream,
     peer: SocketAddr,
     remote_host: String,
@@ -283,6 +394,12 @@ async fn forward(
     mut stop: watch::Receiver<bool>,
 ) {
     let _ = stream.set_nodelay(true);
+    let connection = tokio::select! {
+        connection = link.connection() => connection,
+        _ = stop.wait_for(|stopped| *stopped) => None,
+    };
+    // SSH is down and could not be reopened: closing tells the client at once.
+    let Some(connection) = connection else { return };
     // A refused remote port only closes this local connection.
     let Ok(channel) = connection.open_direct_tcpip(&remote_host, remote_port, peer.port()).await else { return };
     active.fetch_add(1, Ordering::SeqCst);

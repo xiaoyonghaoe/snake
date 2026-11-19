@@ -4407,12 +4407,38 @@ public func FfiConverterCallbackInterfaceCoreTransferObserver_lower(_ v: CoreTra
 
 
 
+/**
+ * Reports how the tunnel's SSH connection is doing. Calls arrive on a core
+ * thread and stop once `CoreTunnelHandle::stop()` is called.
+ */
 public protocol CoreTunnelObserver: AnyObject, Sendable {
     
     /**
-     * The SSH connection or the listener failed; not called after `stop()`.
+     * The local listener failed and the tunnel has ended.
      */
     func onClosed(message: String?) 
+    
+    /**
+     * The SSH connection dropped. The local port stays open and the next
+     * local connection reconnects.
+     */
+    func onDisconnected(message: String) 
+    
+    /**
+     * A local connection arrived while SSH was down; reconnecting now.
+     */
+    func onReconnecting() 
+    
+    /**
+     * SSH is back and forwarding resumed.
+     */
+    func onReconnected() 
+    
+    /**
+     * Reconnecting failed. The connection that asked for it was closed; the
+     * port stays open and a later connection tries again.
+     */
+    func onReconnectFailed(message: String, stage: String?) 
     
 }
 
@@ -4439,6 +4465,100 @@ fileprivate struct UniffiCallbackInterfaceCoreTunnelObserver {
                 }
                 return uniffiObj.onClosed(
                      message: try FfiConverterOptionString.lift(message)
+                )
+            }
+
+            
+            let writeReturn = { () }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
+        },
+        onDisconnected: { (
+            uniffiHandle: UInt64,
+            message: RustBuffer,
+            uniffiOutReturn: UnsafeMutableRawPointer,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> () in
+                guard let uniffiObj = try? FfiConverterCallbackInterfaceCoreTunnelObserver.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.onDisconnected(
+                     message: try FfiConverterString.lift(message)
+                )
+            }
+
+            
+            let writeReturn = { () }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
+        },
+        onReconnecting: { (
+            uniffiHandle: UInt64,
+            uniffiOutReturn: UnsafeMutableRawPointer,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> () in
+                guard let uniffiObj = try? FfiConverterCallbackInterfaceCoreTunnelObserver.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.onReconnecting(
+                )
+            }
+
+            
+            let writeReturn = { () }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
+        },
+        onReconnected: { (
+            uniffiHandle: UInt64,
+            uniffiOutReturn: UnsafeMutableRawPointer,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> () in
+                guard let uniffiObj = try? FfiConverterCallbackInterfaceCoreTunnelObserver.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.onReconnected(
+                )
+            }
+
+            
+            let writeReturn = { () }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
+        },
+        onReconnectFailed: { (
+            uniffiHandle: UInt64,
+            message: RustBuffer,
+            stage: RustBuffer,
+            uniffiOutReturn: UnsafeMutableRawPointer,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> () in
+                guard let uniffiObj = try? FfiConverterCallbackInterfaceCoreTunnelObserver.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.onReconnectFailed(
+                     message: try FfiConverterString.lift(message),
+                     stage: try FfiConverterOptionString.lift(stage)
                 )
             }
 
@@ -5356,7 +5476,19 @@ private let initializationResult: InitializationResult = {
     if (uniffi_snake_core_checksum_method_coretransferobserver_on_progress() != 38825) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_snake_core_checksum_method_coretunnelobserver_on_closed() != 22555) {
+    if (uniffi_snake_core_checksum_method_coretunnelobserver_on_closed() != 26179) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_snake_core_checksum_method_coretunnelobserver_on_disconnected() != 54905) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_snake_core_checksum_method_coretunnelobserver_on_reconnecting() != 23389) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_snake_core_checksum_method_coretunnelobserver_on_reconnected() != 39414) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_snake_core_checksum_method_coretunnelobserver_on_reconnect_failed() != 33710) {
         return InitializationResult.apiChecksumMismatch
     }
 

@@ -8,7 +8,7 @@
 脚本只构建当前宿主架构，不将 arm64 冒充 Universal 2。
 
 ```sh
-zsh scripts/package-release-dmg.sh 1.4.2
+zsh scripts/package-release-dmg.sh 1.4.3
 ```
 
 输出在 `release/`（Git 忽略）：DMG 及 SHA-256 文件。已存在同名产物时拒绝覆盖。
@@ -21,7 +21,7 @@ zsh scripts/package-release-dmg.sh 1.4.2
 构建号默认读取 plist，可用 `SNAKE_BUILD_NUMBER` 覆盖。
 Cargo 许可证清单按锁文件和目标架构生成，包含 normal/build 依赖，不包含 dev 依赖。
 
-## 当前 1.4.2
+## 当前 1.4.3
 
 - Apple Silicon / macOS 15+；本地 ad-hoc 签名，不是 Apple 公证包。
 - 不包含 Intel 或 Universal 2 产物。
@@ -36,9 +36,9 @@ Cargo 许可证清单按锁文件和目标架构生成，包含 normal/build 依
 更换签名可能影响原测试包的钥匙串访问批准，发布前必须回归已保存凭据连接。
 
 ```sh
-xcrun notarytool submit release/Snake-1.4.2-macos-arm64.dmg --keychain-profile <你的公证配置名> --wait
-xcrun stapler staple release/Snake-1.4.2-macos-arm64.dmg
-xcrun stapler validate release/Snake-1.4.2-macos-arm64.dmg
+xcrun notarytool submit release/Snake-1.4.3-macos-arm64.dmg --keychain-profile <你的公证配置名> --wait
+xcrun stapler staple release/Snake-1.4.3-macos-arm64.dmg
+xcrun stapler validate release/Snake-1.4.3-macos-arm64.dmg
 ```
 
 只有公证结果为 Accepted 后才装订票据。装订会改变文件，必须重新生成 SHA-256，不能沿用旧值。
@@ -50,7 +50,16 @@ Apple 安全机制参见 [官方说明](https://support.apple.com/zh-cn/102445)�
 上传 DMG、同名 SHA-256 和版本说明；在发布页注明架构、最低系统版本与是否公证。
 公开版本前先提交对应源码并确认构建和源码一致，再由维护者创建标签及 Release。
 
-## 本次构建验证记录（1.4.2 / 1420，2026-11-12）
+## 本次构建验证记录（1.4.3 / 1430，2026-11-19）
+
+- Release 构建成功；应用、Helper 和 Rust dylib 均为 arm64，版本 `1.4.3` / `1430`。
+- DMG 11,605,991 字节；SHA-256：`7c03d7c833af153e3dfbf078da22edc7ce9f86d936e1677a4a87ddaa2cb1fe98`。
+- `hdiutil verify`、SHA-256 与只读挂载后的 `codesign --verify --deep --strict` 通过；Applications 链接为 `/Applications`，中英文安装说明均为 1.4.3。
+- 打包时资源定位与 7 个 Metal shader 编译检查通过，英文 896 条、中文源语言齐备；未启动应用进行页面验收。
+- Swift 282 项中 275 通过、6 跳过、1 项既有挂载 `invalidMapping` 失败；Rust 40 项单元测试通过，一次性本机 sshd 上的 4 项隧道回归（含断线后按需重连与重连失败）全部通过。
+- 发布内容见 [1.4.3 版本说明](RELEASE_NOTES_1.4.3.md)。本包 ad-hoc、未公证；真实断网重连、系统通知外观、GUI 和干净 Mac 安装/升级由用户验收。
+
+## 历史构建验证记录（1.4.2 / 1420，2026-11-12）
 
 - Release 构建成功；应用、Helper 和 Rust dylib 均为 arm64，版本 `1.4.2` / `1420`。
 - DMG 11,685,212 字节；SHA-256：`a8dc630b8de9c56363478fae472f0a87aec78569444ee069fdb4c9d72bbd483e`。

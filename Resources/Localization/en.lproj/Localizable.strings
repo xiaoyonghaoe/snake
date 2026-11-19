@@ -796,7 +796,14 @@
 "服务器的主机指纹已变化，请先打开它的终端确认。" = "The server's host key fingerprint changed. Open its terminal to confirm it first.";
 "本地端口" = "Local Port";
 "本地端口 %@ 已被另一条隧道使用。" = "Local port %@ is already used by another tunnel.";
-"本地端口只监听 127.0.0.1，只有这台 Mac 能访问。SSH 断开后隧道停在「已断开」，需要手动重连。" = "Local ports listen on 127.0.0.1 only, so only this Mac can reach them. If SSH drops, the tunnel stays Disconnected until you reconnect it.";
+"本地端口只监听 127.0.0.1，只有这台 Mac 能访问。SSH 断开后本地端口仍保持监听，有访问时自动重连；重连失败会发送系统通知。" = "Local ports listen on 127.0.0.1 only, so only this Mac can reach them. If SSH drops, the local port keeps listening and the next connection to it reconnects; a failed reconnect sends a system notification.";
+"等待重连" = "Waiting to Reconnect";
+"正在重连" = "Reconnecting";
+"立即重连" = "Reconnect Now";
+"SSH 连接已断开，本地端口仍在监听，有访问时会自动重连。" = "SSH connection lost. The local port is still listening and reconnects on the next connection.";
+"自动重连失败：%@" = "Automatic reconnect failed: %@";
+"SSH 隧道自动重连失败" = "SSH Tunnel Reconnect Failed";
+"%@ → %@\n%@" = "%@ → %@\n%@";
 "本地端口须在 1 到 65535 之间。" = "The local port must be between 1 and 65535.";
 "本机只监听 127.0.0.1。远端主机按服务器的视角填写：转发到服务器自己填 127.0.0.1，也可以填服务器能访问的内网地址。" = "This Mac listens on 127.0.0.1 only. Enter the remote host as the server sees it: 127.0.0.1 for the server itself, or any internal address the server can reach.";
 "正在运行的隧道会先停止，本机端口随之关闭。" = "A running tunnel stops first and its local port closes.";
