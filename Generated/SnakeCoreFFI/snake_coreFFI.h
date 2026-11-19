@@ -279,6 +279,34 @@ typedef void (*UniffiCallbackInterfaceCoreTunnelObserverMethod0)(uint64_t, RustB
     );
 
 #endif
+#ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_CORE_TUNNEL_OBSERVER_METHOD1
+#define UNIFFI_FFIDEF_CALLBACK_INTERFACE_CORE_TUNNEL_OBSERVER_METHOD1
+typedef void (*UniffiCallbackInterfaceCoreTunnelObserverMethod1)(uint64_t, RustBuffer, void* _Nonnull, 
+        RustCallStatus *_Nonnull uniffiCallStatus
+    );
+
+#endif
+#ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_CORE_TUNNEL_OBSERVER_METHOD2
+#define UNIFFI_FFIDEF_CALLBACK_INTERFACE_CORE_TUNNEL_OBSERVER_METHOD2
+typedef void (*UniffiCallbackInterfaceCoreTunnelObserverMethod2)(uint64_t, void* _Nonnull, 
+        RustCallStatus *_Nonnull uniffiCallStatus
+    );
+
+#endif
+#ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_CORE_TUNNEL_OBSERVER_METHOD3
+#define UNIFFI_FFIDEF_CALLBACK_INTERFACE_CORE_TUNNEL_OBSERVER_METHOD3
+typedef void (*UniffiCallbackInterfaceCoreTunnelObserverMethod3)(uint64_t, void* _Nonnull, 
+        RustCallStatus *_Nonnull uniffiCallStatus
+    );
+
+#endif
+#ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_CORE_TUNNEL_OBSERVER_METHOD4
+#define UNIFFI_FFIDEF_CALLBACK_INTERFACE_CORE_TUNNEL_OBSERVER_METHOD4
+typedef void (*UniffiCallbackInterfaceCoreTunnelObserverMethod4)(uint64_t, RustBuffer, RustBuffer, void* _Nonnull, 
+        RustCallStatus *_Nonnull uniffiCallStatus
+    );
+
+#endif
 #ifndef UNIFFI_FFIDEF_V_TABLE_CALLBACK_INTERFACE_CORE_TERMINAL_OBSERVER
 #define UNIFFI_FFIDEF_V_TABLE_CALLBACK_INTERFACE_CORE_TERMINAL_OBSERVER
 typedef struct UniffiVTableCallbackInterfaceCoreTerminalObserver {
@@ -300,6 +328,10 @@ typedef struct UniffiVTableCallbackInterfaceCoreTransferObserver {
 #define UNIFFI_FFIDEF_V_TABLE_CALLBACK_INTERFACE_CORE_TUNNEL_OBSERVER
 typedef struct UniffiVTableCallbackInterfaceCoreTunnelObserver {
     UniffiCallbackInterfaceCoreTunnelObserverMethod0 _Nonnull onClosed;
+    UniffiCallbackInterfaceCoreTunnelObserverMethod1 _Nonnull onDisconnected;
+    UniffiCallbackInterfaceCoreTunnelObserverMethod2 _Nonnull onReconnecting;
+    UniffiCallbackInterfaceCoreTunnelObserverMethod3 _Nonnull onReconnected;
+    UniffiCallbackInterfaceCoreTunnelObserverMethod4 _Nonnull onReconnectFailed;
     UniffiCallbackInterfaceFree _Nonnull uniffiFree;
 } UniffiVTableCallbackInterfaceCoreTunnelObserver;
 
@@ -1595,6 +1627,30 @@ uint16_t uniffi_snake_core_checksum_method_coretransferobserver_on_progress(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORETUNNELOBSERVER_ON_CLOSED
 #define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORETUNNELOBSERVER_ON_CLOSED
 uint16_t uniffi_snake_core_checksum_method_coretunnelobserver_on_closed(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORETUNNELOBSERVER_ON_DISCONNECTED
+#define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORETUNNELOBSERVER_ON_DISCONNECTED
+uint16_t uniffi_snake_core_checksum_method_coretunnelobserver_on_disconnected(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORETUNNELOBSERVER_ON_RECONNECTING
+#define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORETUNNELOBSERVER_ON_RECONNECTING
+uint16_t uniffi_snake_core_checksum_method_coretunnelobserver_on_reconnecting(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORETUNNELOBSERVER_ON_RECONNECTED
+#define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORETUNNELOBSERVER_ON_RECONNECTED
+uint16_t uniffi_snake_core_checksum_method_coretunnelobserver_on_reconnected(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORETUNNELOBSERVER_ON_RECONNECT_FAILED
+#define UNIFFI_FFIDEF_UNIFFI_SNAKE_CORE_CHECKSUM_METHOD_CORETUNNELOBSERVER_ON_RECONNECT_FAILED
+uint16_t uniffi_snake_core_checksum_method_coretunnelobserver_on_reconnect_failed(void
     
 );
 #endif

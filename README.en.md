@@ -6,11 +6,11 @@ Snake is a native SSH workbench for macOS 15+: session management, terminal, SFT
 
 Website and live demo: [snakem.com](https://snakem.com)
 
-## Installing 1.4.2
+## Installing 1.4.3
 
 The current installer package is the **Apple Silicon (M-series) build**, requires **macOS 15 or later**, and there is no Intel / Universal 2 build.
 
-1. Open `Snake-1.4.2-macos-arm64.dmg`.
+1. Open `Snake-1.4.3-macos-arm64.dmg`.
 2. Drag **Snake.app into Applications** and wait for the copy to finish.
 3. Eject the disk image and launch Snake from Applications. Quit the old version before updating, and choose Replace when copying.
 
@@ -21,10 +21,10 @@ A local installer package has been generated and uploaded to GitHub Releases. Bu
 Place the DMG and the checksum file in the same directory and run the following in that directory:
 
 ```sh
-shasum -a 256 -c Snake-1.4.2-macos-arm64.dmg.sha256
+shasum -a 256 -c Snake-1.4.3-macos-arm64.dmg.sha256
 ```
 
-See the [1.4.2 release notes](docs/RELEASE_NOTES_1.4.2.md) for this update, and the [release process](docs/en/RELEASING.md) for build, signing, and notarization steps.
+See the [1.4.3 release notes](docs/RELEASE_NOTES_1.4.3.md) for this update, and the [release process](docs/en/RELEASING.md) for build, signing, and notarization steps.
 
 ## Current features
 
@@ -57,7 +57,7 @@ See the [1.4.2 release notes](docs/RELEASE_NOTES_1.4.2.md) for this update, and 
 ### Disk mappings and data
 
 - Supports macFUSE/sshfs dependency detection, mapping editing, password and private-key SSHFS mounts, opening in Finder, and safe unmounting, using a constrained `SnakeMountHelper`. The password (or a saved key passphrase) reaches ssh through a managed SSH_ASKPASS channel, is tried once, and a failed mount cleans up its whole process group.
-- Switch the Disk Mappings page to SSH Tunnels for local port forwarding (like `ssh -L`): pick an SSH session and enter a local port, a remote host as the server sees it (127.0.0.1 by default), a remote port and a note. Local ports listen on 127.0.0.1 only; each tunnel opens its own SSH connection and needs the server's host key already confirmed in a terminal. The status shows active connections; if SSH drops the tunnel stays Disconnected until you reconnect it; tunnels can start with Snake. Deleting a session keeps its tunnels but unbinds them. Mappings and tunnels share one row style: name and path on the left, status and an Auto-mount/Auto-connect badge on the right, then Mount/Open or Connect/Disconnect, edit and delete buttons; a click selects at once and a double-click edits. The mapping editor lists its Access Paths top to bottom (remote folder → mount point with the Finder disk name → Finder entry), each on its own line with a copy button.
+- Switch the Disk Mappings page to SSH Tunnels for local port forwarding (like `ssh -L`): pick an SSH session and enter a local port, a remote host as the server sees it (127.0.0.1 by default), a remote port and a note. Local ports listen on 127.0.0.1 only; each tunnel opens its own SSH connection and needs the server's host key already confirmed in a terminal. The status shows active connections; if SSH drops the local port keeps listening (Waiting to Reconnect) and the next connection to it reconnects; a failed reconnect sends a system notification and further connections are refused for 10 seconds before trying again; tunnels can start with Snake. Deleting a session keeps its tunnels but unbinds them. Mappings and tunnels share one row style: name and path on the left, status and an Auto-mount/Auto-connect badge on the right, then Mount/Open or Connect/Disconnect, edit and delete buttons; a click selects at once and a double-click edits. The mapping editor lists its Access Paths top to bottom (remote folder → mount point with the Finder disk name → Finder entry), each on its own line with a copy button.
 - The Finder disk name shows "mapping name · SSH session name"; the system's actual mount table is authoritative. When quitting with directories still mounted or SSH tunnels still running, one confirmation lists both; confirming waits for mount operations, safely unmounts managed mappings and disconnects the tunnels, and a failed unmount cancels the quit. Cancelling leaves everything as it was. Only closing a window or a mapping tab does not unmount the disk.
 - The Rust `snake_core` provides SQLite data storage, session/mapping/transfer record interfaces, and UniFFI Swift bindings; credentials are stored separately, encrypted, and never written to the database.
 
@@ -93,7 +93,7 @@ See the [1.4.2 release notes](docs/RELEASE_NOTES_1.4.2.md) for this update, and 
 
 - Workspaces are not restored across app restarts and interrupted transfers are not resumed automatically; a failed download retries from a fresh source version, and resumable downloads are not promised.
 - The Intel / Universal 2 installer package, and Developer ID signing and notarization have not been delivered yet.
-- 1.4.2 verification: of 281 Swift tests, 274 passed, 6 external fixtures were skipped and 1 pre-existing mount test failed with `invalidMapping`. Rust: 40 unit tests passed (the Rust core is unchanged, so the loopback-sshd regressions that passed for 1.4.1 were not rerun). The full suite is not all-green; GUI, the quit confirmation, the AutoFill switch in real windows and clean-Mac installation acceptance remain manual.
+- 1.4.3 verification: of 282 Swift tests, 275 passed, 6 external fixtures were skipped and 1 pre-existing mount test failed with `invalidMapping`. Rust: 40 unit tests passed, and 4 tunnel regressions (including reconnect-on-access after a drop and a failed reconnect) passed on a disposable loopback sshd. The full suite is not all-green; tunnel reconnects over real network drops, notification appearance, GUI and clean-Mac installation acceptance remain manual.
 
 ## Local development
 
@@ -117,12 +117,12 @@ System requirements: Xcode 16.4, Swift 6.1, Rust 1.89+ (required by russh 0.64) 
 ### Building the DMG
 
 ```sh
-zsh scripts/package-release-dmg.sh 1.4.2
+zsh scripts/package-release-dmg.sh 1.4.3
 ```
 
 Python 3 is required; the script builds with Release optimizations and only produces an installer package for the current host architecture. Artifacts are placed in `release/`, and it refuses to overwrite existing files with the same name. The app contains the Rust dynamic library, the Mount Helper, SwiftTerm Metal resources, and third-party licenses, and does not depend on dynamic libraries or rendering resources from the workspace.
 
-The version and build numbers are stored in `Resources/Info.plist` and are currently `1.4.2` / `1420`. The script uses ad-hoc signing by default; see the [release process](docs/en/RELEASING.md) for Developer ID signing, notarization, and regenerating the checksum file. Local packaging does not automatically create Git tags or publish a GitHub Release.
+The version and build numbers are stored in `Resources/Info.plist` and are currently `1.4.3` / `1430`. The script uses ad-hoc signing by default; see the [release process](docs/en/RELEASING.md) for Developer ID signing, notarization, and regenerating the checksum file. Local packaging does not automatically create Git tags or publish a GitHub Release.
 
 On launch, the app automatically migrates legacy plaintext credentials to the encrypted file; if an old session still has only a Keychain reference, it is migrated into encrypted storage after its first successful read. See [credential encryption and viewing](docs/en/CREDENTIAL_SECURITY.md) for the detailed design and manual acceptance steps.
 

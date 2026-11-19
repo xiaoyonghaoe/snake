@@ -15,7 +15,7 @@ extension TunnelState {
     var indicatorColor: Color {
         switch self {
         case .running: SnakeStyle.secure
-        case .starting: .orange
+        case .starting, .standby, .reconnecting: .orange
         case .disconnected, .failed: .red
         case .stopped: .secondary
         }
@@ -121,7 +121,10 @@ private struct TunnelRow: View {
         .simultaneousGesture(TapGesture().onEnded(onSelect))
         .snakeContextMenu {
             switch state {
-            case .running, .starting: Button("断开", systemImage: "stop.circle") { tunnels.stop(tunnel.id) }
+            case .running, .starting, .reconnecting: Button("断开", systemImage: "stop.circle") { tunnels.stop(tunnel.id) }
+            case .standby:
+                Button("立即重连", systemImage: "arrow.clockwise") { tunnels.reconnect(tunnel.id) }
+                Button("断开", systemImage: "stop.circle") { tunnels.stop(tunnel.id) }
             case .disconnected, .failed: Button("重新连接", systemImage: "arrow.clockwise") { tunnels.reconnect(tunnel.id) }
             case .stopped: Button("连接", systemImage: "play.circle") { tunnels.start(tunnel.id) }
             }
@@ -148,7 +151,7 @@ private struct TunnelRow: View {
     @ViewBuilder
     private var primaryButton: some View {
         switch state {
-        case .running, .starting:
+        case .running, .starting, .standby, .reconnecting:
             Button("断开") { tunnels.stop(tunnel.id) }
                 .buttonStyle(SnakeOutlineButtonStyle())
                 .frame(width: 88)
